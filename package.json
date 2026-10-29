@@ -15,7 +15,8 @@
     "test": "turbo run test",
     "dev:mobile": "pnpm --filter @rally/mobile start",
     "dev:server": "pnpm --filter @rally/game-server dev",
-    "dev:spike": "pnpm --filter @rally/game-spike dev"
+    "dev:spike": "pnpm --filter @rally/game-spike dev",
+    "dev:mobile:go": "pnpm --filter @rally/mobile start:go"
   },
   "devDependencies": {
     "turbo": "^2.11.10",

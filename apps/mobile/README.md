@@ -3,8 +3,8 @@
 The Rally shell (Expo SDK 58, expo-router, New Architecture). M0 contains the spike launcher and the
 `GameHost` screen: a full-screen `react-native-webview` plus the host side of the Rally SDK bridge.
 
-Requires a **development build** (react-native-webview and the static server later are native modules;
-Expo Go cannot load them).
+Runs in **Expo Go** for now (`pnpm dev:mobile:go` at the repo root): every native module the M0 shell uses is one Expo Go
+already bundles. A **development build** becomes necessary at M6, when the on-device static server is added.
 
 ```bash
 cp .env.example .env            # set your LAN IP / CDN URL

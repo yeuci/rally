@@ -9,7 +9,8 @@
     "ios": "expo run:ios",
     "prebuild": "expo prebuild",
     "typecheck": "tsc --noEmit",
-    "doctor": "expo-doctor"
+    "doctor": "expo-doctor",
+    "start:go": "expo start --go"
   },
   "dependencies": {
     "@rally/protocol": "workspace:*",
