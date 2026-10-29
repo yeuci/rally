@@ -1,0 +1,21 @@
+{
+  "name": "@rally/dev-harness",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser page that fakes the Rally host bridge so games run in a desktop browser with ready()/session.join()/save working.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host --port 5190",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint . --max-warnings 0"
+  },
+  "dependencies": {
+    "@rally/protocol": "workspace:*",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.3",
+    "vite": "^8.3.5"
+  }
+}

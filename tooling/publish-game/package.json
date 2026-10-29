@@ -1,0 +1,27 @@
+{
+  "name": "@rally/publish-game",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Build a game client, upload it to Supabase Storage, insert a game_versions row and flip the live pointer.",
+  "type": "module",
+  "bin": {
+    "publish-game": "./src/cli.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "publish-game": "tsx src/cli.ts",
+    "lint": "eslint . --max-warnings 0"
+  },
+  "dependencies": {
+    "@rally/protocol": "workspace:*",
+    "@supabase/supabase-js": "^2.118.0",
+    "mime": "^4.1.2",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "tsx": "^4.21.0",
+    "typescript": "~6.0.3"
+  }
+}

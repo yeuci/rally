@@ -2,7 +2,7 @@
   "name": "@rally/sdk",
   "version": "0.1.0",
   "private": true,
-  "description": "Rally SDK — typed bridge client that runs inside a game's WebView and talks to the Rally shell.",
+  "description": "Rally SDK \u2014 typed bridge client that runs inside a game's WebView and talks to the Rally shell.",
   "type": "module",
   "main": "./dist/rally-sdk.js",
   "module": "./dist/rally-sdk.js",
@@ -15,11 +15,14 @@
     },
     "./iife": "./dist/rally-sdk.iife.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "vite build && tsc -p tsconfig.build.json",
     "dev": "vite build --watch",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint . --max-warnings 0"
   },
   "dependencies": {
     "@rally/protocol": "workspace:*",

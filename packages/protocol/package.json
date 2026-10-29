@@ -15,7 +15,8 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --experimental-strip-types --test test/*.test.ts"
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "lint": "eslint . --max-warnings 0"
   },
   "dependencies": {
     "zod": "^4.6.7"

@@ -13,7 +13,8 @@
     "start": "node build/index.js",
     "build": "rimraf build && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "mocha -r tsx test/**/*.test.ts --exit --timeout 15000"
+    "test": "mocha -r tsx test/**/*.test.ts --exit --timeout 15000",
+    "lint": "eslint . --max-warnings 0"
   },
   "dependencies": {
     "@colyseus/schema": "^5.0.42",

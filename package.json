@@ -16,11 +16,18 @@
     "dev:mobile": "pnpm --filter @rally/mobile start",
     "dev:server": "pnpm --filter @rally/game-server dev",
     "dev:spike": "pnpm --filter @rally/game-spike dev",
-    "dev:mobile:go": "pnpm --filter @rally/mobile start:go"
+    "dev:mobile:go": "pnpm --filter @rally/mobile start:go",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "devDependencies": {
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "prettier": "^3.9.10",
     "turbo": "^2.11.10",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.1"
   },
   "pnpm": {
     "overrides": {

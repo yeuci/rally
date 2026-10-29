@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { ColyseusTestServer, boot } from '@colyseus/testing';
+import { boot, type ColyseusTestServer } from '@colyseus/testing';
 import appConfig from '../src/app.config.js';
 import type { HelloState } from '../src/rooms/schema/HelloState.js';
 

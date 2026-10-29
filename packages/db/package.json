@@ -1,0 +1,27 @@
+{
+  "name": "@rally/db",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Supabase project: migrations, seed data, generated Database types, local test harness.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "lint": "eslint . --max-warnings 0"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.118.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.13",
+    "@types/node": "^22",
+    "supabase": "^2.122.0",
+    "typescript": "~6.0.3"
+  }
+}
