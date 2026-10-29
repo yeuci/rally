@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, BackHandler, PixelRatio, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, AppState, BackHandler, PixelRatio, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { XIcon } from 'lucide-react-native';
+import { Button } from '@/components/ui/button';
+import { Icon } from '@/components/ui/icon';
+import { Text } from '@/components/ui/text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView, type WebViewHandle, type WebViewMessageEvent, type WebViewNavigation } from './webview';
 import * as ScreenOrientation from 'expo-screen-orientation';
@@ -247,29 +251,31 @@ export function GameHost(props: GameHostProps) {
       )}
 
       {phase === 'loading' && (
-        <View style={[styles.overlay, { paddingTop: insets.top }]} pointerEvents="box-none">
-          <ActivityIndicator color="#41b6e6" size="large" />
-          <Text style={styles.title}>{status}</Text>
-          <View style={styles.bar}>
-            <View style={[styles.barFill, { width: `${Math.round(progress * 100)}%` }]} />
+        <View className="bg-background absolute inset-0 items-center justify-center gap-3 p-6" style={{ paddingTop: insets.top }} pointerEvents="box-none">
+          <ActivityIndicator size="large" />
+          <Text variant="large">{status}</Text>
+          <View className="bg-muted h-1 w-56 overflow-hidden rounded-full">
+            <View className="bg-primary h-1" style={{ width: `${Math.round(progress * 100)}%` }} />
           </View>
-          <Text style={styles.small} numberOfLines={1}>
+          <Text variant="muted" numberOfLines={1}>
             {props.bundleUrl}
           </Text>
         </View>
       )}
 
       {(phase === 'crashed' || phase === 'failed') && (
-        <View style={styles.overlay}>
-          <Text style={styles.title}>{phase === 'crashed' ? 'The game crashed' : 'The game failed to start'}</Text>
-          <Text style={styles.small}>{lastError.current ?? 'unknown error'}</Text>
-          <View style={styles.row}>
-            <Pressable style={styles.button} onPress={reload}>
-              <Text style={styles.buttonText}>Reload</Text>
-            </Pressable>
-            <Pressable style={[styles.button, styles.buttonSecondary]} onPress={() => finish(phase)}>
-              <Text style={styles.buttonText}>Back</Text>
-            </Pressable>
+        <View className="bg-background absolute inset-0 items-center justify-center gap-3 p-6">
+          <Text variant="h4">{phase === 'crashed' ? 'The game crashed' : 'The game failed to start'}</Text>
+          <Text variant="muted" className="text-center">
+            {lastError.current ?? 'unknown error'}
+          </Text>
+          <View className="mt-2 flex-row gap-3">
+            <Button onPress={reload}>
+              <Text>Reload</Text>
+            </Button>
+            <Button variant="secondary" onPress={() => finish(phase)}>
+              <Text>Back</Text>
+            </Button>
           </View>
         </View>
       )}
@@ -278,10 +284,11 @@ export function GameHost(props: GameHostProps) {
       <Pressable
         accessibilityLabel="Close game"
         onPress={requestExit}
-        style={[styles.close, { top: Math.max(insets.top, 8), right: Math.max(insets.right, 8) }]}
+        className="bg-background/70 absolute h-8 w-8 items-center justify-center rounded-full"
+        style={{ top: Math.max(insets.top, 8), right: Math.max(insets.right, 8) }}
         hitSlop={12}
       >
-        <Text style={styles.closeText}>✕</Text>
+        <Icon as={XIcon} className="size-4" />
       </Pressable>
     </View>
   );
@@ -290,34 +297,4 @@ export function GameHost(props: GameHostProps) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0b1019' },
   webview: { flex: 1, backgroundColor: '#0b1019' },
-  overlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    padding: 24,
-    backgroundColor: '#0b1019',
-  },
-  title: { color: '#f8fafc', fontSize: 18, fontWeight: '600' },
-  small: { color: '#9fb3c8', fontSize: 12, textAlign: 'center' },
-  bar: { width: 220, height: 4, borderRadius: 2, backgroundColor: '#1f2a3a', overflow: 'hidden' },
-  barFill: { height: 4, backgroundColor: '#41b6e6' },
-  row: { flexDirection: 'row', gap: 12, marginTop: 8 },
-  button: { backgroundColor: '#334867', paddingHorizontal: 18, paddingVertical: 10, borderRadius: 10 },
-  buttonSecondary: { backgroundColor: '#263247' },
-  buttonText: { color: '#f8fafc', fontWeight: '600' },
-  close: {
-    position: 'absolute',
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#0b1019aa',
-  },
-  closeText: { color: '#f8fafc', fontSize: 16, lineHeight: 18 },
 });

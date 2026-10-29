@@ -6,7 +6,7 @@
     "scheme": "rally",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "bundleIdentifier": "app.rally.mobile",

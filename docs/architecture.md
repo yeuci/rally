@@ -69,7 +69,8 @@ Decisions:
 ```
 rally/
   apps/
-    mobile/              Expo app (expo-router). Host side of the bridge lives in src/game-host/
+    mobile/              Expo app (expo-router). UI: React Native Reusables on Uniwind (ADR 0005), components in
+                         src/components/ui/. Host side of the bridge lives in src/game-host/
     game-server/         Colyseus deployment: src/registry.ts imports every games/*/server + /party routes
     web/                 Static site: apple-app-site-association, assetlinks.json, /game/<id> index pages
   packages/
@@ -92,7 +93,7 @@ rally/
     dev-harness/         browser page that fakes the host bridge so games run in a desktop browser
   docs/
     architecture.md      this document, maintained
-    decisions/           ADRs: 0001 app shell, 0002 game runtime, 0003 engine, 0004 backend/hosting
+    decisions/           ADRs: 0001 app shell, 0002 game runtime, 0003 engine, 0004 backend/hosting, 0005 shell UI kit
 ```
 
 ---
@@ -267,7 +268,7 @@ Who owns what: **Postgres + Realtime** = social truth (presence, parties, chat, 
 
 ## Status
 
-- ADRs 0001–0004 written in `docs/decisions/`.
+- ADRs 0001–0005 written in `docs/decisions/`.
 - M0 scaffold in place: pnpm + Turborepo monorepo, `@rally/protocol` (envelope, methods, launch context, manifest), `@rally/sdk` (ESM + IIFE), `apps/game-server` with the `hello` room, `games/spike` (PlayCanvas stress scene + HUD + Colyseus join via host matchmaking), `apps/mobile` with the spike launcher and `GameHost` (WebView config from §2, nonce bridge, pause/resume/back/crash handling). Verified locally: typecheck/build/test across workspaces, Metro export of the shell, HTTP matchmaking → seat reservation → `consumeSeatReservation` round-trip, and an SDK ↔ host bridge end-to-end test over a fake transport.
 - **Not yet done (needs devices and accounts):** the M0 measurement itself — publish the spike to Supabase Storage, deploy the hello room to Colyseus Cloud, build the dev client and record FPS / memory / load times on a real iPhone and a low-end Android.
 
