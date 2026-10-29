@@ -275,9 +275,11 @@ Who owns what: **Postgres + Realtime** = social truth (presence, parties, chat, 
   | Setting | fps | frame avg | p95 | worst | draws | canvas | ready | ws RTT |
   |---|---|---|---|---|---|---|---|---|
   | 1000 cubes, portrait, DPR 2 | 60 | 16.7 ms | 19 ms | 21 ms | 1473 | 856×1562 | 29 ms | 14 ms |
+  | 1000 cubes, landscape, DPR 2 | 60 | 16.7 ms | 21 ms | 28 ms | 1973 | 1852×636 | 38 ms | 10 ms |
+  | 100 cubes, landscape, DPR 2 | 60 | 16.7 ms | 17 ms | 22 ms | 197 | 1852×636 | 38 ms | 12 ms |
 
-  Reading: pinned to the 60 Hz display with occasional missed vsync slots at 1000 shadowed cubes, a far heavier scene than any planned game. Screenshot: `docs/screenshots/m0-iphone14-safari-1000-cubes.png`. **Finding:** iOS Low Power Mode caps `requestAnimationFrame` at 30 Hz in Safari and WKWebView alike; games must simulate on elapsed time, never per frame (PlayCanvas `dt` already does; `game-kit` netcode must assume it).
-- **Still to measure:** 300 cubes in landscape (closest to a real game's fill rate), the same through the Expo shell (bridge RTT, load-to-ready), WebView memory via Xcode Instruments (needs a Mac), and a low-end Android. Publishing to Supabase Storage / Colyseus Cloud is deferred until those numbers are in.
+  Reading: pinned to the 60 Hz display; 100 cubes is a locked 60 with no missed vsync, 1000 shadowed cubes (a far heavier scene than any planned game) drops a few frames per second. Safari's toolbar reduced the landscape canvas to ~1.2 MP; the full-screen WebView in the shell is ~1.6 MP, so expect ~35% more fill there. Screenshots: `docs/screenshots/m0-iphone14-safari-*.png`. **Finding:** iOS Low Power Mode caps `requestAnimationFrame` at 30 Hz in Safari and WKWebView alike; games must simulate on elapsed time, never per frame (PlayCanvas `dt` already does; `game-kit` netcode must assume it).
+- **Still to measure:** the same through the Expo shell at full-screen size (bridge RTT, load-to-ready), WebView memory via Xcode Instruments (needs a Mac), and a low-end Android. Publishing to Supabase Storage / Colyseus Cloud is deferred until those numbers are in.
 
 ## Next steps
 
