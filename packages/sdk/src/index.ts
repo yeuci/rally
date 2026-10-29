@@ -11,7 +11,12 @@ export type {
   GameManifest,
 } from '@rally/protocol';
 
+import { z } from 'zod';
 import { Rally } from './rally.ts';
+
+// zod probes `new Function('')` once to decide whether it may JIT; under the game bundle CSP (no 'unsafe-eval')
+// that probe logs a violation. Opt out so games stay silent under their own policy.
+z.config({ jitless: true });
 
 /** Default singleton. `import { rally } from '@rally/sdk'`. */
 export const rally: Rally = new Rally();

@@ -1,8 +1,14 @@
 import { defineConfig } from 'vite';
+// Workspace-relative import: the spike does not list @rally/dev-harness as a dependency yet. Once it does
+// (devDependencies "@rally/dev-harness": "workspace:*"), this becomes `from '@rally/dev-harness/vite'`.
+import { rallyDevHarness } from '../../../tooling/dev-harness/src/vite.ts';
 
 export default defineConfig({
   // Relative URLs so the same build serves from the CDN path games/<slug>/<version>/ or from 127.0.0.1 in M6.
   base: './',
+  // `vite dev` only: injects a fake Rally host (window.__rally + ReactNativeWebView) so the hosted path runs in a
+  // desktop browser. Reads ../game.json for the room. `?nohost` = standalone, `?colyseus=<url>` = other server.
+  plugins: [rallyDevHarness({ gameDir: '..' })],
   build: {
     target: 'es2020',
     sourcemap: false,

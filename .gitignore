@@ -40,3 +40,6 @@ pnpm-debug.*
 # Colyseus template convention: per-NODE_ENV env files hold non-secret defaults and are committed.
 !apps/game-server/.env.development
 !apps/game-server/.env.production
+
+# publish-game --dry-run output
+publish-plan.json

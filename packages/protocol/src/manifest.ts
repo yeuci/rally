@@ -24,10 +24,29 @@ export const ManifestFileSchema = z.object({
 });
 export type ManifestFile = z.infer<typeof ManifestFileSchema>;
 
-/** `games/<slug>/game.json`. The publish step fills `sizeBytes` and `files`. */
+/**
+ * `games/<slug>/game.json`. The publish step fills `sizeBytes` and `files`.
+ *
+ * `title`, `description`, `genres` and `screenshots` are catalog fields: `tooling/publish-game`
+ * upserts them into the `games` table (same column names) on every publish.
+ */
 export const GameManifestSchema = z.object({
   id: slug,
   version: semver,
+  /** Display name in the catalog (`games.title`). */
+  title: z.string().trim().min(1).max(80),
+  /** One or two sentences for the game page (`games.description`). */
+  description: z.string().max(2000).default(''),
+  /** Free-form lowercase tags for catalog filtering (`games.genres`), e.g. `["arcade"]`. */
+  genres: z
+    .array(z.string().regex(/^[a-z][a-z0-9-]{0,31}$/, 'expected a lowercase genre tag'))
+    .max(8)
+    .default([]),
+  /** Absolute http(s) URLs of screenshots (`games.screenshots`); https in production. */
+  screenshots: z
+    .array(z.url({ protocol: /^https?$/ }))
+    .max(16)
+    .default([]),
   engine: GameEngine,
   entry: z.string().default('index.html'),
   orientation: z.union([Orientation, z.literal('any')]).default('any'),

@@ -25,6 +25,7 @@ test('manifest applies defaults and validates players', () => {
   const m = GameManifestSchema.parse({
     id: 'spike',
     version: '0.1.0',
+    title: 'Spike',
     engine: 'playcanvas',
     players: { min: 1, max: 8 },
     modes: ['quick'],

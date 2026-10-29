@@ -1,6 +1,10 @@
 {
   "id": "spike",
   "version": "0.1.0",
+  "title": "Rally Spike",
+  "description": "PlayCanvas stress scene that measures FPS, bridge and socket round-trips inside the Rally shell.",
+  "genres": ["arcade"],
+  "screenshots": [],
   "engine": "playcanvas",
   "entry": "index.html",
   "orientation": "landscape",

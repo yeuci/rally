@@ -2,13 +2,24 @@
   "name": "@rally/dev-harness",
   "version": "0.1.0",
   "private": true,
-  "description": "Browser page that fakes the Rally host bridge so games run in a desktop browser with ready()/session.join()/save working.",
+  "description": "Vite plugin that fakes the Rally host bridge so games run in a desktop browser with ready()/session.join()/save/host events working.",
   "type": "module",
+  "exports": {
+    "./vite": {
+      "types": "./src/vite.ts",
+      "default": "./src/vite.ts"
+    },
+    "./harness.iife.js": "./dist/harness.iife.js"
+  },
+  "files": [
+    "src",
+    "dist"
+  ],
   "scripts": {
-    "dev": "vite --host --port 5190",
     "build": "vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "lint": "eslint . --max-warnings 0"
+    "lint": "eslint . --max-warnings 0",
+    "test:e2e": "node test/e2e.cjs"
   },
   "dependencies": {
     "@rally/protocol": "workspace:*",
