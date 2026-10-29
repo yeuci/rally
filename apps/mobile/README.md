@@ -8,10 +8,24 @@ Expo Go cannot load them).
 
 ```bash
 cp .env.example .env            # set your LAN IP / CDN URL
-pnpm --filter @rally/mobile ios       # or: npx eas-cli build --profile development --platform ios
-pnpm --filter @rally/mobile android
-pnpm --filter @rally/mobile start     # Metro for the dev client
+pnpm --filter @rally/mobile ios       # macOS + Xcode only
+pnpm --filter @rally/mobile android   # Android Studio
+pnpm dev:mobile                       # Metro for the dev client (from the repo root)
 ```
+
+**iOS from Windows or Linux (EAS cloud build).** Needs an Expo account and an Apple Developer Program membership
+(device builds require provisioning, which a free Apple ID cannot do outside Xcode).
+
+```bash
+npx eas-cli login
+npx eas-cli init                                   # links this app to your Expo project (writes extra.eas.projectId)
+npx eas-cli device:create                          # register the iPhone's UDID via a link opened on the phone
+npx eas-cli build --profile development --platform ios
+```
+
+Install the finished build from the QR/link on the build page, then trust the developer certificate on the phone
+(Settings → General → VPN & Device Management). Start `pnpm dev:mobile` on the same Wi-Fi and open the app.
+Allow inbound TCP 8081 (Metro), 5180 (spike) and 2567 (Colyseus) through the Windows firewall for node.exe.
 
 UI kit: [React Native Reusables](https://reactnativereusables.com) on [Uniwind](https://docs.uniwind.dev) (ADR 0005).
 Components are owned source in `src/components/ui/`; theme tokens live in `global.css`; `metro.config.js` wires Uniwind.
