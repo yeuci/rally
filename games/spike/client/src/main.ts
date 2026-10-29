@@ -38,6 +38,8 @@ async function exit(reason: string) {
   if (exiting) return;
   exiting = true;
   setStatus('leaving…');
+  // Flush a final snapshot so the shell's "Last run" card is populated even for short runs.
+  rally.telemetry.report('spike', collect());
   try {
     await net?.leave();
   } catch {
