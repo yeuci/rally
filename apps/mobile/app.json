@@ -15,7 +15,8 @@
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
         }
-      }
+      },
+      "usesAppleSignIn": true
     },
     "android": {
       "package": "app.rally.mobile",
@@ -29,6 +30,8 @@
     },
     "plugins": [
       "expo-router",
+      "expo-apple-authentication",
+      "expo-secure-store",
       [
         "expo-splash-screen",
         {

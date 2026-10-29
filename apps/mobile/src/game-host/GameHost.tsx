@@ -1,213 +1,149 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, BackHandler, PixelRatio, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import type { LaunchContext, LaunchIntent } from '@rally/protocol';
+import * as Crypto from 'expo-crypto';
+import { useKeepAwake } from 'expo-keep-awake';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import { XIcon } from 'lucide-react-native';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { ActivityIndicator, AppState, BackHandler, PixelRatio, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { WebView, type WebViewHandle, type WebViewMessageEvent, type WebViewNavigation } from './webview';
-import * as ScreenOrientation from 'expo-screen-orientation';
-import { useKeepAwake } from 'expo-keep-awake';
-import * as Crypto from 'expo-crypto';
-import type { LaunchContext } from '@rally/protocol';
-import { HostBridge } from './bridge';
-import { createSpikeHandlers } from './handlers';
-import { buildDeliverScript, buildInjectedScript } from './injected';
+import { GameHostController, type DeviceInfo, type GameHostResult } from './controller';
+import type { MatchmakingTarget } from './handlers';
+import { buildInjectedScript } from './injected';
+import type { SaveStore } from './saves';
+import { WebView, type WebViewHandle } from './webview';
 
-/** How long the game may take from first byte to `ready()` before we show the failure overlay. */
-const READY_TIMEOUT_MS = 20_000;
-
-export interface GameHostResult {
-  reason: string;
-  readyMs: number | null;
-  metrics: Record<string, number | string | boolean> | null;
-  error: string | null;
-}
+export type { GameHostResult } from './controller';
 
 export interface GameHostProps {
-  gameId: string;
-  gameVersion: string;
+  /** Absolute URL of the game's entry document (`game_versions.entry_url`). */
   bundleUrl: string;
-  colyseusHttpUrl: string;
-  colyseusWsUrl: string;
-  roomName: string;
+  game: LaunchContext['game'];
+  /** Identity handed to the game in `ready()`; only after the 4.7.3 consent sheet was accepted. */
+  user: LaunchContext['user'];
+  intent: LaunchIntent;
   orientation: 'portrait' | 'landscape' | 'any';
+  saves: SaveStore;
+  matchmaking: MatchmakingTarget | null;
   onExit: (result: GameHostResult) => void;
 }
-
-type Phase = 'loading' | 'ready' | 'crashed' | 'failed';
 
 function newNonce(): string {
   return Array.from(Crypto.getRandomBytes(16), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+function safeOrigin(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * Full-screen game screen: WebView configured per architecture §2 plus the host side of the bridge.
+ * Session state lives in a GameHostController created once per mount (key the component to relaunch); this
+ * component only renders the controller's snapshot and forwards callbacks. `bundleUrl`, `game`, `user`, `intent`,
+ * `saves` and `matchmaking` are read at mount.
+ */
 export function GameHost(props: GameHostProps) {
   useKeepAwake();
+  const { onExit, orientation, bundleUrl } = props;
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
+
+  const device = useMemo<DeviceInfo>(
+    () => ({
+      safeArea: { top: insets.top, right: insets.right, bottom: insets.bottom, left: insets.left },
+      orientation: width > height ? 'landscape' : 'portrait',
+      pixelRatio: PixelRatio.get(),
+      locale: Intl.DateTimeFormat().resolvedOptions().locale,
+    }),
+    [insets.top, insets.right, insets.bottom, insets.left, width, height],
+  );
+
+  const [controller] = useState(
+    () =>
+      new GameHostController({
+        bundleUrl: props.bundleUrl,
+        game: props.game,
+        user: props.user,
+        intent: props.intent,
+        saves: props.saves,
+        matchmaking: props.matchmaking,
+        device,
+        onExit: props.onExit,
+        createNonce: newNonce,
+      }),
+  );
+  const view = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   const webviewRef = useRef<WebViewHandle>(null);
 
-  const [phase, setPhase] = useState<Phase>('loading');
-  const [progress, setProgress] = useState(0);
-  const [status, setStatus] = useState('Loading…');
-  const [reloadKey, setReloadKey] = useState(0);
+  useEffect(() => {
+    controller.update({ device, onExit });
+  }, [controller, device, onExit]);
 
-  const startedAt = useRef(Date.now());
-  const readyMs = useRef<number | null>(null);
-  const lastMetrics = useRef<Record<string, number | string | boolean> | null>(null);
-  const lastError = useRef<string | null>(null);
-  const exited = useRef(false);
-  const exitRequestedAt = useRef(0);
+  // The controller reaches the current WebView (re-keyed on reload) through this getter, never during render.
+  useEffect(() => {
+    controller.setWebView(() => webviewRef.current);
+    return () => controller.setWebView(null);
+  }, [controller]);
 
-  const nonce = useMemo(() => newNonce(), [reloadKey]);
-
-  const finish = useCallback(
-    (reason: string) => {
-      if (exited.current) return;
-      exited.current = true;
-      props.onExit({ reason, readyMs: readyMs.current, metrics: lastMetrics.current, error: lastError.current });
-    },
-    [props.onExit],
-  );
-
-  const launchContext = useMemo<LaunchContext>(
-    () => ({
-      game: { id: props.gameId, version: props.gameVersion },
-      // M0: no accounts yet. M1 fills this from the Supabase session.
-      user: { id: 'spike-tester', username: 'spike-tester', avatarUrl: null },
-      intent: 'quick',
-      device: {
-        safeArea: { top: insets.top, right: insets.right, bottom: insets.bottom, left: insets.left },
-        orientation: width > height ? 'landscape' : 'portrait',
-        pixelRatio: PixelRatio.get(),
-        locale: Intl.DateTimeFormat().resolvedOptions().locale,
-      },
-    }),
-    [props.gameId, props.gameVersion, insets.top, insets.right, insets.bottom, insets.left, width, height],
-  );
-
-  const bridge = useMemo(() => {
-    const b = new HostBridge({
-      nonce,
-      bundleUrl: props.bundleUrl,
-      deliver: (json) => webviewRef.current?.injectJavaScript(buildDeliverScript(json)),
-      handlers: createSpikeHandlers({
-        launchContext,
-        colyseusHttpUrl: props.colyseusHttpUrl,
-        colyseusWsUrl: props.colyseusWsUrl,
-        roomName: props.roomName,
-        onReady: () => {
-          readyMs.current = Date.now() - startedAt.current;
-          setPhase('ready');
-        },
-        onLoading: (p) => setProgress(p),
-        onExit: (reason) => finish(reason),
-      }),
-      onGameEvent: (ev) => {
-        if (ev.method === 'telemetry.report') lastMetrics.current = ev.params.values;
-        else if (ev.method === 'game.error') lastError.current = ev.params.message;
-      },
-      onDrop: (reason) => console.warn('[bridge] dropped message:', reason),
-    });
-    return b;
-    // launchContext is intentionally captured once per load; safe-area changes mid-game do not restart the bridge.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nonce, props.bundleUrl, props.colyseusHttpUrl, props.colyseusWsUrl, props.roomName, finish]);
-
-  useEffect(() => () => bridge.close(), [bridge]);
+  useEffect(() => {
+    controller.start();
+    return () => controller.stop();
+  }, [controller]);
 
   // Orientation lock per manifest.
   useEffect(() => {
     const lock =
-      props.orientation === 'landscape'
+      orientation === 'landscape'
         ? ScreenOrientation.OrientationLock.LANDSCAPE
-        : props.orientation === 'portrait'
+        : orientation === 'portrait'
           ? ScreenOrientation.OrientationLock.PORTRAIT_UP
           : null;
     if (lock !== null) ScreenOrientation.lockAsync(lock).catch(() => {});
     return () => {
       ScreenOrientation.unlockAsync().catch(() => {});
     };
-  }, [props.orientation]);
+  }, [orientation]);
 
   // Background / foreground → pause / resume.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') bridge.sendEvent('resume', {});
-      else if (state === 'background' || state === 'inactive') bridge.sendEvent('pause', {});
+      if (state === 'active') controller.setAppActive(true);
+      else if (state === 'background' || state === 'inactive') controller.setAppActive(false);
     });
     return () => sub.remove();
-  }, [bridge]);
+  }, [controller]);
 
   // Android back: first press asks the game to exit; a second press within 2 s force-exits.
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      requestExit();
+      controller.requestExit();
       return true;
     });
     return () => sub.remove();
-  });
+  }, [controller]);
 
-  const requestExit = useCallback(() => {
-    const now = Date.now();
-    if (phase !== 'ready' || now - exitRequestedAt.current < 2000) {
-      finish('forced');
-      return;
-    }
-    exitRequestedAt.current = now;
-    bridge.sendEvent('exitRequested', {});
-    setStatus('Leaving…');
-  }, [bridge, finish, phase]);
-
-  // Load timeout.
-  useEffect(() => {
-    if (phase !== 'loading') return;
-    const t = setTimeout(() => {
-      lastError.current ??= `game did not call ready() within ${READY_TIMEOUT_MS / 1000}s`;
-      setPhase('failed');
-    }, READY_TIMEOUT_MS);
-    return () => clearTimeout(t);
-  }, [phase, reloadKey]);
-
-  const reload = useCallback(() => {
-    startedAt.current = Date.now();
-    readyMs.current = null;
-    lastError.current = null;
-    setProgress(0);
-    setPhase('loading');
-    setStatus('Loading…');
-    setReloadKey((k) => k + 1);
-  }, []);
-
-  const onMessage = useCallback(
-    (e: WebViewMessageEvent) => bridge.handleMessage(e.nativeEvent.data, e.nativeEvent.url),
-    [bridge],
-  );
-
-  const onShouldStartLoadWithRequest = useCallback(
-    (req: WebViewNavigation) => {
-      if (bridge.isInsideBundle(req.url)) return true;
-      console.warn('[bridge] blocked navigation to', req.url);
-      return false;
-    },
-    [bridge],
-  );
-
-  const origin = useMemo(() => new URL(props.bundleUrl).origin, [props.bundleUrl]);
+  const origin = useMemo(() => safeOrigin(bundleUrl), [bundleUrl]);
+  const injected = useMemo(() => buildInjectedScript(view.nonce), [view.nonce]);
 
   return (
     <View style={styles.root}>
-      {phase !== 'crashed' && (
+      {view.phase !== 'crashed' && (
         <WebView
-          key={reloadKey}
+          key={view.attempt}
           ref={webviewRef}
           style={styles.webview}
-          source={{ uri: props.bundleUrl }}
+          source={{ uri: bundleUrl }}
           originWhitelist={[origin]}
-          onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
-          injectedJavaScriptBeforeContentLoaded={buildInjectedScript(nonce)}
+          onShouldStartLoadWithRequest={(req) => controller.allowNavigation(req.url)}
+          injectedJavaScriptBeforeContentLoaded={injected}
           injectedJavaScriptBeforeContentLoadedForMainFrameOnly
-          onMessage={onMessage}
+          onMessage={(e) => controller.handleMessage(e.nativeEvent.data, e.nativeEvent.url)}
           // Security (architecture §2)
           setSupportMultipleWindows={false}
           allowFileAccess={false}
@@ -228,52 +164,48 @@ export function GameHost(props: GameHostProps) {
           contentMode="mobile"
           webviewDebuggingEnabled={__DEV__}
           // Crash handling
-          onContentProcessDidTerminate={() => {
-            lastError.current = 'WebView content process terminated (iOS memory pressure)';
-            setPhase('crashed');
-          }}
-          onRenderProcessGone={(e) => {
-            lastError.current = `WebView render process gone (didCrash=${String(e.nativeEvent.didCrash)})`;
-            setPhase('crashed');
-          }}
-          onError={(e) => {
-            lastError.current = `load error: ${e.nativeEvent.description}`;
-            setPhase('failed');
-          }}
-          onHttpError={(e) => {
-            lastError.current = `HTTP ${e.nativeEvent.statusCode} loading ${e.nativeEvent.url}`;
-            setPhase('failed');
-          }}
-          onLoadProgress={(e) => {
-            if (phase === 'loading') setProgress(Math.max(progress, e.nativeEvent.progress * 0.5));
-          }}
+          onContentProcessDidTerminate={() =>
+            controller.onProcessGone('WebView content process terminated (iOS memory pressure)')
+          }
+          onRenderProcessGone={(e) =>
+            controller.onProcessGone(`WebView render process gone (didCrash=${String(e.nativeEvent.didCrash)})`)
+          }
+          onError={(e) => controller.onLoadError(`load error: ${e.nativeEvent.description}`)}
+          onHttpError={(e) => controller.onLoadError(`HTTP ${e.nativeEvent.statusCode} loading ${e.nativeEvent.url}`)}
+          onLoadProgress={(e) => controller.onLoadProgress(e.nativeEvent.progress)}
         />
       )}
 
-      {phase === 'loading' && (
-        <View className="bg-background absolute inset-0 items-center justify-center gap-3 p-6" style={{ paddingTop: insets.top }} pointerEvents="box-none">
+      {view.phase === 'loading' && (
+        <View
+          className="bg-background absolute inset-0 items-center justify-center gap-3 p-6"
+          style={{ paddingTop: insets.top }}
+          pointerEvents="box-none"
+        >
           <ActivityIndicator size="large" />
-          <Text variant="large">{status}</Text>
+          <Text variant="large">{view.status}</Text>
           <View className="bg-muted h-1 w-56 overflow-hidden rounded-full">
-            <View className="bg-primary h-1" style={{ width: `${Math.round(progress * 100)}%` }} />
+            <View className="bg-primary h-1" style={{ width: `${Math.round(view.progress * 100)}%` }} />
           </View>
-          <Text variant="muted" numberOfLines={1}>
-            {props.bundleUrl}
-          </Text>
+          {__DEV__ && (
+            <Text variant="muted" numberOfLines={1}>
+              {bundleUrl}
+            </Text>
+          )}
         </View>
       )}
 
-      {(phase === 'crashed' || phase === 'failed') && (
+      {(view.phase === 'crashed' || view.phase === 'failed') && (
         <View className="bg-background absolute inset-0 items-center justify-center gap-3 p-6">
-          <Text variant="h4">{phase === 'crashed' ? 'The game crashed' : 'The game failed to start'}</Text>
+          <Text variant="h4">{view.phase === 'crashed' ? 'The game crashed' : 'The game failed to start'}</Text>
           <Text variant="muted" className="text-center">
-            {lastError.current ?? 'unknown error'}
+            {view.error ?? 'unknown error'}
           </Text>
           <View className="mt-2 flex-row gap-3">
-            <Button onPress={reload}>
+            <Button onPress={() => controller.reload()}>
               <Text>Reload</Text>
             </Button>
-            <Button variant="secondary" onPress={() => finish(phase)}>
+            <Button variant="secondary" onPress={() => controller.finish(view.phase)}>
               <Text>Back</Text>
             </Button>
           </View>
@@ -283,7 +215,7 @@ export function GameHost(props: GameHostProps) {
       {/* Close affordance for iOS (no hardware back). Games draw under it; the HUD is top-left. */}
       <Pressable
         accessibilityLabel="Close game"
-        onPress={requestExit}
+        onPress={() => controller.requestExit()}
         className="bg-background/70 absolute h-8 w-8 items-center justify-center rounded-full"
         style={{ top: Math.max(insets.top, 8), right: Math.max(insets.right, 8) }}
         hitSlop={12}

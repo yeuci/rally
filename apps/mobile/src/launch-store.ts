@@ -2,8 +2,8 @@ import { useSyncExternalStore } from 'react';
 import { config } from './config';
 
 /**
- * Tiny module-level store for the M0 launcher: what to launch and what the last run reported.
- * Replaced by React Query + Supabase in M1.
+ * Tiny module-level store for the Developer launcher (M0 spike path): what to launch and what the last run
+ * reported. The catalog path uses React Query + Supabase instead.
  */
 export interface LaunchSettings {
   bundleUrl: string;
@@ -15,6 +15,7 @@ export interface RunReport {
   reason: string;
   metrics: Record<string, number | string | boolean> | null;
   readyMs: number | null;
+  playtimeS: number;
   error: string | null;
 }
 
