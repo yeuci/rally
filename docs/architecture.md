@@ -278,7 +278,17 @@ Who owns what: **Postgres + Realtime** = social truth (presence, parties, chat, 
   | 1000 cubes, landscape, DPR 2 | 60 | 16.7 ms | 21 ms | 28 ms | 1973 | 1852×636 | 38 ms | 10 ms |
   | 100 cubes, landscape, DPR 2 | 60 | 16.7 ms | 17 ms | 22 ms | 197 | 1852×636 | 38 ms | 12 ms |
 
-  Reading: pinned to the 60 Hz display; 100 cubes is a locked 60 with no missed vsync, 1000 shadowed cubes (a far heavier scene than any planned game) drops a few frames per second. Safari's toolbar reduced the landscape canvas to ~1.2 MP; the full-screen WebView in the shell is ~1.6 MP, so expect ~35% more fill there. Screenshots: `docs/screenshots/m0-iphone14-safari-*.png`. **Finding:** iOS Low Power Mode caps `requestAnimationFrame` at 30 Hz in Safari and WKWebView alike; games must simulate on elapsed time, never per frame (PlayCanvas `dt` already does; `game-kit` netcode must assume it).
+  Reading: pinned to the 60 Hz display; 100 cubes is a locked 60 with no missed vsync, 1000 shadowed cubes (a far heavier scene than any planned game) drops a few frames per second. Safari's toolbar reduced the landscape canvas to ~1.2 MP. Screenshots: `docs/screenshots/m0-iphone14-safari-*.png`.
+
+  **Through the Rally shell** (same phone, Expo Go hosting `GameHost`, full-screen WebView, host matchmaking → seat reservation → game-owned socket; spike served by the Vite dev server over LAN):
+
+  | Setting | fps | frame avg | p95 | worst | draws | canvas | ready | bridge RTT | ws RTT |
+  |---|---|---|---|---|---|---|---|---|---|
+  | 1000 cubes, landscape, DPR 2 | 60 | 16.7 ms | 19 ms | 24 ms | 1941 | 1852×856 | 744 ms | 1 ms | 8 ms |
+  | 300 cubes, landscape, DPR 2 | 60 | 16.7 ms | 19 ms | 20 ms | 576 | 1852×856 | 744 ms | 1 ms | 7 ms |
+  | 100 cubes, landscape, DPR 2 | 60 | 16.7 ms | 19 ms | 28 ms | 198 | 1852×856 | 744 ms | 2 ms | 9 ms |
+
+  Reading: the bridge costs nothing measurable; the full-screen fill (~1.6 MP) did not change the frame-time picture. `ready` of 744 ms is dominated by Vite's dev server streaming unbundled ES modules over Wi-Fi, not by the shell; the cold/warm load criterion (< 3 s warm) is measured against a built bundle once `tooling/publish-game` exists (M1). Screenshots: `docs/screenshots/m0-iphone14-shell-*.png`. **iPhone verdict: the core bet holds** for rendering, bridge and netcode; memory is the one criterion still unmeasured (needs Xcode Instruments). **Finding:** iOS Low Power Mode caps `requestAnimationFrame` at 30 Hz in Safari and WKWebView alike; games must simulate on elapsed time, never per frame (PlayCanvas `dt` already does; `game-kit` netcode must assume it).
 - **Still to measure:** the same through the Expo shell at full-screen size (bridge RTT, load-to-ready), WebView memory via Xcode Instruments (needs a Mac), and a low-end Android. Publishing to Supabase Storage / Colyseus Cloud is deferred until those numbers are in.
 
 ## Next steps
