@@ -20,5 +20,7 @@ export default defineConfig({
       },
     },
   },
-  server: { port: 5173 },
+  // 5180 to stay clear of other Vite projects on the default 5173. Override with `vite --port <n>`.
+  server: { port: 5180 },
+  preview: { port: 5180 },
 });

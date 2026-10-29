@@ -1,6 +1,6 @@
 /** Build-time configuration. EXPO_PUBLIC_* variables are inlined by Metro. */
 export const config = {
-  spikeBundleUrl: process.env.EXPO_PUBLIC_SPIKE_BUNDLE_URL ?? 'http://localhost:5173/index.html',
+  spikeBundleUrl: process.env.EXPO_PUBLIC_SPIKE_BUNDLE_URL ?? 'http://localhost:5180/index.html',
   colyseusUrl: (process.env.EXPO_PUBLIC_COLYSEUS_URL ?? 'http://localhost:2567').replace(/\/$/, ''),
 };
 
