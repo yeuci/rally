@@ -47,6 +47,34 @@ export interface HostBridgeOptions {
   onDrop?: (reason: string, raw: string) => void;
 }
 
+/** Origin + directory of the entry document: everything under it counts as the bundle. */
+export function bundleBasePath(bundleUrl: string): string {
+  const u = new URL(bundleUrl);
+  return `${u.origin}${u.pathname.replace(/[^/]*$/, '')}`;
+}
+
+/**
+ * The WebView's only navigation gate (`onShouldStartLoadWithRequest`, with `originWhitelist={['*']}` so
+ * react-native-webview never hands a URL to `Linking.openURL`) and the `onMessage` source check.
+ *
+ * Allowed: `about:blank`, and http(s) URLs under `basePath` (which ends in `/`, so the host and directory must
+ * match exactly). Everything else is refused, including other schemes (`tel:`, `mailto:`, `intent:`, `rally://`,
+ * `javascript:`, `data:`, `blob:`, `file:`), URLs with whitespace, control characters or backslashes (which
+ * URL parsers strip or rewrite), and dot segments (`..`, `%2e%2e`) that would resolve outside the directory.
+ */
+export function isUrlInsideBundle(url: string, basePath: string): boolean {
+  if (url === 'about:blank') return true;
+  if (!/^https?:\/\//i.test(url) || !/^https?:\/\//i.test(basePath)) return false;
+  for (let i = 0; i < url.length; i++) {
+    const c = url.charCodeAt(i);
+    if (c <= 0x20 || c === 0x7f || c === 0x5c) return false; // whitespace, control characters, backslash
+  }
+  const end = url.search(/[?#]/);
+  const path = end === -1 ? url : url.slice(0, end);
+  if (/\/(?:\.|%2e){1,2}(?:\/|$)/i.test(path)) return false;
+  return url.startsWith(basePath);
+}
+
 /**
  * Host side of the Rally SDK bridge (architecture §2). Framework-agnostic: GameHost.tsx feeds it
  * `onMessage` payloads and gives it an `injectJavaScript` wrapper.
@@ -56,9 +84,7 @@ export class HostBridge {
   private closed = false;
 
   constructor(private readonly opts: HostBridgeOptions) {
-    const u = new URL(opts.bundleUrl);
-    // Everything under the entry document's directory counts as the bundle.
-    this.basePath = `${u.origin}${u.pathname.replace(/[^/]*$/, '')}`;
+    this.basePath = bundleBasePath(opts.bundleUrl);
   }
 
   /** Origin + directory prefix of the bundle, used for `onShouldStartLoadWithRequest` too. */
@@ -67,7 +93,7 @@ export class HostBridge {
   }
 
   isInsideBundle(url: string): boolean {
-    return url.startsWith(this.basePath) || url === 'about:blank';
+    return isUrlInsideBundle(url, this.basePath);
   }
 
   close(): void {

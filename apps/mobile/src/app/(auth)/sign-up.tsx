@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { AuthScreen } from '@/components/rally/auth-screen';
@@ -8,10 +9,11 @@ import { Input } from '@/components/ui/input';
 import { Text } from '@/components/ui/text';
 import { toIsoDate } from '@/lib/auth/age';
 import { ageGate, useAgeGate } from '@/lib/auth/age-gate-store';
-import { NEUTRAL_REFUSAL, describeAuthError, isNewUserRejected } from '@/lib/auth/errors';
+import { NEUTRAL_REFUSAL, USERNAME_JUST_TAKEN, describeAuthError, isNewUserRejected, isUsernameTaken } from '@/lib/auth/errors';
 import { createAccountWithProvider, signUpWithEmail } from '@/lib/auth/providers';
 import { parseSignupMethod } from '@/lib/auth/signup-method';
-import { useUsernameAvailability } from '@/lib/auth/use-username-availability';
+import { currentUserId } from '@/lib/auth/session';
+import { usernameAvailabilityKey, useUsernameAvailability } from '@/lib/auth/use-username-availability';
 import { supabase } from '@/lib/supabase';
 
 const MIN_PASSWORD = 8;
@@ -22,6 +24,7 @@ const MIN_PASSWORD = 8;
  */
 export default function SignUp() {
   const method = parseSignupMethod(useLocalSearchParams<{ method?: string }>().method);
+  const qc = useQueryClient();
   const { pendingDob } = useAgeGate();
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -38,11 +41,24 @@ export default function SignUp() {
   const emailOk = method !== 'email' || (/\S+@\S+\.\S+/.test(email) && password.length >= MIN_PASSWORD);
   const canSubmit = usernameOk && emailOk && !busy;
 
+  /** Re-check the name as the current caller and feed the answer to the field, so it shows "isn't available". */
+  async function recheckUsername(): Promise<boolean | null> {
+    const { data, error: rpcError } = await supabase.rpc('username_available', { p_username: username });
+    if (rpcError) return null;
+    qc.setQueryData(usernameAvailabilityKey(currentUserId(), username), data);
+    return data;
+  }
+
   async function explain(err: unknown): Promise<string> {
+    // Someone else registered the name between the live check and the insert (unique violation).
+    if (isUsernameTaken(err)) {
+      await recheckUsername();
+      return USERNAME_JUST_TAKEN;
+    }
     if (!isNewUserRejected(err)) return describeAuthError(err);
-    // GoTrue hides the trigger's reason; the username is the one thing we can re-check.
-    const { data } = await supabase.rpc('username_available', { p_username: username });
-    return data === false ? "That username was just taken or isn't allowed. Try another one." : NEUTRAL_REFUSAL;
+    // GoTrue hides the trigger's reason (a unique violation reads "Database error saving new user"); the username
+    // is the one thing we can re-check.
+    return (await recheckUsername()) === false ? "That username was just taken or isn't allowed. Try another one." : NEUTRAL_REFUSAL;
   }
 
   async function submit() {

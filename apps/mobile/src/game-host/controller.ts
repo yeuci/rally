@@ -76,6 +76,7 @@ export class GameHostController {
   private exited = false;
   private active = false;
   private readyTimer: ReturnType<typeof setTimeout> | null = null;
+  private unmountTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(opts: GameHostControllerOptions) {
     this.opts = opts;
@@ -112,16 +113,34 @@ export class GameHostController {
     if (patch.onExit) this.onExit = patch.onExit;
   }
 
-  /** Mount: arm the load timeout. Safe to call again after `stop()` (StrictMode double effects). */
+  /** Mount: arm the load timeout. Safe to call again after `stop()` / `unmount()` (StrictMode double effects). */
   start(): void {
+    if (this.unmountTimer !== null) clearTimeout(this.unmountTimer);
+    this.unmountTimer = null;
+    if (this.exited) return;
     this.active = true;
     if (this.view.phase === 'loading') this.armReadyTimeout();
   }
 
-  /** Unmount: stop timers and drop traffic; `start()` can resume. */
+  /** Stop timers and drop traffic; `start()` can resume. */
   stop(): void {
     this.active = false;
     this.clearReadyTimeout();
+  }
+
+  /**
+   * The host component is going away (navigation, sign-out, a parent unmounting) without the game having
+   * exited: end the session as `finish('unmount')` so `onExit` (and `record_play`) still runs exactly once.
+   * Deferred by a tick and cancelled by `start()`, because StrictMode replays effects (cleanup, then setup)
+   * on a component that stays mounted.
+   */
+  unmount(): void {
+    this.stop();
+    if (this.exited || this.unmountTimer !== null) return;
+    this.unmountTimer = setTimeout(() => {
+      this.unmountTimer = null;
+      this.finish('unmount');
+    }, 0);
   }
 
   /** How to reach the live WebView (GameHost passes a getter over its ref from an effect). */

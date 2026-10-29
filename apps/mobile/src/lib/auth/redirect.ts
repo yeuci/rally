@@ -1,9 +1,12 @@
 /**
- * Parses an auth redirect (`rally://auth/callback?code=…` or `…#error=…&error_description=…`). Pure, unit-tested.
- * GoTrue puts PKCE codes in the query and errors in either the query or the fragment.
+ * Parses an auth redirect (`rally://auth/callback?sb_flow_id=…&code=…` or `…#error=…&error_description=…`).
+ * Pure, unit-tested. GoTrue puts PKCE codes in the query and errors in either the query or the fragment;
+ * `sb_flow_id` is the PKCE flow id auth-js appends to `redirectTo` (`appendPkceFlowIdToRedirects`).
  */
 export interface AuthRedirect {
   code: string | null;
+  /** Selects the code verifier of the flow that produced this redirect (`exchangeCodeForSession(code, { flowId })`). */
+  flowId: string | null;
   error: string | null;
   errorCode: string | null;
   errorDescription: string | null;
@@ -26,6 +29,7 @@ export function parseAuthRedirect(url: string): AuthRedirect {
   }
   return {
     code: params.get('code') || null,
+    flowId: params.get('sb_flow_id') || null,
     error: params.get('error') || null,
     errorCode: params.get('error_code') || null,
     errorDescription: params.get('error_description') || null,

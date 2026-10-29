@@ -2,6 +2,7 @@ import { GameManifestSchema, type GameManifest } from '@rally/protocol';
 import type { Tables } from '@rally/db';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { config } from '@/config';
+import { isAnonymousForbidden } from '@/lib/auth/errors';
 import { useSession } from '@/lib/auth/session';
 import { supabase } from '@/lib/supabase';
 import { satisfiesMinVersion } from '@/lib/semver';
@@ -26,6 +27,8 @@ export type LaunchPlan =
 
 export const launchKeys = {
   plan: (gameId: string) => ['launch', gameId] as const,
+  /** The play screen's own copy, never refetched while it is mounted (see usePlaySessionPlan). */
+  session: (gameId: string) => ['launch-session', gameId] as const,
   consent: (uid: string | null, gameId: string) => ['me', uid, 'consent', gameId] as const,
 };
 
@@ -76,6 +79,29 @@ export function useLaunchPlan(gameId: string | undefined) {
   });
 }
 
+/**
+ * The plan a play session runs on, snapshotted when the play screen mounts. A separate cache entry from
+ * `useLaunchPlan`, because the game page underneath keeps refetching that one (focus, staleness): a publish or a
+ * hidden game mid-session must not remount or redirect a running game. Seeded from the game page's copy (which
+ * the user just consented on), never refetched while mounted, and dropped on unmount so the next session reads
+ * the current version.
+ */
+export function usePlaySessionPlan(gameId: string | undefined) {
+  const qc = useQueryClient();
+  return useQuery({
+    queryKey: launchKeys.session(gameId ?? ''),
+    enabled: !!gameId,
+    queryFn: () => fetchLaunchPlan(gameId!),
+    initialData: () => (gameId ? qc.getQueryData<LaunchPlan>(launchKeys.plan(gameId)) : undefined),
+    staleTime: Infinity,
+    gcTime: 0,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: 1,
+  });
+}
+
 export async function fetchConsent(userId: string, gameId: string): Promise<boolean> {
   const { data, error } = await supabase
     .from('game_consents')
@@ -114,6 +140,11 @@ export function useGrantConsent() {
 
 /** Host-recorded play for "recently played" (solo path; multiplayer results come from the room in M3). */
 export async function recordPlay(gameId: string, playtimeS: number): Promise<void> {
-  const { error } = await supabase.rpc('record_play', { p_game_id: gameId, p_playtime_s: Math.max(0, Math.round(playtimeS)) });
+  const args = { p_game_id: gameId, p_playtime_s: Math.max(0, Math.round(playtimeS)) };
+  let { error } = await supabase.rpc('record_play', args);
+  // A token minted before linkIdentity still says is_anonymous (the session gate normally prevents this): refresh once.
+  if (error && isAnonymousForbidden(error) && !(await supabase.auth.refreshSession()).error) {
+    ({ error } = await supabase.rpc('record_play', args));
+  }
   if (error) console.warn('[record_play]', error.message);
 }

@@ -2,6 +2,7 @@ import type { Session } from '@supabase/supabase-js';
 import { useSyncExternalStore } from 'react';
 import { queryClient } from '@/lib/query-client';
 import { supabase } from '@/lib/supabase';
+import { accessTokenIsAnonymous } from './anonymous';
 
 /**
  * Module-level session store fed by `onAuthStateChange` (which emits INITIAL_SESSION from storage on subscribe).
@@ -16,9 +17,18 @@ export interface SessionState {
 let state: SessionState = { initialized: false, session: null };
 const listeners = new Set<() => void>();
 
+// Users whose stale "is_anonymous" token (see useSession) was already refreshed once in this run.
+const staleClaimRefreshed = new Set<string>();
+
 supabase.auth.onAuthStateChange((event, session) => {
   const previousUser = state.session?.user.id;
   state = { initialized: true, session };
+  // A linked account restored with a token minted before the link (the post-link refresh failed): refresh it
+  // once, outside the callback (auth-js holds its lock while notifying).
+  if (session && !session.user.is_anonymous && accessTokenIsAnonymous(session.access_token) && !staleClaimRefreshed.has(session.user.id)) {
+    staleClaimRefreshed.add(session.user.id);
+    setTimeout(() => void supabase.auth.refreshSession().catch(() => {}), 0);
+  }
   // Never let one account's cached rows leak into another's screens.
   if (event === 'SIGNED_OUT' || (previousUser && previousUser !== session?.user.id)) queryClient.clear();
   for (const l of listeners) l();
@@ -48,7 +58,9 @@ export function useSession(): SessionState & { userId: string | null; signedIn: 
     ...s,
     userId: user?.id ?? null,
     // Anonymous sessions only exist mid-signup for Apple/Google (see lib/auth/providers.ts); they are not "signed in".
-    signedIn: !!user && !user.is_anonymous,
+    // Right after linkIdentity the token can still claim is_anonymous until it is refreshed (providers.ts does
+    // that); the server refuses such a token (ANONYMOUS_FORBIDDEN), so the app waits for the refreshed one.
+    signedIn: !!user && !user.is_anonymous && !accessTokenIsAnonymous(s.session?.access_token),
   };
 }
 

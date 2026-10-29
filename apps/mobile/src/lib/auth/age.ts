@@ -27,11 +27,15 @@ export function parseDob(month: string, day: string, year: string, today: Date =
   return { ok: true, date };
 }
 
-/** Whole years between `dob` and `today` (local calendar). */
+/**
+ * Whole years between `dob` and the UTC calendar date of `today`. UTC, not local time: the server checks
+ * `birth_date` against `current_date` in UTC (`profiles_validate`), and a refusal here is remembered on the
+ * device, so both sides must agree on what "today" is. Someone turning 13 today (UTC) passes both.
+ */
 export function ageOn(dob: CalendarDate, today: Date = new Date()): number {
-  const y = today.getFullYear();
-  const m = today.getMonth() + 1;
-  const d = today.getDate();
+  const y = today.getUTCFullYear();
+  const m = today.getUTCMonth() + 1;
+  const d = today.getUTCDate();
   let age = y - dob.year;
   if (m < dob.month || (m === dob.month && d < dob.day)) age -= 1;
   return age;

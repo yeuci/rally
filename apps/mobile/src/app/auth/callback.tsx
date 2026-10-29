@@ -9,17 +9,19 @@ import { supabase } from '@/lib/supabase';
 
 /**
  * `rally://auth/callback?code=…`: email confirmation links (and OAuth redirects that arrive outside an in-app
- * browser flow). Exchanges the PKCE code once, then hands over to the session gate.
+ * browser flow). Exchanges the PKCE code once with its flow's verifier (`sb_flow_id`), then hands over to the
+ * session gate.
  */
 export default function AuthCallback() {
-  const params = useLocalSearchParams<{ code?: string; error?: string; error_description?: string }>();
+  const params = useLocalSearchParams<{ code?: string; sb_flow_id?: string; error?: string; error_description?: string }>();
   const code = typeof params.code === 'string' ? params.code : null;
+  const flowId = typeof params.sb_flow_id === 'string' ? params.sb_flow_id : null;
   const [error, setError] = useState<string | null>(params.error_description ?? params.error ?? null);
 
   useEffect(() => {
     if (!code) return;
     let alive = true;
-    exchangeCodeOnce(code).then(
+    exchangeCodeOnce(code, flowId).then(
       () => router.replace('/'),
       async (err) => {
         // Already signed in (the in-app flow won the race for this code): nothing to report.
@@ -37,7 +39,7 @@ export default function AuthCallback() {
     return () => {
       alive = false;
     };
-  }, [code]);
+  }, [code, flowId]);
 
   if (!code && !error) return <Redirect href="/" />;
 

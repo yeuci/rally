@@ -14,7 +14,7 @@ pnpm dev:mobile:go                    # Metro for Expo Go (email sign-in + Devel
 
 pnpm --filter @rally/mobile typecheck # app + tests
 pnpm --filter @rally/mobile lint      # expo lint (React Compiler rules), zero warnings
-pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects, bridge, handlers, controller
+pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects/anonymous plan, bridge + nav gate, handlers, controller
 ```
 
 ## Environment
@@ -39,7 +39,10 @@ The Supabase side (project, migrations, redirect URLs, Apple / Google providers,
 linking) is documented in [`packages/db/README.md`](../../packages/db/README.md) §7. What the app expects:
 
 - **Redirect URLs** `rally://**` (dev/prod builds) and `exp://**` (Expo Go). The app builds them with
-  `Linking.createURL('/auth/callback')` and `Linking.createURL('/auth/reset-password')`.
+  `Linking.createURL('/auth/callback')` and `Linking.createURL('/auth/reset-password')`. They must stay wildcard
+  entries: auth-js appends the PKCE flow id (`?sb_flow_id=…`, `experimental.appendPkceFlowIdToRedirects`) and every
+  exchange passes it, so concurrent flows (a Google attempt, a reset link, a confirmation link) each use their
+  own code verifier.
 - **Email + password**: works as is. With "Confirm email" on, signup shows "Check your inbox" and the link opens
   `rally://auth/callback?code=…` (PKCE, so open it on the same phone).
 - **Apple** (iOS only, button hidden elsewhere): `expo-apple-authentication` → `signInWithIdToken({ provider: 'apple',
@@ -62,9 +65,23 @@ the signup if either is missing or invalid; that is the server half of the age g
    identity the trigger refuses the insert (GoTrue answers "Database error saving new user") and nothing is created;
    the app treats that as "new user" → age gate → username → `signInAnonymously({ options: { data: { username, birth_date } } })`
    (the trigger creates the profile now) → `linkIdentity(...)` turns that user into the Apple/Google account.
-   Anonymous sessions are never treated as signed in. A cancelled Apple sheet or browser keeps the anonymous user
-   and reuses it on retry. Trade-off: an abandoned flow leaves an anonymous user holding its username; clean those
-   up server-side (see `packages/db/README.md`).
+   Apple shows its sheet before the anonymous user is created, so a cancelled sheet creates nothing; Google's link
+   URL needs the session, so that user exists before the browser opens. After the link the app refreshes the
+   session: until the access token stops claiming `is_anonymous`, the server refuses saves, plays and favorites
+   (`ANONYMOUS_FORBIDDEN`), so the session gate checks the token claim as well as `user.is_anonymous`.
+   Anonymous sessions are never treated as signed in.
+4. **The chosen username is never stranded.** `username_available` ignores the caller's own profile, so the live
+   check keeps saying "Available" while the anonymous user holds the name. Every path that gives that user up
+   (cancel, provider error, "already has an account", a corrected date of birth or another username, any other
+   sign-in, sign-out) calls `release_username()` (renames its profile to `user_…`) and then
+   `signOut({ scope: 'local' })`. A retry with the same username and date of birth reuses the session instead.
+   If the release fails (offline) after a cancel, the session is kept for that retry. A unique-violation race
+   still shows "That username was just taken" and re-checks. Leftovers are purged server-side after a day
+   (pg_cron, where available; see `packages/db/README.md`).
+5. **Email already registered:** linking an Apple/Google identity whose email belongs to an email + password
+   account fails with `email_exists`; the app releases the username, signs the anonymous session out and says
+   "An account with this email already exists — sign in with email instead". `identity_already_exists` (the
+   identity has its own Rally account) signs into that account.
 
 GoTrue hides the trigger's exception text, so on "Database error saving new user" the signup screen re-checks the
 username and otherwise shows a neutral message. `AGE_GATE` / `USERNAME_FILTERED` / `DISPLAY_NAME_FILTERED` are matched
@@ -97,15 +114,27 @@ Play on the game page resolves `games.current_version_id` → `game_versions.ent
 (`expo-constants` version), then shows the 4.7.3 sheet "Share your Rally username and avatar with <game>?" on the
 first launch of each game; acceptance is stored in `game_consents`, "Not now" stays on the game page. The play route
 re-checks all of that, so a deep link straight to `/game/:id/play` falls back to the game page. The launch context
-carries the real profile (`user: { id, username, avatarUrl }`); orientation comes from the manifest. On exit the host
-calls `record_play(game_id, playtime_s)` (foreground seconds since `ready()`), which feeds "Continue playing".
+carries the real profile (`user: { id, username, avatarUrl }`); orientation comes from the manifest. The play screen
+snapshots the plan when it mounts (its own cache entry, never refetched while mounted), so a publish or a hidden
+game takes effect on the next launch instead of remounting or redirecting a running game. Every session ends in
+one `onExit`: the game's `exit()`, the close button / back, or `finish('unmount')` when the screen goes away
+(sign-out, navigation); the play screen then calls `record_play(game_id, playtime_s)` (foreground seconds since
+`ready()`), which feeds "Continue playing".
+
+WebView navigation: `originWhitelist` is `['*']` on purpose. react-native-webview hands any URL that fails the
+whitelist to `Linking.openURL` (Safari, `tel:`, the app's own `rally://` routes), so `onShouldStartLoadWithRequest`
+is the only gate: `isUrlInsideBundle` in `bridge.ts` allows `about:blank` and http(s) URLs under the bundle's
+directory, nothing else. The Developer launcher loads arbitrary bundle URLs and always passes the fixed `dev-user`
+identity, never the real profile.
 
 ## Code map
 
 - `src/lib/supabase.ts`: the typed client (`Database` from `@rally/db`), session in AsyncStorage (a session is over
   SecureStore's 2 KB limit), PKCE, auto-refresh only while the app is active.
-- `src/lib/auth/`: session store (`useSession`), age gate logic + device store, provider flows, error copy, username checks.
-- `src/lib/profile.ts`, `catalog.ts`, `launch.ts`: React Query hooks over `profiles`, `games` / `game_versions` /
+- `src/lib/auth/`: session store (`useSession`), age gate logic (UTC calendar date, like `current_date` on the server) +
+  device store, provider flows, anonymous-user decisions (`anonymous.ts`), error copy, username checks.
+- `src/lib/profile.ts`, `catalog.ts`, `launch.ts`: React Query hooks over `profiles` (always `PROFILE_COLUMNS` from
+  `@rally/db`: `birth_date` and `privacy` are not readable, so `select('*')` fails), `games` / `game_versions` /
   `game_stats` / `favorites`, and the launch plan + `game_consents`.
 - `src/components/rally/`: app components (game cards and rows, cover, avatar, form fields, consent dialog).
 - `src/components/ui/`: [React Native Reusables](https://reactnativereusables.com) on [Uniwind](https://docs.uniwind.dev)

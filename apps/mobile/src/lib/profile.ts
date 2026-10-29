@@ -1,9 +1,13 @@
-import type { Tables, TablesUpdate } from '@rally/db';
+import { PROFILE_COLUMNS, type Tables, type TablesUpdate } from '@rally/db';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSession } from '@/lib/auth/session';
 import { supabase } from '@/lib/supabase';
 
-export type Profile = Tables<'profiles'>;
+/**
+ * The columns a client may read. `birth_date` and `privacy` are withheld by a column-level grant, so
+ * `select('*')` (or naming either column) fails the whole query with "permission denied".
+ */
+export type Profile = Pick<Tables<'profiles'>, 'id' | 'username' | 'display_name' | 'avatar_url' | 'bio' | 'created_at' | 'updated_at'>;
 export type ProfileUpdate = Pick<TablesUpdate<'profiles'>, 'username' | 'display_name' | 'bio' | 'avatar_url'>;
 
 export const profileKey = (userId: string | null) => ['profile', userId] as const;
@@ -15,7 +19,7 @@ export function useProfile() {
     queryKey: profileKey(userId),
     enabled: !!userId,
     queryFn: async (): Promise<Profile | null> => {
-      const { data, error } = await supabase.from('profiles').select('*').eq('id', userId!).maybeSingle();
+      const { data, error } = await supabase.from('profiles').select(PROFILE_COLUMNS).eq('id', userId!).maybeSingle();
       if (error) throw error;
       return data;
     },
@@ -29,7 +33,7 @@ export function useUpdateProfile() {
   return useMutation({
     mutationFn: async (patch: ProfileUpdate): Promise<Profile> => {
       if (!userId) throw new Error('Not signed in');
-      const { data, error } = await supabase.from('profiles').update(patch).eq('id', userId).select('*').single();
+      const { data, error } = await supabase.from('profiles').update(patch).eq('id', userId).select(PROFILE_COLUMNS).single();
       if (error) throw error;
       return data;
     },

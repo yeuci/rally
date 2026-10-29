@@ -15,8 +15,9 @@ type Phase = 'exchanging' | 'ready' | 'invalid' | 'saving';
 
 /** `rally://auth/reset-password?code=…` from `resetPasswordForEmail`: recovery session → new password. */
 export default function ResetPassword() {
-  const params = useLocalSearchParams<{ code?: string }>();
+  const params = useLocalSearchParams<{ code?: string; sb_flow_id?: string }>();
   const code = typeof params.code === 'string' ? params.code : null;
+  const flowId = typeof params.sb_flow_id === 'string' ? params.sb_flow_id : null;
   const { signedIn } = useSession();
   const [phase, setPhase] = useState<Phase>(() => (code ? 'exchanging' : signedIn ? 'ready' : 'invalid'));
   const [password, setPassword] = useState('');
@@ -26,14 +27,14 @@ export default function ResetPassword() {
   useEffect(() => {
     if (!code) return;
     let alive = true;
-    exchangeCodeOnce(code).then(
+    exchangeCodeOnce(code, flowId).then(
       () => alive && setPhase('ready'),
       () => alive && setPhase('invalid'),
     );
     return () => {
       alive = false;
     };
-  }, [code]);
+  }, [code, flowId]);
 
   async function save() {
     setPhase('saving');

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { HostBridge, HostError } from '../src/game-host/bridge';
+import { HostBridge, HostError, bundleBasePath, isUrlInsideBundle } from '../src/game-host/bridge';
 import { BUNDLE, NONCE, Outbox, evt, req } from './helpers';
 
 function makeBridge(handlers: ConstructorParameters<typeof HostBridge>[0]['handlers'] = {}) {
@@ -24,6 +24,48 @@ test('isInsideBundle pins the bundle directory', () => {
   assert.equal(bridge.isInsideBundle('https://cdn.example.com/games/other/1.0.0/index.html'), false);
   assert.equal(bridge.isInsideBundle('https://evil.example.com/games/spike/0.1.0/index.html'), false);
   assert.equal(bridge.isInsideBundle('about:blank'), true);
+});
+
+test('isUrlInsideBundle is the only navigation gate: http(s) under the bundle directory, nothing else', () => {
+  const base = bundleBasePath(BUNDLE);
+  assert.equal(base, 'https://cdn.example.com/games/spike/0.1.0/');
+  const ok = (url: string) => isUrlInsideBundle(url, base);
+  assert.equal(ok(BUNDLE), true);
+  assert.equal(ok('https://cdn.example.com/games/spike/0.1.0/level2.html?x=1#top'), true);
+  assert.equal(ok('about:blank'), true);
+  // Other directories, hosts, and look-alike hosts
+  assert.equal(ok('https://cdn.example.com/games/spike/0.1.1/index.html'), false);
+  assert.equal(ok('https://cdn.example.com/games/spike/0.1.0'), false);
+  assert.equal(ok('https://cdn.example.com.evil.com/games/spike/0.1.0/index.html'), false);
+  assert.equal(ok('https://cdn.example.com@evil.com/games/spike/0.1.0/index.html'), false);
+  assert.equal(ok('http://cdn.example.com/games/spike/0.1.0/index.html'), false, 'scheme downgrade');
+  // Dot segments that resolve outside the directory
+  assert.equal(ok('https://cdn.example.com/games/spike/0.1.0/../../other/index.html'), false);
+  assert.equal(ok('https://cdn.example.com/games/spike/0.1.0/%2e%2e/x.html'), false);
+  assert.equal(ok('https://cdn.example.com/games/spike/0.1.0/.%2E/x.html'), false);
+  assert.equal(ok('https://cdn.example.com/games/spike/0.1.0/a/..'), false);
+  assert.equal(ok('https://cdn.example.com/games/spike/0.1.0/x.html?next=../../y'), true, 'dots in the query are fine');
+  assert.equal(ok('https://cdn.example.com/games/spike/0.1.0/..\\..\\x.html'), false, 'backslash');
+  assert.equal(ok('https://cdn.example.com/games/spike/0.1.0/.\n./x.html'), false, 'control characters');
+  // Non-http(s) schemes never load (and with originWhitelist ['*'] are never handed to Linking.openURL)
+  for (const url of [
+    'rally://game/other/play',
+    'exp://192.168.1.10:8081/--/profile',
+    'tel:+15555550100',
+    'sms:+15555550100',
+    'mailto:a@example.com',
+    'intent://scan/#Intent;scheme=zxing;end',
+    'itms-apps://apps.apple.com/app/id1',
+    'javascript:alert(1)',
+    'data:text/html,<script>1</script>',
+    'blob:https://cdn.example.com/games/spike/0.1.0/uuid',
+    'file:///etc/hosts',
+    'about:srcdoc',
+    '',
+  ]) {
+    assert.equal(ok(url), false, url);
+  }
+  assert.equal(isUrlInsideBundle(BUNDLE, 'rally://x/'), false, 'a non-http base path allows nothing');
 });
 
 test('drops messages with a bad origin, bad nonce or bad envelope', async () => {

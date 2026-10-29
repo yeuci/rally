@@ -3,6 +3,7 @@ import { ChevronRightIcon, LifeBuoyIcon, LogOutIcon, PencilIcon, Trash2Icon, Wre
 import { useState } from 'react';
 import { Linking, Pressable, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ErrorText } from '@/components/rally/form-field';
 import { ProfileAvatar } from '@/components/rally/profile-avatar';
 import {
   AlertDialog,
@@ -20,6 +21,7 @@ import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Text } from '@/components/ui/text';
 import { config } from '@/config';
+import { describeAuthError } from '@/lib/auth/errors';
 import { signOut } from '@/lib/auth/providers';
 import { useProfile } from '@/lib/profile';
 import { cn } from '@/lib/utils';
@@ -29,7 +31,21 @@ export default function ProfileScreen() {
   const profile = useProfile();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
   const p = profile.data;
+
+  async function onSignOut() {
+    if (signingOut) return;
+    setSigningOut(true);
+    setSignOutError(null);
+    try {
+      await signOut(); // success: the root layout's session gate swaps to the welcome screen
+    } catch (err) {
+      setSignOutError(describeAuthError(err));
+    } finally {
+      setSigningOut(false);
+    }
+  }
 
   const mail = (subject: string) => {
     const body = p ? `Username: ${p.username}\n\n` : '';
@@ -74,12 +90,10 @@ export default function ProfileScreen() {
         <Row
           icon={LogOutIcon}
           label={signingOut ? 'Signing out…' : 'Sign out'}
-          onPress={() => {
-            setSigningOut(true);
-            void signOut().finally(() => setSigningOut(false));
-          }}
+          onPress={() => void onSignOut()}
         />
       </View>
+      <ErrorText>{signOutError}</ErrorText>
 
       <View className="bg-card border-border overflow-hidden rounded-xl border">
         <Row icon={Trash2Icon} label="Delete account" destructive onPress={() => setDeleteOpen(true)} />

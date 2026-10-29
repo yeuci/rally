@@ -5,12 +5,16 @@ import { GameHost, type GameHostResult } from '@/game-host/GameHost';
 import type { MatchmakingTarget } from '@/game-host/handlers';
 import { createMemorySaveStore } from '@/game-host/saves';
 import { launchStore, useLaunchStore } from '@/launch-store';
-import { useProfile } from '@/lib/profile';
+
+/**
+ * The launcher loads an arbitrary bundle URL, so the game never gets the real account: a fixed dev identity,
+ * in-memory saves, and the M0 hello room without a Supabase token.
+ */
+const DEV_USER = { id: 'dev-user', username: 'dev-user', avatarUrl: null };
 
 /** Full-screen host for the Developer launcher: bundle and Colyseus URLs from the launcher, in-memory saves. */
 export default function DevPlayScreen() {
   const { settings } = useLaunchStore();
-  const profile = useProfile();
   const [saves] = useState(createMemorySaveStore);
 
   const matchmaking = useMemo<MatchmakingTarget>(
@@ -20,16 +24,16 @@ export default function DevPlayScreen() {
 
   const onExit = useCallback((result: GameHostResult) => {
     launchStore.setLastRun({ endedAt: Date.now(), ...result });
+    if (result.reason === 'unmount') return;
     if (router.canGoBack()) router.back();
     else router.replace('/dev');
   }, []);
 
-  const me = profile.data;
   return (
     <GameHost
       bundleUrl={settings.bundleUrl}
       game={{ id: 'spike', version: '0.1.0' }}
-      user={me ? { id: me.id, username: me.username, avatarUrl: me.avatar_url } : { id: 'spike-tester', username: 'spike-tester', avatarUrl: null }}
+      user={DEV_USER}
       intent="quick"
       orientation="landscape"
       saves={saves}

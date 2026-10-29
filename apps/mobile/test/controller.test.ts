@@ -102,3 +102,36 @@ test('navigation outside the bundle is blocked; crashes surface in the view', ()
   assert.equal(controller.getSnapshot().phase, 'crashed');
   controller.stop();
 });
+
+test('unmount without an exit finishes once as "unmount"; a StrictMode effect replay does not', async () => {
+  const replay = setup();
+  replay.controller.handleMessage(req('ready', { sdkVersion: '1' }), BUNDLE);
+  await tick();
+  replay.controller.unmount();
+  replay.controller.start(); // StrictMode: cleanup then setup on the same mounted component
+  await tick();
+  assert.equal(replay.exits.length, 0);
+  assert.equal(replay.controller.getSnapshot().phase, 'ready');
+
+  const { controller, c, exits } = setup();
+  controller.handleMessage(req('ready', { sdkVersion: '1' }), BUNDLE);
+  await tick();
+  c.advance(12_000);
+  controller.unmount();
+  controller.unmount();
+  await tick();
+  assert.equal(exits.length, 1);
+  assert.equal(exits[0]!.reason, 'unmount');
+  assert.equal(exits[0]!.playtimeS, 12);
+  controller.finish('forced');
+  assert.equal(exits.length, 1);
+});
+
+test('unmount after a normal exit reports nothing more', async () => {
+  const { controller, exits } = setup();
+  controller.finish('forced');
+  controller.unmount();
+  await tick();
+  assert.equal(exits.length, 1);
+  assert.equal(exits[0]!.reason, 'forced');
+});

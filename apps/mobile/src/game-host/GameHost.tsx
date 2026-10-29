@@ -34,20 +34,15 @@ function newNonce(): string {
   return Array.from(Crypto.getRandomBytes(16), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-function safeOrigin(url: string): string {
-  try {
-    return new URL(url).origin;
-  } catch {
-    return url;
-  }
-}
-
 /**
  * Full-screen game screen: WebView configured per architecture §2 plus the host side of the bridge.
  * Session state lives in a GameHostController created once per mount (key the component to relaunch); this
- * component only renders the controller's snapshot and forwards callbacks. `bundleUrl`, `game`, `user`, `intent`,
+ * component only renders the controller's snapshot and forwards callbacks. Every session ends in exactly one
+ * `onExit`, with `reason: 'unmount'` when the component unmounts first (the callee must not navigate then). `bundleUrl`, `game`, `user`, `intent`,
  * `saves` and `matchmaking` are read at mount.
  */
+const ORIGIN_WHITELIST = ['*'];
+
 export function GameHost(props: GameHostProps) {
   useKeepAwake();
   const { onExit, orientation, bundleUrl } = props;
@@ -91,9 +86,10 @@ export function GameHost(props: GameHostProps) {
     return () => controller.setWebView(null);
   }, [controller]);
 
+  // Unmounting without an exit (navigation away, sign-out) still ends the session: finish('unmount').
   useEffect(() => {
     controller.start();
-    return () => controller.stop();
+    return () => controller.unmount();
   }, [controller]);
 
   // Orientation lock per manifest.
@@ -128,7 +124,6 @@ export function GameHost(props: GameHostProps) {
     return () => sub.remove();
   }, [controller]);
 
-  const origin = useMemo(() => safeOrigin(bundleUrl), [bundleUrl]);
   const injected = useMemo(() => buildInjectedScript(view.nonce), [view.nonce]);
 
   return (
@@ -139,7 +134,10 @@ export function GameHost(props: GameHostProps) {
           ref={webviewRef}
           style={styles.webview}
           source={{ uri: bundleUrl }}
-          originWhitelist={[origin]}
+          // Navigation gate: react-native-webview 14 hands any URL that fails `originWhitelist` to
+          // Linking.openURL (Safari, tel:, the app's own rally:// routes), so the whitelist lets everything
+          // through and onShouldStartLoadWithRequest is the only gate: bundle directory (http/https) or nothing.
+          originWhitelist={ORIGIN_WHITELIST}
           onShouldStartLoadWithRequest={(req) => controller.allowNavigation(req.url)}
           injectedJavaScriptBeforeContentLoaded={injected}
           injectedJavaScriptBeforeContentLoadedForMainFrameOnly
