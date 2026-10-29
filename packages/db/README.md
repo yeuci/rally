@@ -161,19 +161,20 @@ Android and web need the OAuth (redirect) flow, which also needs:
 
 ### Google
 
+The app uses Supabase's browser (PKCE) flow: `signInWithOAuth({ provider: 'google', redirectTo: 'rally://auth/callback' })`
+opened with `expo-web-browser`, then `exchangeCodeForSession`. Only a **web** OAuth client is needed; no native
+Google SDK, no SHA-1 or reversed client IDs.
+
 1. Google Cloud Console → create a project → **APIs & Services → OAuth consent screen**: External, app
    name, support email, scopes `openid`, `email`, `profile`. Publish it (testing mode only allows listed users).
-2. **Credentials → Create credentials → OAuth client ID**, three times:
-   - **Web application**: authorized redirect URI `https://<ref>.supabase.co/auth/v1/callback`. Its client
-     ID and secret go into Supabase. The app also passes this ID as `webClientId` to
-     `@react-native-google-signin/google-signin`, so the ID token's audience is the web client.
-   - **iOS**: bundle id `app.rally.mobile`. Its reversed client ID goes into the Expo config plugin.
-   - **Android**: package `app.rally.mobile` plus the SHA-1 of every signing certificate you use
-     (`eas credentials` shows the EAS one; add the Play App Signing SHA-1 after the first upload).
-3. Supabase → **Providers → Google** → enable, client ID = web client ID (add the iOS and Android client
-   IDs comma-separated after it), client secret = web client secret. Enable **Skip nonce check** if iOS
-   native sign-in fails with a nonce error (the iOS SDK adds a nonce Supabase cannot verify).
-4. The app calls `supabase.auth.signInWithIdToken({ provider: 'google', token: idToken })`.
+2. **Credentials → Create credentials → OAuth client ID → Web application**: authorized redirect URI
+   `https://<ref>.supabase.co/auth/v1/callback`.
+3. Supabase → **Providers → Google** → enable, paste the web client ID and secret.
+4. Supabase → **Authentication → URL Configuration**: add `rally://**` and, for Expo Go, `exp://**` to the
+   redirect allow-list (already in `config.toml` for the local stack).
+
+If native one-tap sign-in is wanted later, add `@react-native-google-signin/google-signin`, create iOS/Android
+clients, and switch the app to `signInWithIdToken`.
 
 To try providers on the local stack, export the env vars named in `supabase/config.toml`
 (`SUPABASE_AUTH_EXTERNAL_APPLE_*`, `SUPABASE_AUTH_EXTERNAL_GOOGLE_*`), set `enabled = true`, and restart.
