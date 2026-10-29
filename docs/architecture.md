@@ -270,7 +270,14 @@ Who owns what: **Postgres + Realtime** = social truth (presence, parties, chat, 
 
 - ADRs 0001–0005 written in `docs/decisions/`.
 - M0 scaffold in place: pnpm + Turborepo monorepo, `@rally/protocol` (envelope, methods, launch context, manifest), `@rally/sdk` (ESM + IIFE), `apps/game-server` with the `hello` room, `games/spike` (PlayCanvas stress scene + HUD + Colyseus join via host matchmaking), `apps/mobile` with the spike launcher and `GameHost` (WebView config from §2, nonce bridge, pause/resume/back/crash handling). Verified locally: typecheck/build/test across workspaces, Metro export of the shell, HTTP matchmaking → seat reservation → `consumeSeatReservation` round-trip, and an SDK ↔ host bridge end-to-end test over a fake transport.
-- **Not yet done (needs devices and accounts):** the M0 measurement itself — publish the spike to Supabase Storage, deploy the hello room to Colyseus Cloud, build the dev client and record FPS / memory / load times on a real iPhone and a low-end Android.
+- **M0 results so far (2026-10-29, iPhone 14, iOS Safari over LAN Wi-Fi, dev server on a Windows PC):** Safari shares WebKit and the GPU path with WKWebView, so this measures the core bet directly.
+
+  | Setting | fps | frame avg | p95 | worst | draws | canvas | ready | ws RTT |
+  |---|---|---|---|---|---|---|---|---|
+  | 1000 cubes, portrait, DPR 2 | 60 | 16.7 ms | 19 ms | 21 ms | 1473 | 856×1562 | 29 ms | 14 ms |
+
+  Reading: pinned to the 60 Hz display with occasional missed vsync slots at 1000 shadowed cubes, a far heavier scene than any planned game. Screenshot: `docs/screenshots/m0-iphone14-safari-1000-cubes.png`. **Finding:** iOS Low Power Mode caps `requestAnimationFrame` at 30 Hz in Safari and WKWebView alike; games must simulate on elapsed time, never per frame (PlayCanvas `dt` already does; `game-kit` netcode must assume it).
+- **Still to measure:** 300 cubes in landscape (closest to a real game's fill rate), the same through the Expo shell (bridge RTT, load-to-ready), WebView memory via Xcode Instruments (needs a Mac), and a low-end Android. Publishing to Supabase Storage / Colyseus Cloud is deferred until those numbers are in.
 
 ## Next steps
 
