@@ -1,0 +1,21 @@
+{
+  "name": "@rally/game-spike",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@colyseus/sdk": "^0.18.8",
+    "@rally/sdk": "workspace:*",
+    "playcanvas": "^2.23.3"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.3",
+    "vite": "^8.3.5"
+  }
+}

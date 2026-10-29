@@ -1,0 +1,35 @@
+{
+  "name": "@rally/game-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Rally Colyseus deployment: one Room class per game, registered in src/registry.ts.",
+  "type": "module",
+  "main": "build/index.js",
+  "engines": {
+    "node": ">= 22.0.0"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node build/index.js",
+    "build": "rimraf build && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "mocha -r tsx test/**/*.test.ts --exit --timeout 15000"
+  },
+  "dependencies": {
+    "@colyseus/schema": "^5.0.42",
+    "@colyseus/tools": "^0.18.11",
+    "colyseus": "^0.18.10",
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "@colyseus/sdk": "^0.18.8",
+    "@colyseus/testing": "^0.18.5",
+    "@types/express": "^5.0.6",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.20.5",
+    "mocha": "^11.7.5",
+    "rimraf": "^6.0.1",
+    "tsx": "^4.21.0",
+    "typescript": "~6.0.3"
+  }
+}

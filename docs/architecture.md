@@ -22,9 +22,9 @@ Decisions:
 **Verified platform facts (2026-10):**
 - App Store guideline 4.7 permits HTML5/JS mini apps and mini games not embedded in the binary. Obligations on the host app: responsible for their compliance (4.7), filtering/reporting/blocking + IAP for digital goods (4.7.1), may not expose native platform APIs to them without Apple's permission (4.7.2), no sharing of user data with an individual mini game without explicit consent each time (4.7.3), must provide an index of the software with Universal Links to each item (4.7.4), must let users identify content exceeding the app's age rating (4.7.5). Reported rejections exist for apps whose "primary purpose" appears to be HTML5 games. Verify exact wording on developer.apple.com at submission time.
 - Google Play's executable-code policy explicitly exempts JavaScript running in a WebView.
-- Colyseus: 0.17 in docs (auto-reconnect, `defineServer()`, client package renamed to `@colyseus/sdk`); 0.18 adds client-side prediction/lag compensation and is the last pre-1.0 release. `matchMaker.reserveSeatFor(room, clientOptions, authData)` makes `authData` available to the room as `client.auth`. Colyseus Cloud: from $15/mo, no free tier, no autoscaling, many regions, deploy via `npx @colyseus/cloud deploy`, requires `@colyseus/tools`.
-- PlayCanvas engine 2.19.x; standalone npm + Vite + TypeScript is the documented path (`create-playcanvas`); WebGPU supported.
-- Expo SDK 55+ is New-Architecture-only. Use the current stable SDK at scaffold time.
+- Colyseus: 0.18 is current (scaffolded: `colyseus@0.18.10`, `@colyseus/sdk@0.18.8`, `@colyseus/schema@5`). Server shape is `defineServer({ rooms: { name: defineRoom(Class) }, routes, express })`; rooms declare message handlers in a `messages = {}` map; schema state uses the `schema()` / `t.*` builders (decorators still work but need `experimentalDecorators`, which conflicts with modern toolchains). Client package is `@colyseus/sdk`; 0.18 adds client-side prediction/lag compensation and is the last pre-1.0 release. `matchMaker.reserveSeatFor(room, clientOptions, authData)` makes `authData` available to the room as `client.auth`. The built-in HTTP route is `POST /matchmake/<method>/<room>` and returns `{ name, sessionId, roomId, processId }` (verified locally in M0). Colyseus Cloud: from $15/mo, no free tier, no autoscaling, many regions, deploy via `npx @colyseus/cloud deploy`, requires `@colyseus/tools`.
+- PlayCanvas engine 2.23.x (scaffolded); standalone npm + Vite + TypeScript is the documented path (`npm create playcanvas@latest --format engine`); WebGPU supported. A minified engine chunk is ~2 MB / ~515 kB gzip.
+- Expo SDK 55+ is New-Architecture-only. Scaffolded on SDK 58 (`react-native@0.88`, `react@19.3`, TypeScript 6). `react-native-webview@14.0.1`; its root typings declare `WebView<P = undefined>` so props collapse to `never` under strict TS — the shell wraps it (`apps/mobile/src/game-host/webview.ts`).
 - react-native-webview: `file://` loading needs `allowingReadAccessToURL` (iOS) and has an `allowFileAccess` race on Android; a local static HTTP server avoids both. `@dr.pogodin/react-native-static-server` supports the New Architecture; its `extractBundledAssets()` is Android-only.
 - Supabase Realtime: `postgres_changes` `in.()` filters cap at 100 values; Broadcast-from-database (`realtime.send()` in triggers) with private channels + `realtime.messages` RLS is the scalable fan-out path.
 
@@ -265,10 +265,16 @@ Who owns what: **Postgres + Realtime** = social truth (presence, parties, chat, 
 
 ---
 
+## Status
+
+- ADRs 0001–0004 written in `docs/decisions/`.
+- M0 scaffold in place: pnpm + Turborepo monorepo, `@rally/protocol` (envelope, methods, launch context, manifest), `@rally/sdk` (ESM + IIFE), `apps/game-server` with the `hello` room, `games/spike` (PlayCanvas stress scene + HUD + Colyseus join via host matchmaking), `apps/mobile` with the spike launcher and `GameHost` (WebView config from §2, nonce bridge, pause/resume/back/crash handling). Verified locally: typecheck/build/test across workspaces, Metro export of the shell, HTTP matchmaking → seat reservation → `consumeSeatReservation` round-trip, and an SDK ↔ host bridge end-to-end test over a fake transport.
+- **Not yet done (needs devices and accounts):** the M0 measurement itself — publish the spike to Supabase Storage, deploy the hello room to Colyseus Cloud, build the dev client and record FPS / memory / load times on a real iPhone and a low-end Android.
+
 ## Next steps
 
-1. Write the four ADRs in `docs/decisions/` (context, decision, consequences): app shell, game runtime, engine, backend + hosting.
-2. Start M0: scaffold the minimal monorepo and the spike described above; `games/spike/client` from `create-playcanvas` (vanilla-ts) wired to `@rally/sdk`.
+1. Run the M0 measurement on devices (see `README.md`) and record the numbers here. Go/no-go on ADR 0002.
+2. Start M1: CI, Supabase migrations + generated types, auth + age gate, catalog tables, `tooling/publish-game`, `tooling/dev-harness`, dashboard. Known follow-ups from M0: `@rally/sdk` bundles zod (~45 kB gzip) — move `@rally/protocol` to `zod/mini` or validate results host-side only; generate `apps/game-server/src/registry.ts` from `games/*/game.json`.
 
 ## Verification (per milestone)
 

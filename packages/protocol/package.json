@@ -1,0 +1,27 @@
+{
+  "name": "@rally/protocol",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Zod schemas and TypeScript types shared by the Rally shell, SDK, game server and games: bridge envelope + methods, launch context, game manifest.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --experimental-strip-types --test test/*.test.ts"
+  },
+  "dependencies": {
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "~6.0.3"
+  }
+}

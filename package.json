@@ -1,0 +1,24 @@
+{
+  "name": "rally",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Rally — one app, many games. Monorepo for the Expo shell, game SDK, game server and games.",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "mobile": "pnpm --filter @rally/mobile start",
+    "server": "pnpm --filter @rally/game-server dev",
+    "spike": "pnpm --filter @rally/game-spike dev"
+  },
+  "devDependencies": {
+    "turbo": "^2.11.10",
+    "typescript": "~6.0.3"
+  }
+}
