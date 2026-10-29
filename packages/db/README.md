@@ -206,5 +206,17 @@ signal; the test `signup without birth_date metadata is refused` pins that behav
   immutable for users.
 - `20261029000200_m1_avatars.sql` adds the public `avatars` bucket: upload to `avatars/<user id>/<file>`
   (2 MB, png/jpeg/webp), then store the public URL in `profiles.avatar_url`.
+- `20261029000400_m1_review_fixes.sql`:
+  - `profiles` is selectable only in `id, username, display_name, avatar_url, bio, created_at, updated_at`
+    (exported as `PROFILE_COLUMNS`). `birth_date` and `privacy` are not readable by any client, not even
+    the owner, so `select('*')` / `returning *` on profiles fails with "permission denied".
+  - Anonymous sessions (`is_anonymous` claim true, i.e. before `linkIdentity`) see only their own
+    profile (and may update it), cannot write `game_consents` / `favorites` (RLS error on insert, 0 rows on
+    update/delete), and `save_put` / `record_play` raise `ANONYMOUS_FORBIDDEN` (SQLSTATE 42501).
+  - `username_available` ignores the caller's own profile; `release_username()` renames an anonymous
+    caller's profile to `user_<12 hex of its id>` so an abandoned signup frees its name (no-op otherwise).
+  - pg_cron job `purge-abandoned-anonymous-users` (03:17 UTC daily) deletes anonymous users older than a
+    day. Where pg_cron is unavailable the migration only raises a NOTICE; enable the extension in the
+    dashboard and re-run the final `do` block of that migration to schedule it.
 - The word filter matches whole words, case-insensitively; see the header of `seed.sql` for what that
   does and does not catch.

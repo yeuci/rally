@@ -9,7 +9,9 @@
  * - Claims: PostgREST >= v10 sets ONLY `request.jwt.claims` (the whole JWT payload as JSON). The legacy
  *   per-claim GUCs (`request.jwt.claim.sub`, `request.jwt.claim.role`, ...) are no longer set. Supabase's
  *   auth.uid()/auth.role()/auth.jwt() read both forms, and so do the stubs below. `asRole` sets the
- *   modern form by default; pass `legacyClaims: true` to also set the per-claim GUCs.
+ *   modern form by default; pass `legacyClaims: true` to also set the per-claim GUCs. auth.jwt() returns
+ *   the whole payload, including `is_anonymous` (true for signInAnonymously sessions until an identity is
+ *   linked; GoTrue puts `false` in every other user token).
  * - Privileges: Supabase's default privileges grant all on new public tables, functions and sequences
  *   to anon, authenticated and service_role. That is why `revoke ... from public` alone does not stop
  *   anon from executing a function: anon holds its own grant.
@@ -48,6 +50,7 @@ export async function createTestDb(opts: { seed?: boolean } = {}): Promise<PGlit
       email text,
       raw_user_meta_data jsonb not null default '{}'::jsonb,
       raw_app_meta_data jsonb not null default '{}'::jsonb,
+      is_anonymous boolean not null default false,
       created_at timestamptz not null default now()
     );
     create or replace function auth.uid() returns uuid language sql stable as $$
@@ -140,11 +143,12 @@ export async function asRole<T>(
   db: PGlite,
   role: SupabaseRole,
   fn: () => Promise<T>,
-  opts: { sub?: string; legacyClaims?: boolean } = {},
+  opts: { sub?: string; legacyClaims?: boolean; isAnonymous?: boolean } = {},
 ): Promise<T> {
   // Same payload shape as a Supabase access token (the claims policies can see).
   const claims: Record<string, unknown> = { role };
   if (opts.sub) Object.assign(claims, { sub: opts.sub, aud: 'authenticated' });
+  if (opts.isAnonymous !== undefined) claims.is_anonymous = opts.isAnonymous;
   await db.query(`select set_config('request.jwt.claims', $1, false)`, [JSON.stringify(claims)]);
   if (opts.legacyClaims) {
     await db.query(
@@ -165,14 +169,22 @@ export async function asRole<T>(
   }
 }
 
-/** Run `fn` as a signed-in user (role authenticated, `sub` = userId). */
+/** Run `fn` as a signed-in user (role authenticated, `sub` = userId, `is_anonymous: false`). */
 export async function asUser<T>(
   db: PGlite,
   userId: string,
   fn: () => Promise<T>,
   opts: { legacyClaims?: boolean } = {},
 ): Promise<T> {
-  return asRole(db, 'authenticated', fn, { ...opts, sub: userId });
+  return asRole(db, 'authenticated', fn, { ...opts, sub: userId, isAnonymous: false });
+}
+
+/**
+ * Run `fn` as an anonymous session (signInAnonymously, identity not linked yet): role authenticated,
+ * `sub` = userId, `is_anonymous: true`.
+ */
+export async function asAnonymousUser<T>(db: PGlite, userId: string, fn: () => Promise<T>): Promise<T> {
+  return asRole(db, 'authenticated', fn, { sub: userId, isAnonymous: true });
 }
 
 /** Run `fn` as a signed-out client using the anon key. */
@@ -199,6 +211,28 @@ export async function signUp(
     const res = await db.query<{ id: string }>(
       `insert into auth.users (email, raw_user_meta_data) values ($1, $2::jsonb) returning id`,
       [email, JSON.stringify(meta)],
+    );
+    return res.rows[0]!.id;
+  } finally {
+    await db.exec(`reset role`);
+  }
+}
+
+/**
+ * Simulate `signInAnonymously({ options: { data: meta } })`: GoTrue inserts an auth.users row with
+ * is_anonymous = true, which fires handle_new_user like any signup. `createdAt` backdates the row.
+ */
+export async function signUpAnonymously(
+  db: PGlite,
+  meta: { username?: string; birth_date?: string },
+  createdAt?: string,
+): Promise<string> {
+  await db.exec(`set role supabase_auth_admin`);
+  try {
+    const res = await db.query<{ id: string }>(
+      `insert into auth.users (raw_user_meta_data, is_anonymous, created_at)
+       values ($1::jsonb, true, coalesce($2::timestamptz, now())) returning id`,
+      [JSON.stringify(meta), createdAt ?? null],
     );
     return res.rows[0]!.id;
   } finally {

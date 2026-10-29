@@ -343,6 +343,7 @@ export type Database = {
         Args: { p_game_id: string; p_playtime_s?: number }
         Returns: undefined
       }
+      release_username: { Args: never; Returns: undefined }
       save_put: {
         Args: {
           p_data: Json

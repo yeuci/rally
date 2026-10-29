@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient } from '@supabase/supabase-js';
-import { Constants, type Database, type Enums, type Tables, type TablesInsert } from '../src/index.ts';
+import { Constants, PROFILE_COLUMNS, type Database, type Enums, type Tables, type TablesInsert } from '../src/index.ts';
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 function assertType<_T extends true>(): void {}
@@ -28,6 +28,14 @@ test('Database type drives supabase-js inference', async () => {
   assertType<Equal<NonNullable<Awaited<typeof _put>['data']>, number>>();
   const _avail = client.rpc('username_available', { p_username: 'alice' });
   assertType<Equal<NonNullable<Awaited<typeof _avail>['data']>, boolean>>();
+
+  const _release = client.rpc('release_username');
+  assertType<Equal<Awaited<typeof _release>['data'], undefined | null>>();
+
+  // The selectable profile columns parse into a typed row.
+  const _profile = client.from('profiles').select(PROFILE_COLUMNS);
+  type Profile = NonNullable<Awaited<typeof _profile>['data']>[number];
+  assertType<Equal<keyof Profile, 'id' | 'username' | 'display_name' | 'avatar_url' | 'bio' | 'created_at' | 'updated_at'>>();
 
   // Helpers.
   assertType<Equal<Tables<'profiles'>['birth_date'], string>>();
