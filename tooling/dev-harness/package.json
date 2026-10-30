@@ -19,7 +19,8 @@
     "build": "vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint . --max-warnings 0",
-    "test:e2e": "node test/e2e.cjs"
+    "test:e2e": "node test/e2e.cjs",
+    "prepare": "pnpm run build"
   },
   "dependencies": {
     "@rally/protocol": "workspace:*",
