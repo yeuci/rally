@@ -34,3 +34,22 @@ test('public URLs follow the Supabase Storage public-object shape', () => {
     'http://127.0.0.1:54321/storage/v1/object/public/games/x/1.0.0/a%20b.png',
   );
 });
+
+test('staleUnderForce: only same-path non-entry files with new bytes are stale', async () => {
+  const { staleUnderForce } = await import('../src/cache.ts');
+  const prev = [
+    { path: 'index.html', sha256: 'a' },
+    { path: 'assets/index-AAAA1111.js', sha256: 'b' },
+    { path: 'models/level.glb', sha256: 'c' },
+    { path: 'gone.png', sha256: 'd' },
+  ];
+  const next = [
+    { path: 'index.html', sha256: 'A' },
+    { path: 'assets/index-BBBB2222.js', sha256: 'B' },
+    { path: 'models/level.glb', sha256: 'C' },
+    { path: 'sounds/new.ogg', sha256: 'E' },
+  ];
+  assert.deepEqual(staleUnderForce(prev, next), ['models/level.glb']);
+  assert.deepEqual(staleUnderForce(prev, next, 'play.html'), ['index.html', 'models/level.glb']);
+  assert.deepEqual(staleUnderForce(prev, prev), []);
+});

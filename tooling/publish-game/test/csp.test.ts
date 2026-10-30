@@ -10,20 +10,40 @@ test('buildCsp produces the exact documented policy', () => {
   assert.equal(
     csp,
     "default-src 'self' https://abc.supabase.co; " +
-      "script-src 'self' https://abc.supabase.co; " +
+      "script-src 'self' 'wasm-unsafe-eval' https://abc.supabase.co; " +
       "style-src 'self' 'unsafe-inline' https://abc.supabase.co; " +
       "img-src 'self' data: blob: https://abc.supabase.co; " +
       "font-src 'self' data: https://abc.supabase.co; " +
-      "connect-src 'self' https://abc.supabase.co https://eu.rally.colyseus.cloud wss://eu.rally.colyseus.cloud ws: wss:; " +
+      "connect-src 'self' https://abc.supabase.co https://eu.rally.colyseus.cloud wss://eu.rally.colyseus.cloud; " +
       "worker-src 'self' blob:; " +
       "media-src 'self' blob: https://abc.supabase.co; " +
       "object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
   );
 });
 
-test('buildCsp without Colyseus origins still allows sockets via ws:/wss:', () => {
+test('buildCsp pins the socket to the listed origins (no ws:/wss: wildcards)', () => {
+  const csp = buildCsp({
+    cdnOrigin: 'https://abc.supabase.co',
+    colyseusOrigins: colyseusOrigins(['https://eu.example.com,http://10.0.0.201:2567']),
+  });
+  assert.match(
+    csp,
+    /connect-src 'self' https:\/\/abc\.supabase\.co https:\/\/eu\.example\.com wss:\/\/eu\.example\.com http:\/\/10\.0\.0\.201:2567 ws:\/\/10\.0\.0\.201:2567;/,
+  );
+  assert.doesNotMatch(csp, / wss?:[; ]/);
+});
+
+test('buildCsp without Colyseus origins: ws:/wss: only as the fallback for a game with a server', () => {
+  const fallback = buildCsp({ cdnOrigin: 'https://abc.supabase.co' });
+  assert.match(fallback, /connect-src 'self' https:\/\/abc\.supabase\.co ws: wss:;/);
+  const noServer = buildCsp({ cdnOrigin: 'https://abc.supabase.co', socketFallback: false });
+  assert.match(noServer, /connect-src 'self' https:\/\/abc\.supabase\.co;/);
+});
+
+test('script-src allows WebAssembly (Draco, Basis/KTX2) but never eval', () => {
   const csp = buildCsp({ cdnOrigin: 'https://abc.supabase.co' });
-  assert.match(csp, /connect-src 'self' https:\/\/abc\.supabase\.co ws: wss:;/);
+  assert.match(csp, /script-src 'self' 'wasm-unsafe-eval' https:\/\/abc\.supabase\.co;/);
+  assert.doesNotMatch(csp, /'unsafe-eval'|script-src[^;]*'unsafe-inline'/);
 });
 
 test('colyseusOrigins: several URLs, comma lists, ws input, dedupe', () => {

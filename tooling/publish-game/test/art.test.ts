@@ -265,3 +265,67 @@ test('dry run fails with a clear error when an art file is missing (before build
     (e: Error) => e instanceof PublishError && /game\.json icon: art file "art\/nope\.png" not found/.test(e.message),
   );
 });
+
+test('achievement icons that name a file are uploaded like art and rewritten to CDN URLs', async () => {
+  const { gameDir } = await artyCopy();
+  await editManifest(gameDir, {
+    achievements: [
+      { key: 'shared', title: 'Shares the game icon', icon: 'art/icon.png' },
+      { key: 'own', title: 'Own file', icon: './art/shot-1.png' },
+      { key: 'emoji', title: 'Emoji', icon: '🏆' },
+      { key: 'remote', title: 'URL', icon: 'https://cdn.example.com/trophy.png' },
+      { key: 'none', title: 'Default trophy' },
+    ],
+  });
+  const manifest = await loadManifest(gameDir);
+  const art = await planArt({ manifest, gameDir, supabaseUrl: SUPABASE_URL });
+  const icon = art.uploads.find((u) => u.source === 'art/icon.png')!;
+  assert.deepEqual(icon.usedBy, ['icon', 'achievements[0].icon']);
+  const shot = art.uploads.find((u) => u.source === 'art/shot-1.png')!;
+  assert.deepEqual(shot.usedBy, ['screenshots[0]', 'achievements[1].icon']);
+
+  const plan = buildPlan({
+    manifest,
+    files: [{ path: 'index.html', sha256: 'a'.repeat(64), size: 1 }],
+    supabaseUrl: SUPABASE_URL,
+    csp: "default-src 'self'",
+    art: art.uploads,
+  });
+  assert.deepEqual(
+    plan.db.achievements.map((a) => a.icon),
+    [icon.url, shot.url, '🏆', 'https://cdn.example.com/trophy.png', null],
+  );
+  assert.deepEqual(
+    plan.db.gameVersion.manifest.achievements.map((a) => a.icon),
+    [icon.url, shot.url, '🏆', 'https://cdn.example.com/trophy.png', undefined],
+  );
+  assert.ok(icon.url.startsWith(`${CDN}/arty/art/icon-`));
+});
+
+test('achievement icon files: missing file and unsupported type fail before the build', async () => {
+  const { gameDir } = await artyCopy();
+  await editManifest(gameDir, { achievements: [{ key: 'gone', title: 'Gone', icon: 'art/trophy.png' }] });
+  const manifest = await loadManifest(gameDir);
+  await assert.rejects(
+    planArt({ manifest, gameDir, supabaseUrl: SUPABASE_URL }),
+    /achievements\[0\]\.icon: art file "art\/trophy\.png" not found/,
+  );
+
+  for (const icon of ['art/trophy.gif', '../outside.png', 'art\\trophy.png']) {
+    assert.throws(
+      () => parseManifest({ ...validManifest, achievements: [{ key: 'k', title: 'T', icon }] }),
+      /achievements\[0\]\.icon .* looks like a file/,
+      icon,
+    );
+  }
+  // Glyphs and URLs are not files.
+  assert.doesNotThrow(() =>
+    parseManifest({
+      ...validManifest,
+      achievements: [
+        { key: 'k', title: 'T', icon: '🏟️' },
+        { key: 'u', title: 'U', icon: 'https://x.example/a.gif' },
+      ],
+    }),
+  );
+});

@@ -28,6 +28,8 @@ interface Call {
 function fakeSupabase(state: {
   existingObjects?: string[];
   existingVersion?: boolean;
+  /** `manifest.files` of the existing version row (default: none, i.e. a row without a file list). */
+  existingFiles?: { path: string; sha256: string }[];
   gameStatus?: string | null;
   existingBoards?: string[];
   existingAchievements?: string[];
@@ -56,7 +58,11 @@ function fakeSupabase(state: {
     if (p.startsWith('/storage/v1/object/games/'))
       return json({ Key: p.slice('/storage/v1/object/'.length), Id: 'obj' });
     if (p === '/rest/v1/game_versions' && req.method === 'GET')
-      return json(state.existingVersion ? [{ id: 'old-version-id' }] : []);
+      return json(
+        state.existingVersion
+          ? [{ id: 'old-version-id', ...(state.existingFiles && { manifest: { files: state.existingFiles } }) }]
+          : [],
+      );
     if (p === '/rest/v1/game_versions' && req.method === 'POST') return json({ id: 'new-version-id' }, 201);
     if (p === '/rest/v1/games' && req.method === 'GET')
       return json(state.gameStatus ? [{ status: state.gameStatus }] : []);
@@ -172,7 +178,17 @@ test('executePublish refuses an existing version unless --force, then overwrites
   );
 
   const forced = await fixturePlan({ force: true });
-  const f = fakeSupabase({ existingObjects: ['index.html'], existingVersion: true, gameStatus: 'published' });
+  const f = fakeSupabase({
+    existingObjects: ['index.html'],
+    existingVersion: true,
+    // Same hashed asset, a different entry document (allowed: it is short-lived), plus a file the new build dropped.
+    existingFiles: [
+      ...forced.plan.uploads.filter((u) => u.path !== 'index.html'),
+      { path: 'index.html', sha256: '0'.repeat(64) },
+      { path: 'assets/old-zzz999.js', sha256: '1'.repeat(64) },
+    ],
+    gameStatus: 'published',
+  });
   const logs: string[] = [];
   await executePublish(f.sb, forced.plan, forced.dist, (l) => logs.push(l));
   assert.ok(
@@ -183,6 +199,33 @@ test('executePublish refuses an existing version unless --force, then overwrites
   const v = f.calls.find((c) => c.path === '/rest/v1/game_versions' && c.method === 'POST')!;
   assert.match(v.search, /on_conflict=game_id%2Cversion|on_conflict=game_id,version/);
   assert.ok(!logs.some((l) => l.includes('hint:')), 'already published: no hint');
+});
+
+test('--force refuses to change a non-entry file under the same path (cached immutable for a year)', async () => {
+  const { dist, plan } = await fixturePlan({ force: true });
+  const changed = fakeSupabase({
+    existingObjects: ['index.html'],
+    existingVersion: true,
+    existingFiles: [
+      { path: 'index.html', sha256: plan.entrySha256 },
+      { path: 'assets/app-abc123.js', sha256: 'f'.repeat(64) },
+    ],
+  });
+  await assert.rejects(
+    executePublish(changed.sb, plan, dist, () => {}),
+    /--force would change 1 file\(s\) of demo@1\.2\.3 under the same path: assets\/app-abc123\.js/,
+  );
+  assert.equal(changed.calls.filter((c) => c.path.startsWith('/storage/v1/object/games/')).length, 0);
+
+  const noList = fakeSupabase({ existingObjects: ['index.html'], existingVersion: true });
+  await assert.rejects(
+    executePublish(noList.sb, plan, dist, () => {}),
+    /no file list/,
+  );
+
+  // A prefix without a version row was never handed to a client: overwrite freely.
+  const orphan = fakeSupabase({ existingObjects: ['assets'] });
+  await executePublish(orphan.sb, plan, dist, () => {});
 });
 
 test('--no-activate skips the pointer flip; --publish also sets status', async () => {

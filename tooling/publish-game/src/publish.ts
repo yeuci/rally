@@ -85,12 +85,24 @@ export async function publishGame(opts: PublishOptions): Promise<PublishResult> 
     : (env.RALLY_COLYSEUS_URL ?? '').split(',').filter(Boolean);
   let csp: string;
   try {
-    csp = buildCsp({ cdnOrigin: originOf(supabaseUrl), colyseusOrigins: colyseusOrigins(colyseusUrls) });
+    csp = buildCsp({
+      cdnOrigin: originOf(supabaseUrl),
+      colyseusOrigins: colyseusOrigins(colyseusUrls),
+      socketFallback: Boolean(manifest.server),
+    });
   } catch (err) {
     throw new PublishError(`bad URL for the CSP: ${err instanceof Error ? err.message : String(err)}`);
   }
   if (manifest.server && colyseusUrls.length === 0) {
-    log(`  note: no --colyseus / RALLY_COLYSEUS_URL; connect-src allows the room socket only via ws:/wss:`);
+    log(
+      [
+        '',
+        '  !!! WARNING: no --colyseus / RALLY_COLYSEUS_URL for a game with a server.',
+        '  !!! connect-src falls back to `ws: wss:`, so this bundle may open a WebSocket to ANY host (exfiltration).',
+        '  !!! List every Colyseus endpoint the shell hands this game (comma-separated RALLY_COLYSEUS_URL) and republish.',
+        '',
+      ].join('\n'),
+    );
   }
   const processed = processIndexHtml(await readFile(entryPath, 'utf8'), {
     csp,

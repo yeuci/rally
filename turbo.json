@@ -13,6 +13,10 @@
     "test": {
       "dependsOn": ["^build"]
     },
+    "@rally/publish-game#test": {
+      "dependsOn": ["^build", "@rally/game-spike#build"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/games/spike/game.json", "$TURBO_ROOT$/games/spike/art/**"]
+    },
     "dev": {
       "cache": false,
       "persistent": true

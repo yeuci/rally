@@ -40,3 +40,41 @@ jobs:
         env:
           TURBO_TELEMETRY_DISABLED: '1'
           EXPO_NO_TELEMETRY: '1'
+
+  e2e:
+    # The Playwright end-to-end checks a contributor runs by hand (`pnpm --filter <pkg> test:e2e`): the dev harness
+    # with the spike, Stack, and Sumo with two players against a real game server. Each script starts the Vite dev
+    # server (and the Colyseus server) it needs. Playwright is not a workspace dependency: it is installed globally
+    # (pinned) and found through NODE_PATH, as in the dev container. Chromium + its apt deps: expect under a minute.
+    name: e2e (Playwright)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PLAYWRIGHT_VERSION: 1.63.0
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright + Chromium
+        run: |
+          npm install -g "playwright@$PLAYWRIGHT_VERSION"
+          echo "NODE_PATH=$(npm root -g)" >> "$GITHUB_ENV"
+          npx -y "playwright@$PLAYWRIGHT_VERSION" install --with-deps chromium
+
+      - name: dev-harness (spike through the fake host)
+        run: pnpm --filter @rally/dev-harness test:e2e
+
+      - name: Stack
+        run: pnpm --filter @rally/game-stack test:e2e
+
+      - name: Sumo (two players, real game server)
+        run: pnpm --filter @rally/game-sumo test:e2e

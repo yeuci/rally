@@ -34,7 +34,7 @@ test('dry run end to end against the real spike build', { timeout: 60_000 }, asy
   );
   assert.match(
     html,
-    /connect-src 'self' https:\/\/abc\.supabase\.co https:\/\/eu\.rally\.colyseus\.cloud wss:\/\/eu\.rally\.colyseus\.cloud ws: wss:/,
+    /connect-src 'self' https:\/\/abc\.supabase\.co https:\/\/eu\.rally\.colyseus\.cloud wss:\/\/eu\.rally\.colyseus\.cloud;/,
   );
   const sriTags = [...html.matchAll(/(?:src|href)="\.\/([^"]+)" integrity="([^"]+)" crossorigin="anonymous"/g)];
   assert.ok(sriTags.length >= 2, 'entry script + stylesheet carry SRI');

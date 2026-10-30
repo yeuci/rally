@@ -23,6 +23,7 @@
     "dev": "vite build --watch",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint . --max-warnings 0",
+    "test": "node --experimental-strip-types --no-warnings=ExperimentalWarning --test test/*.test.ts",
     "prepare": "pnpm run build"
   },
   "dependencies": {

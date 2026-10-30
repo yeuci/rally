@@ -108,7 +108,19 @@ export class RallyClient {
         reject(new RallyError('TIMEOUT', `${method} timed out after ${this.timeoutMs} ms`));
       }, this.timeoutMs);
       this.pending.set(id, { method, resolve, reject, timer });
-      this.post(JSON.stringify(envelope));
+      try {
+        this.post(JSON.stringify(envelope));
+      } catch (err) {
+        // Nothing reached the host: settle now instead of holding the entry until the timeout.
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(
+          new RallyError(
+            'NO_HOST',
+            `${method}: postMessage failed: ${err instanceof Error ? err.message : String(err)}`,
+          ),
+        );
+      }
     });
 
     const parsedResult = schema.result.safeParse(raw);

@@ -26,3 +26,20 @@ test('sriSha384 matches the SRI spec encoding', () => {
     'sha384-H8BRh8j48O9oYatfu5AZzq6A9RINhZO5H16dQZngK7T62em8MUt1FLm52t+eX6xO',
   );
 });
+
+test('hashDirectory refuses symlinked files and folders instead of skipping them', async () => {
+  const { symlink } = await import('node:fs/promises');
+  const path = await import('node:path');
+  const outside = await tempDir();
+  await writeTree(outside, { 'real.js': 'x', 'dir/a.js': 'y' });
+
+  const linkedFile = await tempDir();
+  await writeTree(linkedFile, { 'index.html': 'hi' });
+  await symlink(path.join(outside, 'real.js'), path.join(linkedFile, 'linked.js'));
+  await assert.rejects(hashDirectory(linkedFile), /linked\.js .*is a symlink/);
+
+  const linkedDir = await tempDir();
+  await writeTree(linkedDir, { 'index.html': 'hi' });
+  await symlink(path.join(outside, 'dir'), path.join(linkedDir, 'assets'));
+  await assert.rejects(hashDirectory(linkedDir), /assets .*is a symlink/);
+});

@@ -1,5 +1,25 @@
-import type { HostEvent, HostEventPayload, LaunchContext, RequestParams, RequestResult } from '@rally/protocol';
+import {
+  GameEventSchemas,
+  type HostEvent,
+  type HostEventPayload,
+  type LaunchContext,
+  type RequestParams,
+  type RequestResult,
+} from '@rally/protocol';
 import { RallyClient, SDK_VERSION, type RallyClientOptions } from './client.ts';
+
+const errorShape = GameEventSchemas['game.error'].shape;
+/** The host validates `game.error` against the protocol and drops it whole when a field is too long. */
+const MAX_ERROR_MESSAGE = errorShape.message.maxLength ?? 2000;
+const MAX_ERROR_STACK = errorShape.stack.unwrap().maxLength ?? 8000;
+
+/** Cut `s` to at most `max` UTF-16 units, ending in `…` when cut and never splitting a surrogate pair. */
+export function truncate(s: string, max: number): string {
+  if (s.length <= max) return s;
+  let cut = s.slice(0, max - 1);
+  if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);
+  return `${cut}…`;
+}
 
 /**
  * The documented SDK surface (architecture §2). One instance per page.
@@ -23,9 +43,15 @@ export class Rally {
     return this.client.launchContext;
   }
 
-  /** Handshake. Resolves with the launch context; the host hides its loading overlay. Idempotent. */
+  /**
+   * Handshake. Resolves with the launch context; the host hides its loading overlay. Idempotent while pending or
+   * after success; a failed handshake (e.g. TIMEOUT) is not cached, so calling `ready()` again retries it.
+   */
   ready(): Promise<LaunchContext> {
-    this.readyPromise ??= this.client.request('ready', { sdkVersion: SDK_VERSION });
+    this.readyPromise ??= this.client.request('ready', { sdkVersion: SDK_VERSION }).catch((err: unknown) => {
+      this.readyPromise = null;
+      throw err;
+    });
     return this.readyPromise;
   }
 
@@ -97,9 +123,14 @@ export class Rally {
     this.client.events.off(event, fn);
   }
 
-  /** Report an uncaught error to the host (non-fatal). */
+  /**
+   * Report an uncaught error to the host (non-fatal). Message and stack are cut to the protocol's limits (2000 /
+   * 8000), because the host drops a `game.error` whose fields are too long, and long stacks are the ones that matter.
+   */
   reportError(err: unknown): void {
     const e = err instanceof Error ? err : new Error(String(err));
-    this.client.emit('game.error', { message: e.message, stack: e.stack });
+    const message = truncate(String(e.message), MAX_ERROR_MESSAGE);
+    const stack = typeof e.stack === 'string' ? truncate(e.stack, MAX_ERROR_STACK) : undefined;
+    this.client.emit('game.error', stack === undefined ? { message } : { message, stack });
   }
 }

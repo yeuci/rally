@@ -23,6 +23,9 @@ apps/mobile/android/
 *.p12
 *.key
 *.mobileprovision
+# EAS local credentials (keystore passwords, certificate paths): https://docs.expo.dev/app-signing/local-credentials/
+apps/mobile/credentials.json
+apps/mobile/credentials/
 
 # env
 .env

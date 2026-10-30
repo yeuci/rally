@@ -89,7 +89,7 @@ rally/
       shared/            @colyseus/schema state + deterministic sim shared by client and server
   supabase/              config.toml, functions/send-push
   tooling/
-    publish-game.ts      build client → upload to Storage → insert game_versions → flip pointer
+    publish-game/        build client → upload to Storage → insert game_versions → flip pointer
     dev-harness/         browser page that fakes the host bridge so games run in a desktop browser
   docs/
     architecture.md      this document, maintained
@@ -122,7 +122,7 @@ Requests resolve a promise with a 10 s timeout; `evt` is fire-and-forget.
 **Security**
 - `originWhitelist=[cdnOrigin]`; `onShouldStartLoadWithRequest` rejects anything outside the bundle's base path; `setSupportMultipleWindows={false}`; `allowFileAccess={false}`; `window.open` blocked.
 - Host accepts a message only if it carries the per-launch nonce and `nativeEvent.url` starts with the bundle URL.
-- Build step injects a CSP `<meta>` into `index.html` (`default-src 'self' <cdn>; connect-src <colyseus wss>`) and SRI on the entry script.
+- Build step injects a CSP `<meta>` into `index.html` (`default-src 'self' <cdn>; connect-src <colyseus origins>`, no `ws:`/`wss:` wildcard once at least one Colyseus URL is configured; the shell hands the endpoint over at runtime, so the publisher lists every environment's endpoint) and SRI on every `<script src>`, stylesheet and modulepreload in it. Dynamic `import()` chunks and runtime-fetched assets are not SRI-checked until M6's per-file sha256 (`tooling/publish-game/README.md`).
 - Identity for the game server travels inside the **seat reservation** created by the matchmaker: the room reads it as `client.auth` in `onJoin`, so the game cannot spoof it. Treat the reservation object as opaque (its shape changed in 0.17) and pass it straight to `consumeSeatReservation`.
 - Per-method rate limits on `save.put` / `leaderboard.submit`; JSON-only save data.
 - 4.7.3: first launch of each game shows a native consent sheet ("Share your Rally username and avatar with <game>?"); the decision is stored in `game_consents`.
@@ -146,7 +146,7 @@ Requests resolve a promise with a 10 s timeout; `evt` is fire-and-forget.
   "files": [{ "path": "assets/level.glb", "sha256": "…", "size": 0 }] }
 ```
 
-**Build & publish (`tooling/publish-game.ts`):** `vite build` → `dist/` with content-hashed assets → upload to Supabase Storage public bucket `games/<slug>/<version>/…` (served through Supabase's CDN); hashed assets and all version-prefixed paths get `Cache-Control: public, max-age=31536000, immutable` → insert `game_versions` (manifest jsonb, sha256) → flip `games.current_version_id`. Rollback = flip the pointer. `min_app_version` gates incompatible bundles.
+**Build & publish (`tooling/publish-game`):** `vite build` → `dist/` with content-hashed assets → upload to Supabase Storage public bucket `games/<slug>/<version>/…` (served through Supabase's CDN); every version-prefixed path except the entry document (`max-age=60`) gets `Cache-Control: public, max-age=31536000, immutable` → insert `game_versions` (manifest jsonb, sha256) → flip `games.current_version_id`. Rollback = flip the pointer. `min_app_version` gates incompatible bundles.
 
 **Loading in the WebView**
 - **MVP (M0–M5): remote HTTPS** from the CDN. The shell downloads the entry document itself, verifies it against `game_versions.sha256` and loads it as `source={{ html, baseUrl: <bundle directory> }}`, because Supabase Storage serves `text/html` objects as `text/plain` on purpose (anti-phishing on the shared `*.supabase.co` origin); scripts, styles and assets load straight from the CDN with their real content types, and the page keeps the CDN origin, so `'self'`, SRI and the bridge's URL gate are unchanged. Real per-game origin, secure context, WebSockets/CORS/SRI behave, HTTP cache gives best-effort warm loads. Do not add Service Workers on iOS before measuring (they require `WKAppBoundDomains`).
@@ -309,7 +309,7 @@ Who owns what: **Postgres + Realtime** = social truth (presence, parties, chat, 
 
 1. **Close M2:** merge the working branch into `main` once CI is green (device checks done: CDN launch, score on the board, achievements, Stack 0.1.1). EAS/TestFlight and the early App Review submission wait for the Apple Developer Program.
 2. **M3, first multiplayer game:** build against the LAN Colyseus server first (one phone + the dev harness on the PC is already a cross-platform match), then move the server to Colyseus Cloud or a small VPS. `RallyRoom` base (JWKS auth, `game_rooms` mirroring, reconnection), quick play, server browser, private rooms with codes, presence heartbeat, live counts; the game itself is a small 2–8 player arena with server-authoritative movement.
-3. **Carried over:** Apple/Google first-run detection relies on GoTrue's "Database error saving new user" message (verify live); abandoned OAuth signups hold a username (pg_cron purge of anonymous users > 1 day); avatar upload (image picker) and in-app account deletion; `@rally/sdk` bundles zod (~45 kB gzip) — consider `zod/mini`; generate `apps/game-server/src/registry.ts` from `games/*/game.json`; `apps/web` hosting + `associatedDomains`/`intentFilters` once a domain exists; `RALLY_COLYSEUS_URL` optional in `publish-game` for games without a server; timing on the Play-tap → game path and the shell's cold start; React Compiler; WebView memory and low-end Android numbers from M0.
+3. **Carried over:** Apple/Google first-run detection relies on GoTrue's "Database error saving new user" message (verify live); abandoned OAuth signups hold a username (pg_cron purge of anonymous users > 1 day); avatar upload (image picker) and in-app account deletion; `@rally/sdk` bundles zod (~45 kB gzip) — consider `zod/mini`; generate `apps/game-server/src/registry.ts` from `games/*/game.json`; `apps/web` hosting + `associatedDomains`/`intentFilters` once a domain exists; timing on the Play-tap → game path and the shell's cold start; React Compiler; WebView memory and low-end Android numbers from M0.
 
 ## Verification (per milestone)
 

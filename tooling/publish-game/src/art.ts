@@ -39,12 +39,25 @@ export interface ArtPlan {
   warnings: string[];
 }
 
+/**
+ * `achievements[].icon` is a URL, a short glyph (emoji) or, like the catalog art, a file in the game folder. It is a
+ * file when it is not a URL and contains a slash or ends in a file extension (`art/trophy.png`, `trophy.webp`); such a
+ * value is uploaded like the other art and rewritten to its CDN URL (the app draws only http(s) URLs as images).
+ */
+export function isAchievementIconFile(value: string): boolean {
+  return isLocalArtPath(value) && (/[\\/]/.test(value) || /\.[A-Za-z0-9]{2,5}$/.test(value));
+}
+
 /** Every art reference in the manifest, with the field that holds it. */
 function artRefs(m: GameManifest): { field: string; value: string }[] {
   const refs: { field: string; value: string }[] = [];
   if (m.icon !== undefined) refs.push({ field: 'icon', value: m.icon });
   if (m.cover !== undefined) refs.push({ field: 'cover', value: m.cover });
   m.screenshots.forEach((value, i) => refs.push({ field: `screenshots[${i}]`, value }));
+  m.achievements.forEach((a, i) => {
+    if (a.icon !== undefined && isAchievementIconFile(a.icon))
+      refs.push({ field: `achievements[${i}].icon`, value: a.icon });
+  });
   return refs;
 }
 

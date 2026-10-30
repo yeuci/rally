@@ -7,9 +7,11 @@ import { sriSha384 } from './hash.ts';
  *
  * 1. Every `src` / `href` / `srcset` / `poster` must point inside the bundle (`./…` or a bare relative path).
  *    Absolute URLs, protocol-relative `//host`, root-relative `/x` and `../` escapes are rejected, as are
- *    inline `<script>`s (the CSP would block them on device anyway).
- * 2. SRI (`integrity="sha384-…" crossorigin="anonymous"`) on the entry `<script type="module" src>`,
- *    `<link rel="stylesheet">` and `<link rel="modulepreload">`.
+ *    inline `<script>`s, import maps included (the CSP would block them on device anyway). Inline JSON data
+ *    blocks are fine: the CSP does not apply to them.
+ * 2. SRI (`integrity="sha384-…" crossorigin="anonymous"`) on every `<script src>` (module or classic),
+ *    `<link rel="stylesheet">` and `<link rel="modulepreload">`. Modules the entry imports dynamically and
+ *    assets fetched at runtime are not covered (see README, "What the integrity covers").
  * 3. The CSP `<meta http-equiv="Content-Security-Policy">` goes first in `<head>` (right after
  *    `<meta charset>`), so it governs every element after it.
  *
@@ -46,8 +48,11 @@ interface Tag {
 
 const REF_ATTRS = new Set(['src', 'href', 'poster', 'srcset']);
 const SCHEME = /^[a-z][a-z0-9+.-]*:/i;
-/** Inline script types that are data, not code; the CSP does not apply to them. */
-const DATA_SCRIPT_TYPES = new Set(['application/json', 'application/ld+json', 'importmap']);
+/**
+ * Inline script types that are data blocks, never executed; the CSP does not apply to them. `importmap` is not one:
+ * browsers treat an inline import map as an inline script and the CSP (no 'unsafe-inline') refuses it.
+ */
+const DATA_SCRIPT_TYPES = new Set(['application/json', 'application/ld+json']);
 
 export function processIndexHtml(html: string, opts: ProcessHtmlOptions): ProcessHtmlResult {
   const htmlPath = opts.htmlPath ?? 'index.html';
@@ -69,8 +74,13 @@ export function processIndexHtml(html: string, opts: ProcessHtmlOptions): Proces
 
     if (tag.name === 'script' && attr(tag, 'src') === undefined) {
       const type = (attr(tag, 'type') ?? '').toLowerCase();
-      if (!DATA_SCRIPT_TYPES.has(type))
+      if (type === 'importmap') {
+        problems.push(
+          `inline <script type="importmap"> is blocked by the CSP (no 'unsafe-inline'); let Vite bundle the imports: ${snippet(html, tag)}`,
+        );
+      } else if (!DATA_SCRIPT_TYPES.has(type)) {
         problems.push(`inline <script> is not allowed (CSP blocks it): ${snippet(html, tag)}`);
+      }
       continue;
     }
 
@@ -143,7 +153,8 @@ export function resolveLocalRef(ref: string, htmlDir = '.', tagName = ''): strin
 }
 
 function sriTarget(tag: Tag): string | null {
-  if (tag.name === 'script' && (attr(tag, 'type') ?? '').toLowerCase() === 'module') return attr(tag, 'src') ?? null;
+  // Every external script, module or classic: SRI is harmless on a type the browser does not execute.
+  if (tag.name === 'script') return attr(tag, 'src') ?? null;
   if (tag.name === 'link') {
     const rel = (attr(tag, 'rel') ?? '').toLowerCase().split(/\s+/);
     if (rel.includes('stylesheet') || rel.includes('modulepreload')) return attr(tag, 'href') ?? null;

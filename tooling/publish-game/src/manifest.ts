@@ -1,7 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { GameManifestSchema, type GameManifest } from '@rally/protocol';
+import { GameArtRef, GameManifestSchema, type GameManifest } from '@rally/protocol';
 import { z } from 'zod';
+import { isAchievementIconFile } from './art.ts';
 import { PublishError } from './errors.ts';
 
 /** `public.leaderboards.key` format (check constraint `leaderboards_key_format` in packages/db). */
@@ -45,6 +46,11 @@ function catalogIssues(m: GameManifest): string[] {
     }
     if (a.title.trim().length === 0) issues.push(`achievements[${i}].title must not be empty`);
     if (seenKeys.has(a.key)) issues.push(`achievements[${i}].key "${a.key}" is listed twice`);
+    if (a.icon !== undefined && isAchievementIconFile(a.icon) && !GameArtRef.safeParse(a.icon).success) {
+      issues.push(
+        `achievements[${i}].icon "${a.icon}" looks like a file but is not a .png/.jpg/.jpeg/.webp path inside the game folder (or use an http(s) URL or an emoji)`,
+      );
+    }
     seenKeys.add(a.key);
   });
   return issues;

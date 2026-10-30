@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { staleUnderForce } from './cache.ts';
 import { PublishError } from './errors.ts';
 import { BUCKET, type PublishPlan } from './plan.ts';
 
@@ -52,7 +53,7 @@ export async function executePublish(
   if (listed.error) throw new PublishError(`cannot list ${BUCKET}/${prefix}: ${listed.error.message}`);
   const existingRow = await sb
     .from('game_versions')
-    .select('id')
+    .select('id, manifest')
     .eq('game_id', slug)
     .eq('version', version)
     .maybeSingle();
@@ -62,6 +63,26 @@ export async function executePublish(
       `${slug}@${version} is already published (${listed.data.length > 0 ? `${BUCKET}/${prefix} exists` : 'game_versions row exists'}). ` +
         'A published version is immutable: bump "version" in game.json, or pass --force to overwrite it.',
     );
+  }
+  // --force on a version clients may have loaded: only files whose bytes are unchanged (or new paths) may go up,
+  // because everything but the entry document is cached as immutable for a year. A prefix without a version row was
+  // never handed to a client, so it can be overwritten freely.
+  if (plan.force && existingRow.data) {
+    const previous = (existingRow.data as { manifest?: { files?: { path: string; sha256: string }[] } }).manifest
+      ?.files;
+    if (!previous) {
+      throw new PublishError(
+        `${slug}@${version}: the published version row has no file list, so --force cannot check what devices may have cached. Bump "version" in game.json.`,
+      );
+    }
+    const stale = staleUnderForce(previous, plan.uploads, plan.db.gameVersion.manifest.entry);
+    if (stale.length > 0) {
+      throw new PublishError(
+        `--force would change ${stale.length} file(s) of ${slug}@${version} under the same path: ${stale.join(', ')}. ` +
+          'Those are served with a one-year immutable Cache-Control, so devices that already loaded them would keep the old bytes ' +
+          '(and fail SRI). Only content-hashed files may change under --force: bump "version" in game.json instead.',
+      );
+    }
   }
 
   // 2a. Art: content-addressed under <slug>/art/, so an object that already exists has these exact bytes (skip it)

@@ -103,6 +103,11 @@ const lifecycle = createLifecycle(rally, app, {
     metrics.reset();
   },
   onExitRequested: async () => {
+    // Leaving: stop everything that would keep running until the host unmounts the WebView (or forever in the dev
+    // harness, which keeps the page after exit): telemetry, the simulation and audio. Input already checks isExiting.
+    clearInterval(telemetryTimer);
+    app.timeScale = 0;
+    audio.suspend();
     ui.paused.hidden = true;
     await save.flush();
   },
@@ -264,7 +269,7 @@ function collect() {
     heapMb: jsHeapMb() ?? -1,
   };
 }
-setInterval(() => rally.telemetry.report('stack', collect()), TELEMETRY_MS);
+const telemetryTimer = setInterval(() => rally.telemetry.report('stack', collect()), TELEMETRY_MS);
 
 // --- boot ------------------------------------------------------------------------------------------
 async function boot() {

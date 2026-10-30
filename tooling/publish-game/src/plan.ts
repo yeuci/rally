@@ -7,7 +7,7 @@ import {
   type LeaderboardPeriod,
   type ManifestFile,
 } from '@rally/protocol';
-import type { PlannedArtUpload } from './art.ts';
+import { isAchievementIconFile, type PlannedArtUpload } from './art.ts';
 import { cacheControlFor } from './cache.ts';
 
 /** Supabase Storage bucket holding every game bundle (packages/db migration `20261029000000_m1_init.sql`). */
@@ -163,6 +163,11 @@ export function applyArtUrls(m: GameManifest, uploads: readonly PlannedArtUpload
     ...(m.icon !== undefined && { icon: resolve('icon', m.icon) }),
     ...(m.cover !== undefined && { cover: resolve('cover', m.cover) }),
     screenshots: m.screenshots.map((s, i) => resolve(`screenshots[${i}]`, s)),
+    achievements: m.achievements.map((a, i) =>
+      a.icon !== undefined && isAchievementIconFile(a.icon)
+        ? { ...a, icon: resolve(`achievements[${i}].icon`, a.icon) }
+        : a,
+    ),
   };
 }
 

@@ -108,3 +108,33 @@ test('resolveLocalRef', () => {
   assert.equal(resolveLocalRef('data:image/png;base64,AA=='), null);
   assert.ok(resolveLocalRef('mailto:x@example.com') instanceof Error);
 });
+
+test('classic <script src> gets SRI too, with or without a type', () => {
+  for (const tag of [
+    '<script src="./assets/vendor.js"></script>',
+    '<script type="text/javascript" src="./assets/vendor.js" defer></script>',
+  ]) {
+    const out = processIndexHtml(html.replace('</head>', `${tag}\n</head>`), { csp, readAsset });
+    const classic = /<script(?![^>]*type="module")[^>]*src="\.\/assets\/vendor\.js"[^>]*>/.exec(out.html)?.[0];
+    assert.ok(classic, tag);
+    assert.ok(classic.includes(`integrity="${SRI['assets/vendor.js']}"`), classic);
+    assert.ok(classic.includes('crossorigin="anonymous"'), classic);
+  }
+});
+
+test('an inline import map is rejected: the CSP would refuse it at runtime', () => {
+  assert.throws(
+    () =>
+      processIndexHtml(html.replace('</head>', '<script type="importmap">{"imports":{}}</script></head>'), {
+        csp,
+        readAsset,
+      }),
+    /importmap.*blocked by the CSP/,
+  );
+  assert.doesNotThrow(() =>
+    processIndexHtml(html.replace('</head>', '<script type="application/ld+json">{}</script></head>'), {
+      csp,
+      readAsset,
+    }),
+  );
+});
