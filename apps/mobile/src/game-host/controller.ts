@@ -172,7 +172,13 @@ export class GameHostController {
 
   // --- WebView callbacks ----------------------------------------------------------------------------------------
 
+  /** Diagnostics for the load-timeout overlay: what the game sent (or didn't) before giving up. */
+  private readonly seenMethods: string[] = [];
+  private droppedCount = 0;
+
   handleMessage = (data: string, sourceUrl: string | undefined): void => {
+    const m = /"method":"([^"]+)"/.exec(data)?.[1];
+    if (m && this.seenMethods.length < 20) this.seenMethods.push(m);
     if (!this.active || this.exited) return;
     this.bridge.handleMessage(data, sourceUrl);
   };
@@ -339,7 +345,10 @@ export class GameHostController {
         if (ev.method === 'telemetry.report') this.metrics = ev.params.values;
         else if (ev.method === 'game.error') this.lastError = ev.params.message;
       },
-      onDrop: (reason) => this.warn(`[bridge] dropped message: ${reason}`),
+      onDrop: (reason) => {
+        this.droppedCount += 1;
+        this.warn(`[bridge] dropped message: ${reason}`);
+      },
     });
   }
 
@@ -349,7 +358,9 @@ export class GameHostController {
     this.readyTimer = setTimeout(() => {
       this.readyTimer = null;
       if (this.view.phase !== 'loading') return;
-      this.lastError ??= `game did not call ready() within ${Math.round(ms / 1000)}s`;
+      const seen = this.seenMethods.length ? `received: ${[...new Set(this.seenMethods)].join(', ')}` : 'no messages from the game';
+      const dropped = this.droppedCount ? `, ${this.droppedCount} dropped (nonce/origin)` : '';
+      this.lastError ??= `game did not call ready() within ${Math.round(ms / 1000)}s (${seen}${dropped}, url ${this.opts.bundleUrl})`;
       this.setView({ phase: 'failed', error: this.lastError });
     }, ms);
   }
