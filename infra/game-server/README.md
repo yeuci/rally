@@ -20,16 +20,38 @@ live only in `/etc/rally/game-server.env` on the box.
 
 ## First deploy (Hetzner CX22-class box)
 
-1. Create the server: Ubuntu 24.04, CX22-class (2 vCPU, 4 GB) or its successor, your SSH key, the location nearest the Supabase project's region.
-2. DNS: an A (and AAAA) record `game.<your-domain>` → the server IP. No domain yet: use `<ip-with-dashes>.sslip.io`.
-3. `scp -r infra/game-server root@<ip>:/root/rally-infra`
-4. `ssh root@<ip> bash /root/rally-infra/provision.sh --domain game.<your-domain> --email <you@your-domain>`
-5. Add the public key it prints to the GitHub repository as a **read-only** deploy key.
-6. `ssh -t root@<ip> sudoedit /etc/rally/game-server.env`: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`.
-7. `infra/game-server/deploy.sh --ssh root@<ip> --repo git@github.com:<owner>/<repo>.git --ref main --public-url https://game.<your-domain>`
-8. Check `curl https://game.<your-domain>/healthz` → `{"ok":true,…}` and `ssh root@<ip> ufw status` → only 22, 80, 443.
-9. `ssh root@<ip> reboot`; a minute later `/healthz` answers again (Caddy and `pm2-rally` start at boot).
-10. Put `https://game.<your-domain>` in `apps/mobile/eas.json` (preview, production) and `RALLY_COLYSEUS_URL`; then follow the release order in `docs/m3-phase2.md` §7.
+Everything runs on the box over SSH, so it works the same from Windows, macOS or Linux (no bash needed locally).
+The repository is public, so the box clones it over HTTPS and needs no deploy key.
+
+1. Create the server: Ubuntu 24.04, shared x86 with 2 vCPU / 4 GB (CX22 or its successor), public IPv4 + IPv6, your
+   SSH key, the location nearest your players (and the Supabase project's region).
+2. Domain: an A (and AAAA) record `game.<your-domain>` → the server IP. No domain yet: use `<ip-with-dashes>.sslip.io`
+   (e.g. `203-0-113-7.sslip.io`), which resolves to that IP with no setup.
+3. Log in and fetch the scripts on the box:
+   ```bash
+   ssh root@<ip>
+   apt-get update -q && apt-get install -y -q git
+   git clone https://github.com/yeuci/rally.git /root/rally-src
+   ```
+4. Provision (as root, safe to re-run):
+   ```bash
+   bash /root/rally-src/infra/game-server/provision.sh --domain <host> --email <you@example.com>
+   ```
+   It prints a deploy key: only needed if the repository ever goes private (add it as a read-only deploy key then).
+5. Fill in the secrets: `nano /etc/rally/game-server.env` → `SUPABASE_URL`, `SUPABASE_ANON_KEY`,
+   `SUPABASE_SERVICE_ROLE_KEY` (Supabase dashboard → Project Settings → API). Save with Ctrl+O, Enter, Ctrl+X.
+6. Deploy:
+   ```bash
+   sudo -u rally -H rally-deploy --repo https://github.com/yeuci/rally.git --ref main --public-url https://<host>
+   ```
+7. Check: `curl https://<host>/healthz` → `{"ok":true,…}`, and `ufw status` → only 22, 80, 443.
+8. `reboot`; a minute later `/healthz` answers again (Caddy and `pm2-rally` start at boot).
+9. Put `https://<host>` in `apps/mobile/eas.json` (preview, production), in your `apps/mobile/.env`
+   (`EXPO_PUBLIC_COLYSEUS_URL`) and in `RALLY_COLYSEUS_URL` for publishing; then follow the release order in
+   `docs/m3-phase2.md` §7.
+
+From a machine with bash you can also run `infra/game-server/deploy.sh --ssh root@<ip> …` locally (it streams the
+script to the box); on Windows, use the on-box command above.
 
 ## Releases and rollback
 

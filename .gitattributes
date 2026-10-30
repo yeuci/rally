@@ -1,0 +1,4 @@
+# Files that run on Linux servers keep LF endings on every checkout (Git for Windows would otherwise
+# convert them to CRLF, and bash fails on the carriage returns).
+*.sh text eol=lf
+infra/** text eol=lf
