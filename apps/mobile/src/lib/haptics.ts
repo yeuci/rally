@@ -29,3 +29,9 @@ export function toggleHaptic(): void {
       : Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   void done.catch(() => {});
 }
+
+/** A choice made (friendship buttons: Add, Accept, Decline): the system selection tick. */
+export function selectionHaptic(): void {
+  if (!prefs.get().haptics) return;
+  void Haptics.selectionAsync().catch(() => {});
+}

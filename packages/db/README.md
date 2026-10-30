@@ -414,6 +414,32 @@ signal; the test `signup without birth_date metadata is refused` pins that behav
 - The word filter matches whole words, case-insensitively; see the header of `seed.sql` for what that
   does and does not catch.
 
+## Realtime
+
+`20261031000200_social_realtime.sql` (pinned by `test/social-realtime.test.ts`) pushes friendship changes with
+Broadcast-from-database into one private channel per user, topic `user:<uid>`. `friendships` is deliberately not in
+the `supabase_realtime` publication: `postgres_changes` neither filters DELETE events nor applies RLS to them.
+
+- An AFTER INSERT/UPDATE/DELETE trigger on `friendships` (`private.broadcast_friendship_change`, security definer)
+  calls `realtime.send(payload, 'social', 'user:<to>', true)` once per change, to the recipient's topic only:
+  `{ type, from, to, at }` with `from` = actor, `to` = recipient (owner of the topic), `at` = ISO 8601 UTC, and no
+  usernames (look the profile up). `type`: `friend_request` (to the recipient), `friend_accepted` (to the original
+  requester; also for the mutual auto-accept of `send_friend_request`), `friend_declined` (to the requester),
+  `friend_request_cancelled` (to the recipient), `friend_removed` (to the other side). `block_user` sends the matching
+  declined / cancelled / removed event, so a block looks like those. Nothing is sent when the status did not change,
+  nor for deletes by the service role or without a user JWT (purges, account deletion cascades).
+- Who listens: RLS on `realtime.messages`, policy "users receive their own user channel": SELECT to `authenticated`
+  where `realtime.topic() = 'user:' || auth.uid()`. No INSERT policy, so clients cannot send or track presence on
+  `user:*`. The app subscribes like this:
+
+  ```ts
+  await supabase.realtime.setAuth(); // private channels need the user's JWT
+  supabase.channel(`user:${uid}`, { config: { private: true } }).on('broadcast', { event: 'social' }, onSocial).subscribe();
+  ```
+- Where `realtime.send` / `realtime.messages` do not exist (PGlite tests, a local stack without Realtime) the trigger
+  sends nothing and the policy is skipped with a NOTICE. A failing send raises a WARNING and never fails the
+  friendship change.
+
 ## Default avatars
 
 `supabase/assets/avatars/avatar-01.webp` … `avatar-10.webp` (1024×1024) are the bundled profile pictures. Migration

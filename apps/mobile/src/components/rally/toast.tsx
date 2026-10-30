@@ -10,9 +10,13 @@ import { hideToast, useToast } from '@/lib/toast';
 /** How long a toast stays up. */
 const TOAST_MS = 3500;
 
+/** The shell and the play route each mount a host (the game is a native modal over the shell): announce once. */
+let announcedId = 0;
+
 /**
  * The app's lightweight toast (lib/toast.ts): a card pill under the status bar, announced to screen readers,
- * dismissed by a tap or after 3.5 s. Touches outside it pass through.
+ * dismissed by a tap or after 3.5 s. Touches outside it pass through. Mounted in `(app)/_layout.tsx` and in the play
+ * route (a native full-screen modal that covers the shell's host).
  */
 export function ToastHost() {
   const toast = useToast();
@@ -20,7 +24,10 @@ export function ToastHost() {
 
   useEffect(() => {
     if (!toast) return;
-    AccessibilityInfo.announceForAccessibility(toast.message);
+    if (announcedId !== toast.id) {
+      announcedId = toast.id;
+      AccessibilityInfo.announceForAccessibility(toast.message);
+    }
     const timer = setTimeout(() => hideToast(toast.id), TOAST_MS);
     return () => clearTimeout(timer);
   }, [toast]);
