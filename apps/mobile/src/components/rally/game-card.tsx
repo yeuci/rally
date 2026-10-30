@@ -1,10 +1,10 @@
 import { Link } from 'expo-router';
-import { PlayIcon, UsersIcon } from 'lucide-react-native';
+import { ChevronRightIcon, PlayIcon, UsersIcon } from 'lucide-react-native';
 import { memo } from 'react';
 import { Pressable, View } from 'react-native';
 import { Badge } from '@/components/ui/badge';
 import { Icon } from '@/components/ui/icon';
-import { Skeleton } from '@/components/ui/skeleton';
+import { Skeleton, SkeletonText } from '@/components/ui/skeleton';
 import { Text } from '@/components/ui/text';
 import { playersLabel, type GameCard as GameCardData } from '@/lib/catalog';
 import { coverUriFor } from '@/lib/game-art';
@@ -135,7 +135,7 @@ export const GameTile = memo(function GameTile({
         />
         <View className="flex-row items-center gap-1.5 px-1">
           {!subtitle && game.max_players > 1 && <Icon as={UsersIcon} className="text-muted-foreground size-3" />}
-          <Text className="text-muted-foreground shrink text-[13px]" numberOfLines={1}>
+          <Text className="text-muted-foreground shrink text-[13px] leading-[18px]" numberOfLines={1}>
             {meta}
           </Text>
         </View>
@@ -144,26 +144,81 @@ export const GameTile = memo(function GameTile({
   );
 });
 
+/** Same box as GameTile: the square cover, then one 18 pt meta line. */
 export function GameTileSkeleton({ width, className }: { width: number; className?: string }) {
   return (
     <View className={cn('gap-2', className)} style={{ width }}>
       <Skeleton className="rounded-2xl" style={{ width, height: width }} />
-      <Skeleton className="mx-1 h-3 w-16 rounded-full" />
+      <SkeletonText lineHeight={18} width={Math.round(width * 0.45)} className="px-1" />
     </View>
   );
 }
 
+/** Same box as FeaturedGameCard (`featuredCardHeight`), with the badge, title and meta / Play pill placeholders. */
 export function FeaturedGameSkeleton({ width, banner = false }: { width: number; banner?: boolean }) {
   return (
-    <View className="bg-muted overflow-hidden rounded-3xl" style={{ width, height: featuredCardHeight(width, banner) }}>
-      <Skeleton className="absolute left-4 top-4 h-6 w-20 rounded-full" />
-      <View className="absolute bottom-0 left-0 right-0 gap-3 p-4">
-        <Skeleton className="h-7 w-48 rounded-lg" />
-        <View className="flex-row items-center justify-between">
-          <Skeleton className="h-5 w-32 rounded-full" />
-          <Skeleton className="h-10 w-20 rounded-full" />
+    <Skeleton className="rounded-3xl" style={{ width, height: featuredCardHeight(width, banner) }}>
+      <View className={cn('bg-fill absolute h-[26px] w-20 rounded-full', banner ? 'left-5 top-5' : 'left-4 top-4')} />
+      {banner ? (
+        <View className="absolute bottom-0 left-0 gap-3 p-5" style={{ width: Math.max(Math.round(width * 0.4), 280) }}>
+          <View className="bg-fill h-8 w-56 rounded-lg" />
+          <View className="bg-fill h-[26px] w-36 rounded-full" />
+          <View className="bg-fill h-10 w-20 rounded-full" />
         </View>
+      ) : (
+        <View className="absolute bottom-0 left-0 right-0 gap-3 p-4">
+          <View className="bg-fill h-8 w-48 rounded-lg" />
+          <View className="flex-row items-center justify-between">
+            <View className="bg-fill h-[26px] w-32 rounded-full" />
+            <View className="bg-fill h-10 w-20 rounded-full" />
+          </View>
+        </View>
+      )}
+    </Skeleton>
+  );
+}
+
+const LIST_ROW = 'flex-row items-center gap-3 px-4 py-2.5';
+
+/** Search result row: 52 pt icon tile (`coverUriFor(game, 'tile')`), title, genre / players, chevron. */
+export const GameListRow = memo(function GameListRow({ game }: { game: GameCardData }) {
+  const meta = [game.genres[0] && capitalize(game.genres[0]), playersLabel(game)].filter(Boolean).join(' · ');
+  return (
+    <Link href={{ pathname: '/game/[id]', params: { id: game.id } }} asChild>
+      <Pressable accessibilityRole="button" accessibilityLabel={`${game.title}, ${meta}`} className={cn(LIST_ROW, 'active:bg-accent')}>
+        <GameCover
+          id={game.id}
+          title={game.title}
+          uri={coverUriFor(game, 'tile')}
+          showTitle={false}
+          className="border-border size-[52px] rounded-xl border"
+        />
+        <View className="shrink grow">
+          <Text className="text-[15px] font-semibold leading-5" numberOfLines={1}>
+            {game.title}
+          </Text>
+          <Text className="text-muted-foreground text-[13px] leading-[18px]" numberOfLines={1}>
+            {meta}
+          </Text>
+        </View>
+        <Badge variant="outline">
+          <Text>{game.age_rating}</Text>
+        </Badge>
+        <Icon as={ChevronRightIcon} className="text-muted-foreground size-4" />
+      </Pressable>
+    </Link>
+  );
+});
+
+export function GameListRowSkeleton({ index = 0 }: { index?: number }) {
+  return (
+    <View className={LIST_ROW}>
+      <Skeleton className="size-[52px] rounded-xl" />
+      <View className="shrink grow">
+        <SkeletonText lineHeight={20} width={index % 2 ? '48%' : '62%'} />
+        <SkeletonText lineHeight={18} width="34%" />
       </View>
+      <Skeleton className="h-[26px] w-10 rounded-full" />
     </View>
   );
 }

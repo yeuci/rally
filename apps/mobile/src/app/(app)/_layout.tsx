@@ -31,6 +31,9 @@ export default function AppLayout() {
       <Stack.Screen name="profile/index" options={{ title: 'Profile' }} />
       <Stack.Screen name="profile/edit" options={{ title: 'Edit profile' }} />
       <Stack.Screen name="u/[username]" options={{ title: 'Player' }} />
+      {/* Pushed from the dashboard pill; draws its own bar (search field + Cancel). */}
+      <Stack.Screen name="search" options={{ headerShown: false, animation: 'fade' }} />
+      <Stack.Screen name="friends" options={{ title: 'Friends' }} />
     </Stack>
   );
 }

@@ -1,32 +1,23 @@
-import { Link } from 'expo-router';
-import { HeartIcon, SearchXIcon, SparklesIcon, WifiOffIcon } from 'lucide-react-native';
+import { Link, router } from 'expo-router';
+import { HeartIcon, SparklesIcon, WifiOffIcon } from 'lucide-react-native';
 import { useCallback, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, ScrollView, View, type ListRenderItem } from 'react-native';
 import { EmptyState } from '@/components/rally/empty-state';
-import { FeaturedGameCard, FeaturedGameSkeleton, GameTile } from '@/components/rally/game-card';
+import { FeaturedGameCard, FeaturedGameSkeleton } from '@/components/rally/game-card';
 import { GameRow } from '@/components/rally/game-row';
 import { Glow } from '@/components/rally/glow';
 import { LogoMark } from '@/components/rally/logo';
-import { ProfileAvatar } from '@/components/rally/profile-avatar';
-import { SearchPill } from '@/components/rally/search-pill';
-import { SectionHeader } from '@/components/rally/section-header';
+import { ProfileAvatar, ProfileAvatarSkeleton } from '@/components/rally/profile-avatar';
+import { SearchPillButton } from '@/components/rally/search-pill';
 import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
+import { SkeletonText } from '@/components/ui/skeleton';
 import { Text } from '@/components/ui/text';
-import { useAllGames, useFavorites, useFeaturedGames, useNewGames, useRecentlyPlayed, type GameCard } from '@/lib/catalog';
+import { useFavorites, useFeaturedGames, useNewGames, useRecentlyPlayed, type GameCard } from '@/lib/catalog';
 import { timeAgo } from '@/lib/format';
-import {
-  ROW_GAP,
-  contentWidth,
-  featuredCardWidth,
-  gridColumns,
-  gridTileWidth,
-  pageIndex,
-  rowTileWidth,
-  snapInterval,
-} from '@/lib/layout';
+import { useFriendRequests } from '@/lib/friends';
+import { ROW_GAP, contentWidth, featuredCardWidth, pageIndex, rowTileWidth, snapInterval } from '@/lib/layout';
 import { useProfile, type Profile } from '@/lib/profile';
-import { searchGames } from '@/lib/search';
+import { countBadge } from '@/lib/social';
 import { useLayout } from '@/lib/use-layout';
 import { usePalette } from '@/lib/use-palette';
 import { cn } from '@/lib/utils';
@@ -36,25 +27,20 @@ export default function Dashboard() {
   // Every size below is recomputed from the live window on each render; rotation re-renders through useLayout.
   const { width, insets, wide, pad } = useLayout();
   const palette = usePalette();
-  const [query, setQuery] = useState('');
-  const searching = query.trim().length > 0;
 
   const profile = useProfile();
+  const requests = useFriendRequests();
   const featured = useFeaturedGames();
   const newest = useNewGames();
   const recent = useRecentlyPlayed();
   const favorites = useFavorites();
-  const all = useAllGames(searching);
 
   const featuredCount = featured.data?.length ?? 0;
   const inner = contentWidth(width, insets);
   const cardWidth = featuredCardWidth(inner, featured.isLoading ? 2 : featuredCount, wide);
   const tileWidth = rowTileWidth(width, pad.left, wide);
-  const columns = gridColumns(inner);
-  const gridTile = gridTileWidth(inner, columns);
   const padStyle = { paddingLeft: pad.left, paddingRight: pad.right };
   const lastPlayed = new Map(recent.data?.map((g) => [g.id, g.last_played_at]));
-  const results = searching ? searchGames(all.data ?? [], query) : [];
   const refreshing = featured.isRefetching || newest.isRefetching || recent.isRefetching || favorites.isRefetching;
   const failed = featured.isError && newest.isError;
   const name = profile.data ? profile.data.display_name || profile.data.username : null;
@@ -65,6 +51,7 @@ export default function Dashboard() {
     void newest.refetch();
     void recent.refetch();
     void favorites.refetch();
+    void requests.refetch();
   };
 
   return (
@@ -92,36 +79,17 @@ export default function Dashboard() {
       <Glow size={glow} style={{ top: -glow * 0.6, left: -glow * 0.32 }} />
 
       <View className="gap-5" style={padStyle}>
-        <Greeting name={name} loading={profile.isLoading} inline={wide} avatar={profile.data} />
-        <SearchPill value={query} onChangeText={setQuery} />
+        <Greeting
+          name={name}
+          loading={profile.isLoading}
+          inline={wide}
+          avatar={profile.data}
+          badge={countBadge(requests.data?.incoming.length)}
+        />
+        <SearchPillButton onPress={() => router.push('/search')} />
       </View>
 
-      {searching ? (
-        <View className="gap-3">
-          <SectionHeader title="Results" detail={all.isLoading ? undefined : String(results.length)} style={padStyle} />
-          <View style={padStyle}>
-            {all.isLoading ? (
-              <View className="flex-row flex-wrap" style={{ gap: ROW_GAP }}>
-                {Array.from({ length: columns }, (_, i) => (
-                  <Skeleton key={i} className="rounded-2xl" style={{ width: gridTile, height: gridTile }} />
-                ))}
-              </View>
-            ) : results.length === 0 ? (
-              <EmptyState
-                icon={SearchXIcon}
-                title={`No games match “${query.trim()}”`}
-                body="Try a title, or a genre like puzzle or racing."
-              />
-            ) : (
-              <View className="flex-row flex-wrap" style={{ gap: ROW_GAP }}>
-                {results.map((g) => (
-                  <GameTile key={g.id} game={g} width={gridTile} />
-                ))}
-              </View>
-            )}
-          </View>
-        </View>
-      ) : failed ? (
+      {failed ? (
         <View style={padStyle}>
           <EmptyState
             icon={WifiOffIcon}
@@ -192,11 +160,14 @@ function Greeting({
   loading,
   inline,
   avatar,
+  badge,
 }: {
   name: string | null;
   loading: boolean;
   inline: boolean;
   avatar: Profile | null | undefined;
+  /** Pending incoming friend requests. */
+  badge: string | null;
 }) {
   return (
     <View className="flex-row items-center justify-between gap-4">
@@ -204,7 +175,7 @@ function Greeting({
         <View className="shrink flex-row items-center gap-2">
           <LogoMark size={30} style={{ marginLeft: -5 }} />
           {loading ? (
-            <Skeleton className="h-7 w-40 rounded-lg" />
+            <SkeletonText lineHeight={36} width={176} barClassName="rounded-lg" />
           ) : (
             <Text className="shrink text-[30px] font-semibold leading-9 tracking-tight" role="heading" numberOfLines={1}>
               {name ? `Hey, ${name}` : 'Welcome back'}
@@ -216,8 +187,13 @@ function Greeting({
         </Text>
       </View>
       <Link href="/profile" asChild>
-        <Pressable accessibilityRole="button" accessibilityLabel="Profile" hitSlop={8} className="active:opacity-70">
-          <ProfileAvatar profile={avatar} size="md" ring />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={badge ? `Profile, ${badge} friend requests` : 'Profile'}
+          hitSlop={8}
+          className="active:opacity-70"
+        >
+          {loading ? <ProfileAvatarSkeleton size="md" ring /> : <ProfileAvatar profile={avatar} size="md" ring badge={badge} />}
         </Pressable>
       </Link>
     </View>

@@ -14,7 +14,7 @@ pnpm dev:mobile:go                    # Metro for Expo Go (email sign-in + Devel
 
 pnpm --filter @rally/mobile typecheck # app + tests
 pnpm --filter @rally/mobile lint      # expo lint (React Compiler rules), zero warnings
-pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects/anonymous plan, bridge + nav gate, handlers (saves, leaderboards, achievements), controller (play sessions), progress formatting, cover art
+pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects/anonymous plan, bridge + nav gate, handlers (saves, leaderboards, achievements), controller (play sessions), progress formatting, cover art, social (friendship buttons, people ranking, privacy, requests)
 node scripts/generate-brand-assets.cjs  # (from apps/mobile) app icon, adaptive icon layers, splash, favicon from src/lib/brand.ts; needs Playwright
 ```
 
@@ -98,16 +98,34 @@ when they do surface (profile edits go through PostgREST, which passes them on).
 | `/sign-up?method=` | `src/app/(auth)/sign-up.tsx` | username (+ email/password), then account creation |
 | `/forgot-password`, `/check-email` | `src/app/(auth)/…` | reset link request, confirmation notice |
 | `/auth/callback`, `/auth/reset-password` | `src/app/auth/…` | deep-link targets (PKCE code exchange, new password) |
-| `/` | `src/app/(app)/index.tsx` | dashboard: search, featured carousel, continue playing, favorites, new |
+| `/` | `src/app/(app)/index.tsx` | dashboard: search pill (opens `/search`), featured carousel, continue playing, favorites, new; the avatar shows pending friend requests |
+| `/search` | `src/app/(app)/search.tsx` | Games (`searchGames` over the catalog) and People (`search_profiles`, debounced 250 ms, `@name` = people only) with Add / Requested / Friends / Accept |
+| `/friends` | `src/app/(app)/friends.tsx` | your friends (`my_friends`) and requests (`my_friend_requests`: Accept / Decline, Cancel); `?tab=requests`; `?username=` lists another player's friends (`public_friends`) |
 | `/game/:id` | `src/app/(app)/game/[id]/index.tsx` | game page: screenshot gallery (else cover art), details (+ "Best" for solo games), favorite, Play → consent sheet, leaderboard, achievements |
 | `/game/:id/play` | `src/app/(app)/game/[id]/play.tsx` | full-screen `GameHost` for the published version |
-| `/profile`, `/profile/edit` | `src/app/(app)/profile/…` | profile, edit (display name, username, bio), sign out, delete-account request |
-| `/u/:username` | `src/app/(app)/u/[username].tsx` | public profile: avatar, names, bio, achievements + games played (`public_profile_stats`), unlocked achievements; your own username redirects to `/profile` |
+| `/profile`, `/profile/edit` | `src/app/(app)/profile/…` | profile (stats strip, Friends row with request badge, games played), edit (display name, username, bio, Privacy: games played / friends list → Everyone / Friends / Only me, read with `my_privacy`), sign out, delete-account request |
+| `/u/:username` | `src/app/(app)/u/[username].tsx` | public profile: avatar, names, bio, member since, friendship button (`friendship_with`), games played · achievements · friends (`public_profile_stats`), games played (`public_profile_games`), friends row (`public_friends`), unlocked achievements; Block / Unblock in the ⋯ menu; your own username redirects to `/profile` |
 | `/dev`, `/dev/play` | `src/app/dev/…` | Developer launcher (M0 spike path: direct bundle + Colyseus URL, last-run metrics) |
 
 `src/app/_layout.tsx` gates `(app)` on a signed-in, non-anonymous session and `(auth)` on its absence
 (`Stack.Protected`); `auth/*` is reachable either way and `dev` only when dev tools are on. On Android the OAuth
 redirect also reaches the router; `src/app/+native-intent.tsx` drops it while an in-app browser flow owns it.
+
+## Social and loading states
+
+- **Query keys** (`src/lib/friends.ts`): everything social sits under `['social', viewerId]` (search, friendship,
+  friends, requests, public friends / games of any player), since the answers depend on who asks. A friendship
+  mutation (`useFriendshipAction`: send / cancel / accept / decline / remove / block / unblock) writes the new status
+  optimistically into the friendship query, search rows and request lists, then invalidates `['social', viewerId]`,
+  both players' `['user-stats', id]`, the other player's achievements and every friends-scope leaderboard. Saving
+  privacy invalidates `['social']` and sets `['me', uid, 'privacy']`. Cancelling an outgoing request calls
+  `remove_friend`.
+- **Skeletons:** `components/ui/skeleton.tsx` sweeps a `skeleton-highlight` band across a `skeleton` block (tokens in
+  `global.css`, mirrored in `PALETTE`), in step across the screen (UI-thread frame clock), static under reduced motion.
+  Every data-driven component has a skeleton next to it with the same box (`GameTileSkeleton`, `FeaturedGameSkeleton`,
+  `GameListRowSkeleton`, `LeaderboardSkeleton`, `AchievementsSectionSkeleton`, `PersonListSkeleton`,
+  `PlayedGamesSkeleton`, `ProfileAvatarSkeleton`, `SkeletonText` for single text lines). `components/rally/image.tsx`
+  keeps a skeleton under every image until it has faded in.
 
 ## Play flow
 
@@ -135,7 +153,7 @@ one `onExit`: the game's `exit()`, the close button / back, or `finish('unmount'
    (including a missing session). **Multiplayer games** (manifest `server`) get `NOT_SUPPORTED`: their results are
    written by the room (architecture §8). They can still read boards and unlock achievements.
 3. **Reads and unlocks.** `leaderboard.top(boardId, { scope, limit })` → `leaderboard_top` mapped to the protocol's
-   `{ entries: [{ rank, userId, username, score }] }` ('friends' returns only the player until M4);
+   `{ entries: [{ rank, userId, username, score }] }` ('friends' = the player and their friends);
    `achievement.unlock(key)` → `unlock_achievement` → `{ unlocked, alreadyHad }`.
 4. **Host rate limits** (per launch, token buckets, before any RPC): `save.put` 10/min, `leaderboard.submit` 30/min,
    `leaderboard.top` 60/min, `achievement.unlock` 60/min. The server applies its own on top.

@@ -25,6 +25,8 @@ export const PALETTE = {
     primaryForeground: '#171717',
     ring: '#737373',
     destructive: '#FF6467',
+    skeleton: '#222222',
+    skeletonHighlight: '#363636',
   },
   light: {
     background: '#FFFFFF',
@@ -37,6 +39,8 @@ export const PALETTE = {
     primaryForeground: '#FAFAFA',
     ring: '#A1A1A1',
     destructive: '#E7000B',
+    skeleton: '#EBEBEB',
+    skeletonHighlight: '#F8F8F8',
   },
 } as const;
 

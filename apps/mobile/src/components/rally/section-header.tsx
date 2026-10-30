@@ -21,7 +21,7 @@ export function SectionHeader({
   return (
     <View className={cn('flex-row items-end justify-between gap-3 px-4', className)} style={style}>
       <View className="shrink flex-row items-baseline gap-2">
-        <Text className="text-[17px] font-bold tracking-tight" role="heading" numberOfLines={1}>
+        <Text className="text-[17px] font-bold leading-[22px] tracking-tight" role="heading" numberOfLines={1}>
           {title}
         </Text>
         {detail ? <Text className="text-muted-foreground text-[13px] font-medium">{detail}</Text> : null}

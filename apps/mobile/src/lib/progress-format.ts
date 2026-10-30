@@ -141,14 +141,25 @@ export function achievementCount(tiles: readonly { unlocked: boolean }[]): strin
   return `${tiles.filter((t) => t.unlocked).length} / ${tiles.length}`;
 }
 
-/** `public_profile_stats` jsonb → counts (0 for anything missing). */
-export function parsePublicStats(raw: unknown): { achievements: number; gamesPlayed: number } {
-  const r = (raw && typeof raw === 'object' ? raw : {}) as { achievements?: unknown; games_played?: unknown };
+export interface PublicStats {
+  achievements: number;
+  /** null when the owner's privacy (or a block) hides their games from the viewer: show a dash, never 0. */
+  gamesPlayed: number | null;
+  friends: number;
+}
+
+/** `public_profile_stats` jsonb → counts (0 for anything missing; `games_played` null/missing stays null). */
+export function parsePublicStats(raw: unknown): PublicStats {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as { achievements?: unknown; games_played?: unknown; friends?: unknown };
   const n = (v: unknown) => {
     const x = Number(v);
     return Number.isFinite(x) && x > 0 ? Math.floor(x) : 0;
   };
-  return { achievements: n(r.achievements), gamesPlayed: n(r.games_played) };
+  return {
+    achievements: n(r.achievements),
+    gamesPlayed: r.games_played === null || r.games_played === undefined ? null : n(r.games_played),
+    friends: n(r.friends),
+  };
 }
 
 /** Usernames are citext: compare case-insensitively (the own-profile redirect). */

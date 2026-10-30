@@ -136,9 +136,12 @@ test('achievement tiles: hidden ones are "???" until unlocked; icons; count', ()
 });
 
 test('public profile helpers: stats parsing, case-insensitive username match', () => {
-  assert.deepEqual(parsePublicStats({ achievements: 3, games_played: 5 }), { achievements: 3, gamesPlayed: 5 });
-  assert.deepEqual(parsePublicStats(null), { achievements: 0, gamesPlayed: 0 });
-  assert.deepEqual(parsePublicStats({ achievements: '2', games_played: -1 }), { achievements: 2, gamesPlayed: 0 });
+  assert.deepEqual(parsePublicStats({ achievements: 3, games_played: 5, friends: 4 }), { achievements: 3, gamesPlayed: 5, friends: 4 });
+  // Hidden by privacy or a block: null (rendered as a dash), never 0.
+  assert.deepEqual(parsePublicStats({ achievements: 3, games_played: null, friends: 2 }), { achievements: 3, gamesPlayed: null, friends: 2 });
+  assert.deepEqual(parsePublicStats({ achievements: 3, games_played: 0 }), { achievements: 3, gamesPlayed: 0, friends: 0 });
+  assert.deepEqual(parsePublicStats(null), { achievements: 0, gamesPlayed: null, friends: 0 });
+  assert.deepEqual(parsePublicStats({ achievements: '2', games_played: -1, friends: 'x' }), { achievements: 2, gamesPlayed: 0, friends: 0 });
   assert.equal(sameUsername('Ann', 'ann'), true);
   assert.equal(sameUsername('ann', 'bob'), false);
   assert.equal(sameUsername(undefined, 'ann'), false);

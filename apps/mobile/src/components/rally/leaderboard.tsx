@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { ChevronRightIcon, CircleAlertIcon, TrophyIcon } from 'lucide-react-native';
+import { ChevronRightIcon, CircleAlertIcon, TrophyIcon, UsersIcon } from 'lucide-react-native';
 import { useState } from 'react';
 import { Pressable, View, type TextStyle } from 'react-native';
 import { EmptyState } from '@/components/rally/empty-state';
@@ -9,7 +9,7 @@ import { Segmented } from '@/components/rally/segmented';
 import { Badge } from '@/components/ui/badge';
 import { Icon } from '@/components/ui/icon';
 import { Separator } from '@/components/ui/separator';
-import { Skeleton } from '@/components/ui/skeleton';
+import { Skeleton, SkeletonText } from '@/components/ui/skeleton';
 import { Text } from '@/components/ui/text';
 import { useLeaderboardTop, useMyRank, type Board, type Scope } from '@/lib/game-progress';
 import { useProfile } from '@/lib/profile';
@@ -106,12 +106,21 @@ export function LeaderboardSection({
           body="Pull down to try again."
         />
       ) : rows.length === 0 ? (
-        <EmptyState
-          compact
-          icon={TrophyIcon}
-          title="No scores yet — be the first"
-          body="Play to put your name on the board."
-        />
+        scope === 'friends' ? (
+          <EmptyState
+            compact
+            icon={UsersIcon}
+            title="No friends on this board yet"
+            body="Add friends to see how your scores compare."
+          />
+        ) : (
+          <EmptyState
+            compact
+            icon={TrophyIcon}
+            title="No scores yet — be the first"
+            body="Play to put your name on the board."
+          />
+        )
       ) : (
         <View className="bg-card border-border overflow-hidden rounded-2xl border">
           {rows.map((row, i) => (
@@ -140,12 +149,6 @@ export function LeaderboardSection({
             </>
           )}
         </View>
-      )}
-
-      {scope === 'friends' && (
-        <Text variant="muted" className="text-[13px] leading-[18px]">
-          Friends arrive in a later update; for now this board shows only you.
-        </Text>
       )}
     </View>
   );
@@ -176,7 +179,7 @@ function Row({ row }: { row: LeaderboardRow }) {
       </View>
       <ProfileAvatar profile={{ username: row.username, display_name: null, avatar_url: row.avatarUrl }} size="sm" />
       <View className="shrink grow flex-row items-center gap-2">
-        <Text className="shrink text-[15px] font-semibold" numberOfLines={1}>
+        <Text className="shrink text-[15px] font-semibold leading-5" numberOfLines={1}>
           {row.username}
         </Text>
         {row.isMe && (
@@ -193,17 +196,37 @@ function Row({ row }: { row: LeaderboardRow }) {
   );
 }
 
-function LeaderboardSkeleton() {
+/** Same rows as the board (rank pill, 36 pt avatar, name, score, chevron; 56 pt tall) with inset separators. */
+export function LeaderboardSkeleton({ rows = 5 }: { rows?: number }) {
   return (
-    <View className="bg-card border-border gap-3 rounded-2xl border p-4">
-      {[0, 1, 2, 3, 4].map((i) => (
-        <View key={i} className="flex-row items-center gap-3">
-          <Skeleton className="size-7 rounded-full" />
-          <Skeleton className="size-9 rounded-full" />
-          <Skeleton className="h-4 flex-1 rounded-full" />
-          <Skeleton className="h-4 w-14 rounded-full" />
+    <View className="bg-card border-border overflow-hidden rounded-2xl border">
+      {Array.from({ length: rows }, (_, i) => (
+        <View key={i}>
+          {i > 0 && <Separator className="ml-[60px]" />}
+          <View className="flex-row items-center gap-3 px-4 py-2.5">
+            <Skeleton className="size-7 rounded-full" />
+            <Skeleton className="size-9 rounded-full" />
+            <View className="shrink grow">
+              <SkeletonText lineHeight={20} width={i % 2 ? '42%' : '58%'} />
+            </View>
+            <Skeleton className="h-4 w-12 rounded-full" />
+            <View className="size-4" />
+          </View>
         </View>
       ))}
+    </View>
+  );
+}
+
+/** The whole section while the page itself loads: heading, the scope control's footprint, the board. */
+export function LeaderboardSectionSkeleton() {
+  return (
+    <View className="gap-3">
+      <View className="flex-row items-end justify-between">
+        <SkeletonText lineHeight={22} width={112} />
+        <Skeleton className="h-[34px] w-[132px] rounded-full" />
+      </View>
+      <LeaderboardSkeleton />
     </View>
   );
 }

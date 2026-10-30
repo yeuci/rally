@@ -1,28 +1,35 @@
 import { Redirect, router, Stack, useLocalSearchParams } from 'expo-router';
-import { SearchXIcon, TrophyIcon } from 'lucide-react-native';
+import { BanIcon, EllipsisIcon, SearchXIcon, TrophyIcon } from 'lucide-react-native';
 import { useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import { ActionSheetIOS, Alert, Platform, Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import { AchievementBadge } from '@/components/rally/achievements';
+import { ConfirmDialog } from '@/components/rally/confirm-dialog';
 import { EmptyState } from '@/components/rally/empty-state';
-import { ProfileAvatar } from '@/components/rally/profile-avatar';
+import { FriendButtons, FriendButtonsSkeleton } from '@/components/rally/friend-button';
+import { FriendsRowSection, PlayedGamesSection, ProfileHeader, StatsStrip } from '@/components/rally/profile-sections';
 import { SectionHeader } from '@/components/rally/section-header';
 import { Button } from '@/components/ui/button';
+import { Icon } from '@/components/ui/icon';
 import { Separator } from '@/components/ui/separator';
-import { Skeleton } from '@/components/ui/skeleton';
+import { Skeleton, SkeletonText } from '@/components/ui/skeleton';
 import { Text } from '@/components/ui/text';
 import { useSession } from '@/lib/auth/session';
 import { timeAgo } from '@/lib/format';
+import { useFriendship, useFriendshipAction, usePublicFriends, usePublicGames } from '@/lib/friends';
 import { usePublicProfile, usePublicStats, useUserAchievements, type UnlockedAchievement } from '@/lib/game-progress';
 import { GUTTER } from '@/lib/layout';
-import { useProfile, type Profile } from '@/lib/profile';
+import { useProfile } from '@/lib/profile';
 import { formatScore, sameUsername } from '@/lib/progress-format';
+import { blockAction, confirmCopy, describeSocialError } from '@/lib/social';
 import { useColumnPadding, useLayout } from '@/lib/use-layout';
 import { usePalette } from '@/lib/use-palette';
 
 /**
- * Public profile (`/u/:username`, the architecture's deep link): avatar, names, bio, two stats
- * (`public_profile_stats`) and what the player has unlocked across games. Your own username redirects to `/profile`.
- * Portrait: one centred column. Landscape: identity on the left, the achievements list scrolling on the right.
+ * Public profile (`/u/:username`, the architecture's deep link): avatar, names, bio, member since; the friendship
+ * button(s) from `friendship_with`; Games played · Achievements · Friends (`public_profile_stats`); "Games played"
+ * (`public_profile_games`) and "Friends" (`public_friends`), each shown only when the owner's privacy lets the viewer
+ * see a non-empty list; unlocked achievements. Block / Unblock sit in the header's overflow menu. Your own username
+ * redirects to `/profile`. Portrait: one centred column. Landscape: identity on the left, the lists on the right.
  */
 export default function PublicProfileScreen() {
   const { username } = useLocalSearchParams<{ username: string }>();
@@ -34,21 +41,60 @@ export default function PublicProfileScreen() {
   const profile = usePublicProfile(username);
   const p = profile.data;
   const stats = usePublicStats(p?.id);
+  const friendship = useFriendship(p?.id);
+  const games = usePublicGames(p?.id);
+  const friends = usePublicFriends(p?.id);
   const unlocked = useUserAchievements(p?.id);
+  const action = useFriendshipAction();
   const [refreshing, setRefreshing] = useState(false);
+  const [confirming, setConfirming] = useState<'block' | 'unblock' | null>(null);
 
   if (sameUsername(username, me.data?.username) || (p && p.id === userId)) return <Redirect href="/profile" />;
+
+  const status = friendship.data;
+  const blocked = status === 'blocked';
+  const handle = p ? `@${p.username}` : 'this player';
+  const menuAction = status ? blockAction(status) : null;
 
   async function refresh() {
     setRefreshing(true);
     try {
-      await Promise.all([profile.refetch(), stats.refetch(), unlocked.refetch()]);
+      await Promise.all([profile.refetch(), stats.refetch(), friendship.refetch(), games.refetch(), friends.refetch(), unlocked.refetch()]);
     } finally {
       setRefreshing(false);
     }
   }
 
-  const title = <Stack.Screen options={{ title: p ? `@${p.username}` : 'Player' }} />;
+  function openMenu() {
+    if (!menuAction) return;
+    const label = menuAction === 'block' ? `Block ${handle}` : `Unblock ${handle}`;
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options: [label, 'Cancel'], destructiveButtonIndex: menuAction === 'block' ? 0 : undefined, cancelButtonIndex: 1 },
+        (i) => i === 0 && setConfirming(menuAction),
+      );
+    } else {
+      Alert.alert(handle, undefined, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: label, style: menuAction === 'block' ? 'destructive' : 'default', onPress: () => setConfirming(menuAction) },
+      ]);
+    }
+  }
+
+  const header = (
+    <Stack.Screen
+      options={{
+        title: p ? `@${p.username}` : 'Player',
+        headerRight: menuAction
+          ? () => (
+              <Pressable onPress={openMenu} accessibilityRole="button" accessibilityLabel="More" hitSlop={10} className="active:opacity-70">
+                <Icon as={EllipsisIcon} className="text-foreground size-6" />
+              </Pressable>
+            )
+          : undefined,
+      }}
+    />
+  );
   const refreshControl = (
     <RefreshControl
       refreshing={refreshing}
@@ -58,19 +104,36 @@ export default function PublicProfileScreen() {
       progressBackgroundColor={palette.card}
     />
   );
+  const copy = confirming && p ? confirmCopy(confirming, handle) : null;
+  const confirm = copy && p && (
+    <ConfirmDialog
+      open={!!confirming}
+      onOpenChange={(open) => !open && setConfirming(null)}
+      title={copy.title}
+      body={copy.body}
+      action={copy.action}
+      destructive={confirming === 'block'}
+      onConfirm={() => {
+        const intent = confirming;
+        setConfirming(null);
+        if (intent && status) {
+          action.mutate(
+            { userId: p.id, intent, current: status },
+            { onError: (err) => Alert.alert("Couldn't update", describeSocialError(err)) },
+          );
+        }
+      }}
+    />
+  );
 
   if (!profile.isLoading && !p) {
     return (
       <View className="bg-background flex-1 justify-center" style={column}>
-        {title}
+        {header}
         <EmptyState
           icon={SearchXIcon}
           title={profile.isError ? "Couldn't load this player" : 'Player not found'}
-          body={
-            profile.isError
-              ? 'Check your connection and try again.'
-              : `There's no Rally player called @${username ?? ''}.`
-          }
+          body={profile.isError ? 'Check your connection and try again.' : `There's no Rally player called @${username ?? ''}.`}
           className="w-full"
           action={
             <Button variant="secondary" onPress={() => (profile.isError ? void profile.refetch() : router.back())}>
@@ -82,16 +145,41 @@ export default function PublicProfileScreen() {
     );
   }
 
-  const identity = <Identity profile={p} stats={stats.data} statsLoading={stats.isLoading} />;
-  const list = (
-    <Unlocked items={unlocked.data} loading={profile.isLoading || unlocked.isLoading} error={unlocked.isError} />
+  const seeAllFriends = () => p && router.push({ pathname: '/friends', params: { username: p.username } });
+  const identity = (
+    <ProfileHeader profile={p}>
+      {!p || friendship.isLoading ? (
+        <FriendButtonsSkeleton mode="profile" />
+      ) : status && !blocked ? (
+        <FriendButtons userId={p.id} name={handle} status={status} mode="profile" />
+      ) : null}
+      <StatsStrip
+        stats={stats.data}
+        loading={!p || stats.isLoading}
+        onFriendsPress={friends.data && friends.data.length > 0 ? seeAllFriends : undefined}
+      />
+    </ProfileHeader>
+  );
+  const lists = blocked ? (
+    <EmptyState
+      compact
+      icon={BanIcon}
+      title={`You blocked ${handle}`}
+      body="Unblock them from the ⋯ menu to see their games and send requests again."
+    />
+  ) : (
+    <>
+      <PlayedGamesSection games={games.data} loading={!p || games.isLoading} error={games.isError} />
+      <FriendsRowSection friends={friends.data} total={stats.data?.friends} loading={!p || friends.isLoading} onSeeAll={seeAllFriends} />
+      <Unlocked items={unlocked.data} loading={!p || unlocked.isLoading} error={unlocked.isError} />
+    </>
   );
 
   if (landscape) {
     const left = Math.round((width - insets.left - insets.right) * 0.4);
     return (
       <View className="bg-background flex-1 flex-row" style={{ paddingLeft: insets.left, paddingRight: insets.right }}>
-        {title}
+        {header}
         <ScrollView
           style={{ width: left, flexGrow: 0 }}
           contentContainerClassName="gap-5 pt-4"
@@ -101,12 +189,13 @@ export default function PublicProfileScreen() {
         </ScrollView>
         <ScrollView
           className="flex-1"
-          contentContainerClassName="pt-4"
+          contentContainerClassName="gap-6 pt-4"
           contentContainerStyle={{ paddingLeft: 12, paddingRight: GUTTER, paddingBottom: insets.bottom + 24 }}
           refreshControl={refreshControl}
         >
-          {list}
+          {lists}
         </ScrollView>
+        {confirm}
       </View>
     );
   }
@@ -118,86 +207,30 @@ export default function PublicProfileScreen() {
       contentContainerStyle={[column, { paddingBottom: insets.bottom + 32 }]}
       refreshControl={refreshControl}
     >
-      {title}
+      {header}
       {identity}
-      {list}
+      {lists}
+      {confirm}
     </ScrollView>
   );
 }
 
-function Identity({
-  profile: p,
-  stats,
-  statsLoading,
-}: {
-  profile: Profile | null | undefined;
-  stats: { achievements: number; gamesPlayed: number } | undefined;
-  statsLoading: boolean;
-}) {
-  return (
-    <View className="items-center gap-4">
-      <ProfileAvatar profile={p} size="xl" ring />
-      {p ? (
-        <View className="items-center gap-1">
-          <Text className="text-center text-[26px] font-extrabold leading-8 tracking-tight">
-            {p.display_name || p.username}
-          </Text>
-          <Text className="text-muted-foreground text-[15px] font-medium">@{p.username}</Text>
-        </View>
-      ) : (
-        <View className="items-center gap-2">
-          <Skeleton className="h-7 w-40 rounded-lg" />
-          <Skeleton className="h-4 w-24 rounded-full" />
-        </View>
-      )}
-      {p?.bio ? <Text className="text-secondary-foreground max-w-sm text-center leading-6">{p.bio}</Text> : null}
-      <View className="w-full max-w-sm flex-row gap-3">
-        <Stat label="Achievements" value={stats?.achievements} loading={!p || statsLoading} />
-        <Stat label="Games played" value={stats?.gamesPlayed} loading={!p || statsLoading} />
-      </View>
-    </View>
-  );
-}
-
-function Stat({ label, value, loading }: { label: string; value: number | undefined; loading: boolean }) {
-  return (
-    <View className="bg-card border-border flex-1 items-center gap-1 rounded-2xl border px-3 py-3">
-      {loading ? (
-        <Skeleton className="h-7 w-10 rounded-lg" />
-      ) : (
-        <Text className="text-[22px] font-extrabold">{formatScore(value ?? 0)}</Text>
-      )}
-      <Text variant="muted" className="text-[13px]">
-        {label}
-      </Text>
-    </View>
-  );
-}
-
-function Unlocked({
-  items,
-  loading,
-  error,
-}: {
-  items: UnlockedAchievement[] | undefined;
-  loading: boolean;
-  error: boolean;
-}) {
+/** Unlocked achievements across games, newest first; rows open the game. */
+function Unlocked({ items, loading, error }: { items: UnlockedAchievement[] | undefined; loading: boolean; error: boolean }) {
   return (
     <View className="gap-3">
-      <SectionHeader
-        title="Achievements"
-        detail={items && items.length > 0 ? formatScore(items.length) : undefined}
-        className="px-0"
-      />
+      <SectionHeader title="Achievements" detail={items && items.length > 0 ? formatScore(items.length) : undefined} className="px-0" />
       {loading ? (
-        <View className="bg-card border-border gap-3 rounded-2xl border p-4">
+        <View className="bg-card border-border overflow-hidden rounded-2xl border">
           {[0, 1, 2].map((i) => (
-            <View key={i} className="flex-row items-center gap-3">
-              <Skeleton className="size-10 rounded-xl" />
-              <View className="flex-1 gap-1.5">
-                <Skeleton className="h-4 w-2/3 rounded-full" />
-                <Skeleton className="h-3 w-1/3 rounded-full" />
+            <View key={i}>
+              {i > 0 && <Separator className="ml-[68px]" />}
+              <View className="flex-row items-center gap-3 px-4 py-3">
+                <Skeleton className="size-10 rounded-xl" />
+                <View className="flex-1">
+                  <SkeletonText lineHeight={20} width={i % 2 ? '50%' : '66%'} />
+                  <SkeletonText lineHeight={18} width="36%" />
+                </View>
               </View>
             </View>
           ))}
@@ -205,12 +238,7 @@ function Unlocked({
       ) : error ? (
         <EmptyState compact icon={TrophyIcon} title="Couldn't load achievements" body="Pull down to try again." />
       ) : !items || items.length === 0 ? (
-        <EmptyState
-          compact
-          icon={TrophyIcon}
-          title="No achievements yet"
-          body="Unlocked achievements from every game show up here."
-        />
+        <EmptyState compact icon={TrophyIcon} title="No achievements yet" body="Unlocked achievements from every game show up here." />
       ) : (
         <View className="bg-card border-border overflow-hidden rounded-2xl border">
           {items.map((a, i) => (
@@ -223,11 +251,11 @@ function Unlocked({
                 className="flex-row items-center gap-3 px-4 py-3 active:opacity-70"
               >
                 <AchievementBadge icon={a.icon} locked={false} size={40} />
-                <View className="shrink grow gap-0.5">
-                  <Text className="text-[15px] font-semibold" numberOfLines={1}>
+                <View className="shrink grow">
+                  <Text className="text-[15px] font-semibold leading-5" numberOfLines={1}>
                     {a.title}
                   </Text>
-                  <Text className="text-muted-foreground text-[13px]" numberOfLines={1}>
+                  <Text className="text-muted-foreground text-[13px] leading-[18px]" numberOfLines={1}>
                     {[a.game?.title, timeAgo(a.unlockedAt)].filter(Boolean).join(' · ')}
                   </Text>
                 </View>

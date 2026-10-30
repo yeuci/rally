@@ -115,3 +115,25 @@ export function pageIndex(offset: number, interval: number, count: number): numb
   if (interval <= 0 || count <= 0) return 0;
   return Math.max(0, Math.min(count - 1, Math.round(offset / interval)));
 }
+
+/** Width of one avatar cell (avatar + username under it) in the profile's friends row. */
+export const FRIEND_CELL_WIDTH = 64;
+
+/**
+ * Friends that fit side by side in `contentW` with ROW_GAP between them (the row does not scroll; "See all" opens the
+ * full list). At least 1 when there is any width.
+ */
+export function avatarRowCapacity(contentW: number, cellW = FRIEND_CELL_WIDTH, gap = ROW_GAP): number {
+  if (contentW <= 0 || cellW <= 0) return 0;
+  return Math.max(1, Math.floor((contentW + gap) / (cellW + gap)));
+}
+
+/**
+ * Portrait game page: how far the title bar has slid in (0 hidden … 1 shown) at `scrollY`. It starts once the hero's
+ * bottom is `fadeDistance` above the bar's lower edge and is fully in when the hero has scrolled behind the bar.
+ * Mirrored in the scroll worklet (Reanimated `interpolate` with the same input range).
+ */
+export function titleBarRange(heroHeight: number, barHeight: number, fadeDistance = 48): [number, number] {
+  const end = Math.max(1, heroHeight - barHeight);
+  return [Math.max(0, end - fadeDistance), end];
+}

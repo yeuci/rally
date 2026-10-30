@@ -4,7 +4,7 @@ import { EmptyState } from '@/components/rally/empty-state';
 import { Image } from '@/components/rally/image';
 import { SectionHeader } from '@/components/rally/section-header';
 import { Icon } from '@/components/ui/icon';
-import { Skeleton } from '@/components/ui/skeleton';
+import { Skeleton, SkeletonText } from '@/components/ui/skeleton';
 import { Text } from '@/components/ui/text';
 import { gridColumns, gridTileWidth, ROW_GAP } from '@/lib/layout';
 import { achievementCount, type AchievementIcon, type AchievementTile } from '@/lib/progress-format';
@@ -33,7 +33,7 @@ export function AchievementBadge({
       {locked ? (
         <Icon as={LockIcon} className="text-muted-foreground" size={glyph} />
       ) : icon.kind === 'image' ? (
-        <Image source={{ uri: icon.uri }} className="absolute inset-0" contentFit="cover" transition={150} />
+        <Image source={{ uri: icon.uri }} className="absolute inset-0" contentFit="cover" transition={150} placeholderClassName="rounded-xl" />
       ) : icon.kind === 'glyph' ? (
         <Text style={{ fontSize: glyph, lineHeight: Math.round(glyph * 1.25) }}>{icon.text}</Text>
       ) : (
@@ -73,11 +73,7 @@ export function AchievementsSection({
       />
       <View onLayout={box.onLayout}>
         {loading ? (
-          <View className="flex-row gap-3">
-            {[0, 1, 2].map((i) => (
-              <Skeleton key={i} className="h-32 flex-1 rounded-2xl" />
-            ))}
-          </View>
+          <AchievementGridSkeleton tileWidth={tileWidth} columns={columns} />
         ) : error ? (
           <EmptyState
             compact
@@ -113,6 +109,43 @@ function Tile({ tile: t, width }: { tile: AchievementTile; width: number }) {
         <Text className="text-muted-foreground text-[12px] leading-4" numberOfLines={2}>
           {t.secret ? 'Hidden until unlocked' : t.description || (t.unlocked ? 'Unlocked' : 'Locked')}
         </Text>
+      </View>
+    </View>
+  );
+}
+
+/** One row of placeholder tiles with the real tile's box (badge, title line, two description lines). */
+function AchievementGridSkeleton({ tileWidth, columns }: { tileWidth: number; columns: number }) {
+  if (tileWidth <= 0) return <View style={{ height: TILE_SKELETON_HEIGHT }} />;
+  return (
+    <View className="flex-row flex-wrap" style={{ gap: ROW_GAP }}>
+      {Array.from({ length: columns }, (_, i) => (
+        <View key={i} className="bg-card border-border gap-2.5 rounded-2xl border p-3" style={{ width: tileWidth }}>
+          <Skeleton className="size-10 rounded-xl" />
+          <View className="gap-0.5">
+            <SkeletonText lineHeight={18} width="70%" />
+            <SkeletonText lineHeight={16} width="90%" />
+            <SkeletonText lineHeight={16} width="50%" />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/** p-3 + 40 badge + gap + 18 + 2 × 16 + gaps + borders. */
+const TILE_SKELETON_HEIGHT = 24 + 40 + 10 + 18 + 32 + 4 + 2;
+
+/** The section while the game page itself loads: heading and a row of placeholder tiles (measured like the real grid). */
+export function AchievementsSectionSkeleton() {
+  const box = useBoxSize();
+  const width = box.size?.width ?? 0;
+  const columns = gridColumns(width);
+  return (
+    <View className="gap-3">
+      <SkeletonText lineHeight={22} width={124} />
+      <View onLayout={box.onLayout}>
+        <AchievementGridSkeleton tileWidth={width > 0 ? gridTileWidth(width, columns) : 0} columns={columns} />
       </View>
     </View>
   );

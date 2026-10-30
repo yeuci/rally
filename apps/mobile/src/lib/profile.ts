@@ -2,6 +2,8 @@ import { PROFILE_COLUMNS, type Tables, type TablesUpdate } from '@rally/db';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSession } from '@/lib/auth/session';
 import { resolveAvatarPath } from '@/lib/avatar';
+import { privacyKey } from '@/lib/privacy';
+import type { PrivacySettings } from '@/lib/social';
 import { supabase } from '@/lib/supabase';
 
 /**
@@ -9,7 +11,10 @@ import { supabase } from '@/lib/supabase';
  * `select('*')` (or naming either column) fails the whole query with "permission denied".
  */
 export type Profile = Pick<Tables<'profiles'>, 'id' | 'username' | 'display_name' | 'avatar_url' | 'bio' | 'created_at' | 'updated_at'>;
-export type ProfileUpdate = Pick<TablesUpdate<'profiles'>, 'username' | 'display_name' | 'bio' | 'avatar_url'>;
+export type ProfileUpdate = Pick<TablesUpdate<'profiles'>, 'username' | 'display_name' | 'bio' | 'avatar_url'> & {
+  /** Never selectable by clients (read with `my_privacy`, lib/privacy.ts); written whole (lib/social.ts `privacyPatch`). */
+  privacy?: PrivacySettings;
+};
 
 export const profileKey = (userId: string | null) => ['profile', userId] as const;
 
@@ -34,11 +39,24 @@ export function useUpdateProfile() {
   return useMutation({
     mutationFn: async (patch: ProfileUpdate): Promise<Profile> => {
       if (!userId) throw new Error('Not signed in');
-      const { data, error } = await supabase.from('profiles').update(patch).eq('id', userId).select(PROFILE_COLUMNS).single();
+      const { privacy, ...columns } = patch;
+      const { data, error } = await supabase
+        .from('profiles')
+        .update(privacy ? { ...columns, privacy: { games: privacy.games, friends: privacy.friends } } : columns)
+        .eq('id', userId)
+        .select(PROFILE_COLUMNS)
+        .single();
       if (error) throw error;
       return data;
     },
-    onSuccess: (profile) => qc.setQueryData(profileKey(profile.id), profile),
+    onSuccess: (profile, patch) => {
+      qc.setQueryData(profileKey(profile.id), profile);
+      if (patch.privacy) {
+        qc.setQueryData(privacyKey(profile.id), patch.privacy);
+        // What others can see of this profile changed.
+        void qc.invalidateQueries({ queryKey: ['social'] });
+      }
+    },
   });
 }
 

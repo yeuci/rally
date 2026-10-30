@@ -1,12 +1,22 @@
 import { router } from 'expo-router';
-import { ChevronRightIcon, GaugeIcon, LifeBuoyIcon, LogOutIcon, PencilIcon, Trash2Icon, WrenchIcon, type LucideIcon } from 'lucide-react-native';
+import {
+  ChevronRightIcon,
+  GaugeIcon,
+  LifeBuoyIcon,
+  LogOutIcon,
+  PencilIcon,
+  Trash2Icon,
+  UsersIcon,
+  WrenchIcon,
+  type LucideIcon,
+} from 'lucide-react-native';
 import { useState } from 'react';
-import { Linking, Pressable, ScrollView, View, useWindowDimensions } from 'react-native';
+import { Linking, Pressable, RefreshControl, ScrollView, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ErrorText } from '@/components/rally/form-field';
 import { Glow } from '@/components/rally/glow';
 import { LogoMark } from '@/components/rally/logo';
-import { ProfileAvatar } from '@/components/rally/profile-avatar';
+import { LinkRow, PlayedGamesSection, ProfileHeader, StatsStrip } from '@/components/rally/profile-sections';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,13 +31,17 @@ import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Text } from '@/components/ui/text';
 import { config } from '@/config';
 import { describeAuthError } from '@/lib/auth/errors';
 import { signOut } from '@/lib/auth/providers';
+import { useFriendRequests, usePublicGames } from '@/lib/friends';
+import { usePublicStats } from '@/lib/game-progress';
 import { prefs, usePrefs } from '@/lib/prefs';
 import { useProfile } from '@/lib/profile';
+import { formatScore } from '@/lib/progress-format';
+import { countBadge } from '@/lib/social';
+import { usePalette } from '@/lib/use-palette';
 import { useColumnPadding } from '@/lib/use-layout';
 import { cn } from '@/lib/utils';
 
@@ -43,6 +57,22 @@ export default function ProfileScreen() {
   const [signingOut, setSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState<string | null>(null);
   const p = profile.data;
+  const palette = usePalette();
+  const stats = usePublicStats(p?.id);
+  const games = usePublicGames(p?.id);
+  const requests = useFriendRequests();
+  const incoming = countBadge(requests.data?.incoming.length);
+  const [refreshing, setRefreshing] = useState(false);
+
+  async function refresh() {
+    setRefreshing(true);
+    try {
+      await Promise.all([profile.refetch(), stats.refetch(), games.refetch(), requests.refetch()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+  const openFriends = (tab?: 'requests') => router.push({ pathname: '/friends', params: tab ? { tab } : {} });
 
   async function onSignOut() {
     if (signingOut) return;
@@ -67,29 +97,38 @@ export default function ProfileScreen() {
       className="bg-background flex-1"
       contentContainerClassName="gap-6 pt-6"
       contentContainerStyle={[column, { paddingBottom: insets.bottom + 32 }]}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={() => void refresh()}
+          tintColor={palette.foreground}
+          colors={[palette.foreground]}
+          progressBackgroundColor={palette.card}
+        />
+      }
     >
       {/* Centred on the window from its live width (absolute: measured from the container's edge, not its padding). */}
       <Glow size={glow} style={{ top: -glow / 2, left: width / 2 - glow / 2 }} />
 
-      <View className="items-center gap-4">
-        <ProfileAvatar profile={p} size="xl" ring />
-        {p ? (
-          <View className="items-center gap-1">
-            <Text className="text-center text-[26px] font-extrabold leading-8 tracking-tight">{p.display_name || p.username}</Text>
-            <Text className="text-muted-foreground text-[15px] font-medium">@{p.username}</Text>
-          </View>
-        ) : (
-          <View className="items-center gap-2">
-            <Skeleton className="h-7 w-40 rounded-lg" />
-            <Skeleton className="h-4 w-24 rounded-full" />
-          </View>
-        )}
-        {p?.bio ? <Text className="text-secondary-foreground max-w-sm text-center leading-6">{p.bio}</Text> : null}
+      <ProfileHeader profile={p}>
         <Button variant="outline" size="sm" className="rounded-full px-4" onPress={() => router.push('/profile/edit')} disabled={!p}>
           <Icon as={PencilIcon} className="size-3.5" />
           <Text>Edit profile</Text>
         </Button>
+        <StatsStrip stats={stats.data} loading={!p || stats.isLoading} onFriendsPress={() => openFriends()} />
+      </ProfileHeader>
+
+      <View className="bg-card border-border overflow-hidden rounded-2xl border">
+        <LinkRow
+          icon={UsersIcon}
+          label="Friends"
+          value={stats.data ? formatScore(stats.data.friends) : undefined}
+          badge={incoming}
+          onPress={() => openFriends(incoming ? 'requests' : undefined)}
+        />
       </View>
+
+      <PlayedGamesSection games={games.data} loading={!p || games.isLoading} error={games.isError} own />
 
       <View className="bg-card border-border overflow-hidden rounded-2xl border">
         <ToggleRow icon={GaugeIcon} label="Show FPS in games" value={showFps} onChange={(showFps) => prefs.update({ showFps })} />

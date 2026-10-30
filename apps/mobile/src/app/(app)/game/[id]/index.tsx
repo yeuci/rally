@@ -13,26 +13,35 @@ import {
   UsersIcon,
   type LucideIcon,
 } from 'lucide-react-native';
-import { useState, type ReactNode } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, View } from 'react-native';
-import { AchievementsSection } from '@/components/rally/achievements';
+import { useState } from 'react';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import Animated, {
+  Extrapolation,
+  interpolate,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useDerivedValue,
+  useSharedValue,
+  type SharedValue,
+} from 'react-native-reanimated';
+import { AchievementsSection, AchievementsSectionSkeleton } from '@/components/rally/achievements';
 import { ConsentDialog } from '@/components/rally/consent-dialog';
 import { EmptyState } from '@/components/rally/empty-state';
 import { CoverScrim, GameCover } from '@/components/rally/game-cover';
 import { Image } from '@/components/rally/image';
-import { LeaderboardSection } from '@/components/rally/leaderboard';
+import { LeaderboardSection, LeaderboardSectionSkeleton } from '@/components/rally/leaderboard';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { Separator } from '@/components/ui/separator';
-import { Skeleton } from '@/components/ui/skeleton';
+import { Skeleton, SkeletonText } from '@/components/ui/skeleton';
 import { Text } from '@/components/ui/text';
 import { useSession } from '@/lib/auth/session';
 import { playersLabel, useFavorites, useGame, useToggleFavorite, type Game } from '@/lib/catalog';
 import { coverUriFor, heroScreenshots } from '@/lib/game-art';
 import { progressKeys, useGameAchievements, useGameBoards, useMyRank } from '@/lib/game-progress';
 import { fetchConsent, fetchLaunchPlan, launchKeys, useGrantConsent, useLaunchPlan } from '@/lib/launch';
-import { GUTTER, gameCoverColumnWidth, gameHeroHeight, pageIndex } from '@/lib/layout';
+import { GUTTER, gameCoverColumnWidth, gameHeroHeight, pageIndex, titleBarRange } from '@/lib/layout';
 import { useProfile } from '@/lib/profile';
 import { formatScore, orderBoards } from '@/lib/progress-format';
 import { useBoxSize, useLayout } from '@/lib/use-layout';
@@ -83,6 +92,12 @@ export default function GamePage() {
   const [consentOpen, setConsentOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Portrait: the scroll offset drives the title bar that slides in once the hero has scrolled away (UI thread).
+  const scrollY = useSharedValue(0);
+  const onScroll = useAnimatedScrollHandler((e) => {
+    scrollY.value = e.contentOffset.y;
+  });
+
   const g = game.data;
   const manifest = plan.data?.status === 'ready' ? plan.data.manifest : null;
   // Manifest order first: its first board is the primary one ("Best" in Details).
@@ -94,6 +109,12 @@ export default function GamePage() {
   // Landscape keeps clear of the home indicator / camera housing even where the inset is 0.
   const edgeTop = Math.max(insets.top, 12);
   const edgeBottom = Math.max(insets.bottom, 12);
+  // The bar covers the status bar plus a 60 pt row centred on the floating buttons (top + 8, 44 pt).
+  const barHeight = insets.top + 60;
+  const [barStart, barEnd] = titleBarRange(heroHeight, barHeight);
+  const barProgress = useDerivedValue(() =>
+    interpolate(scrollY.value, [barStart, barEnd], [0, 1], Extrapolation.CLAMP),
+  );
 
   const back = () => (router.canGoBack() ? router.back() : router.replace('/'));
   const openHost = () => router.push({ pathname: '/game/[id]/play', params: { id } });
@@ -149,7 +170,7 @@ export default function GamePage() {
     return landscape ? (
       <GamePageSkeletonLandscape coverWidth={coverWidth} insets={insets} edgeTop={edgeTop} edgeBottom={edgeBottom} />
     ) : (
-      <GamePageSkeleton heroHeight={heroHeight} bottomInset={insets.bottom} pad={pad} />
+      <GamePageSkeleton heroHeight={heroHeight} bottomInset={insets.bottom} pad={pad} topInset={insets.top} />
     );
   }
 
@@ -196,20 +217,21 @@ export default function GamePage() {
       progressBackgroundColor={palette.card}
     />
   );
-  const controls = (
+  // In landscape the buttons sit over the cover column and never turn into bar buttons.
+  const controls = (overBar: SharedValue<number> | null) => (
     <>
-      <RoundButton label="Back" onPress={back}>
-        <Icon as={ChevronLeftIcon} className="size-6 text-white" />
-      </RoundButton>
+      <RoundButton label="Back" onPress={back} icon={ChevronLeftIcon} iconClassName="size-6" progress={overBar} />
       <RoundButton
         label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
         selected={isFavorite}
         onPress={() => toggleFavorite.mutate({ game: g, favorite: !isFavorite })}
-      >
-        <Icon as={HeartIcon} className={cn('size-5', isFavorite ? 'text-primary-foreground fill-primary-foreground' : 'text-white')} />
-      </RoundButton>
+        icon={HeartIcon}
+        iconClassName="size-5"
+        progress={overBar}
+      />
     </>
   );
+  const gallery = heroScreenshots(g).length > 1;
   const playButton = (
     <PlayButton
       resolving={resolving}
@@ -241,7 +263,7 @@ export default function GamePage() {
         <View style={{ width: coverWidth, paddingTop: edgeTop, paddingBottom: edgeBottom, paddingLeft: GUTTER }}>
           <View className="border-border flex-1 overflow-hidden rounded-3xl border">
             <HeroMedia game={g} scrim="none" dotsClassName="bottom-4" />
-            <View className="absolute left-3 right-3 top-3 flex-row justify-between">{controls}</View>
+            <View className="absolute left-3 right-3 top-3 flex-row justify-between">{controls(null)}</View>
           </View>
         </View>
         <ScrollView
@@ -262,24 +284,32 @@ export default function GamePage() {
 
   return (
     <View className="bg-background flex-1">
-      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 120 }} refreshControl={refreshControl}>
+      <Animated.ScrollView
+        contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
+        refreshControl={refreshControl}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+      >
         <View style={{ height: heroHeight }}>
-          <HeroMedia game={g} scrim="fade" scrimColor={palette.background} dotsClassName="bottom-16" />
+          {/* Gallery dots sit on the hero's bottom edge; the title then starts below the hero instead of over it. */}
+          <HeroMedia game={g} scrim="fade" scrimColor={palette.background} dotsClassName="bottom-2" />
         </View>
-        <View className="-mt-10 gap-6" style={{ paddingLeft: pad.left, paddingRight: pad.right }}>
+        <View className={cn('gap-6', gallery ? 'mt-3' : '-mt-10')} style={{ paddingLeft: pad.left, paddingRight: pad.right }}>
           <TitleBlock game={g} orientation={orientation} />
           <About game={g} orientation={orientation} version={version} best={bestLabel} />
           {progress}
         </View>
-      </ScrollView>
+      </Animated.ScrollView>
 
-      {/* Floating controls over the hero, inside the safe area on both sides */}
+      <TitleBar title={g.title} height={barHeight} topInset={insets.top} sideInset={Math.max(pad.left, pad.right) + 56} progress={barProgress} />
+
+      {/* Floating controls over the hero (then over the title bar), inside the safe area on both sides */}
       <View
         className="absolute left-0 right-0 flex-row justify-between"
         style={{ top: insets.top + 8, paddingLeft: pad.left, paddingRight: pad.right }}
         pointerEvents="box-none"
       >
-        {controls}
+        {controls(barProgress)}
       </View>
 
       {/* Sticky Play above the home indicator: fades the page out above it instead of a hard border */}
@@ -334,7 +364,7 @@ function HeroMedia({
       ) : box.size ? (
         <Gallery key={box.key} shots={shots} width={box.size.width} height={box.size.height} dotsClassName={dotsClassName} />
       ) : (
-        <View className="bg-muted flex-1" />
+        <Skeleton className="flex-1 rounded-none" />
       )}
       {shots.length > 0 && scrim === 'fade' && <CoverScrim kind="fade" photo color={scrimColor} />}
     </View>
@@ -410,7 +440,7 @@ function About({
     <>
       {g.description ? <Text className="text-secondary-foreground text-base leading-[25px]">{g.description}</Text> : null}
       <View className="gap-3">
-        <Text className="text-[17px] font-bold tracking-tight" role="heading">
+        <Text className="text-[17px] font-bold leading-[22px] tracking-tight" role="heading">
           Details
         </Text>
         <View className="bg-card border-border gap-3 rounded-2xl border p-4">
@@ -477,24 +507,80 @@ function PlayButton({
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <View className="flex-row justify-between gap-4">
-      <Text variant="muted">{label}</Text>
-      <Text className="shrink text-right text-sm font-semibold">{value}</Text>
+      <Text variant="muted" className="leading-5">
+        {label}
+      </Text>
+      <Text className="shrink text-right text-sm font-semibold leading-5">{value}</Text>
     </View>
   );
 }
 
-/** Glass button over the hero; `selected` fills it with the primary (foreground) colour (favorited). */
+/**
+ * Solid bar (page background, hairline) with the game's title that slides down and fades in once the hero has
+ * scrolled away, App-Store style; the floating buttons stay on top of it. Driven on the UI thread by `progress`
+ * (0 hidden … 1 shown, from the scroll offset). Touch-transparent: the buttons over it are separate.
+ */
+function TitleBar({
+  title,
+  height,
+  topInset,
+  sideInset,
+  progress,
+}: {
+  title: string;
+  height: number;
+  topInset: number;
+  sideInset: number;
+  progress: SharedValue<number>;
+}) {
+  const style = useAnimatedStyle(() => ({
+    opacity: progress.value,
+    transform: [{ translateY: (progress.value - 1) * height * 0.6 }],
+  }));
+  const titleStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(progress.value, [0.6, 1], [0, 1], Extrapolation.CLAMP),
+  }));
+  return (
+    <Animated.View
+      className="bg-background border-border absolute left-0 right-0 top-0 border-b"
+      style={[{ height, paddingTop: topInset, paddingLeft: sideInset, paddingRight: sideInset }, style]}
+      pointerEvents="none"
+      importantForAccessibility="no-hide-descendants"
+      accessibilityElementsHidden
+    >
+      <View className="flex-1 items-center justify-center">
+        <Animated.View style={titleStyle}>
+          <Text className="text-[17px] font-bold leading-[22px]" numberOfLines={1}>
+            {title}
+          </Text>
+        </Animated.View>
+      </View>
+    </Animated.View>
+  );
+}
+
+/**
+ * Round button over the hero: glass (dark translucent, white icon) over the art; with `progress` it cross-fades to a
+ * plain foreground icon as the title bar slides in under it. `selected` fills it with the primary colour (favorited)
+ * in both states.
+ */
 function RoundButton({
   label,
   onPress,
   selected,
-  children,
+  icon,
+  iconClassName,
+  progress,
 }: {
   label: string;
   onPress: () => void;
   selected?: boolean;
-  children: ReactNode;
+  icon: LucideIcon;
+  iconClassName: string;
+  progress: SharedValue<number> | null;
 }) {
+  const glass = useAnimatedStyle(() => ({ opacity: progress ? 1 - progress.value : 1 }));
+  const plain = useAnimatedStyle(() => ({ opacity: progress ? progress.value : 0 }));
   return (
     <Pressable
       accessibilityRole="button"
@@ -502,30 +588,58 @@ function RoundButton({
       accessibilityState={selected === undefined ? undefined : { selected }}
       onPress={onPress}
       hitSlop={8}
-      className={cn(
-        'size-11 items-center justify-center rounded-full border active:opacity-70',
-        selected ? 'bg-primary border-primary' : 'border-white/15 bg-black/35',
-      )}
+      className={cn('size-11 items-center justify-center rounded-full active:opacity-70', selected && 'bg-primary')}
     >
-      {children}
+      {selected ? (
+        <Icon as={icon} className={cn('text-primary-foreground fill-primary-foreground', iconClassName)} />
+      ) : (
+        <>
+          <Animated.View style={[StyleSheet.absoluteFill, glass]} className="rounded-full border border-white/15 bg-black/35" />
+          <Animated.View style={glass}>
+            <Icon as={icon} className={cn('text-white', iconClassName)} />
+          </Animated.View>
+          <Animated.View style={[StyleSheet.absoluteFill, plain]} className="items-center justify-center">
+            <Icon as={icon} className={cn('text-foreground', iconClassName)} />
+          </Animated.View>
+        </>
+      )}
     </Pressable>
   );
 }
 
-function GamePageSkeleton({ heroHeight, bottomInset, pad }: { heroHeight: number; bottomInset: number; pad: { left: number; right: number } }) {
+/** Portrait page while the game loads: hero, title, chips, description, Details, leaderboard, achievements, Play. */
+function GamePageSkeleton({
+  heroHeight,
+  bottomInset,
+  topInset,
+  pad,
+}: {
+  heroHeight: number;
+  bottomInset: number;
+  topInset: number;
+  pad: { left: number; right: number };
+}) {
   const padStyle = { paddingLeft: pad.left, paddingRight: pad.right };
   return (
     <View className="bg-background flex-1">
-      <Skeleton className="w-full rounded-none" style={{ height: heroHeight }} />
-      <View className="-mt-10 gap-3" style={padStyle}>
-        <Skeleton className="h-9 w-56 rounded-lg" />
-        <ChipSkeletons />
-        <Skeleton className="mt-3 h-4 w-full" />
-        <Skeleton className="h-4 w-11/12" />
-        <Skeleton className="h-4 w-2/3" />
-        <Skeleton className="mt-4 h-36 w-full rounded-2xl" />
+      <ScrollView scrollEnabled={false} contentContainerStyle={{ paddingBottom: bottomInset + 120 }}>
+        <Skeleton className="w-full rounded-none" style={{ height: heroHeight }} />
+        <View className="-mt-10 gap-6" style={padStyle}>
+          <TitleBlockSkeleton />
+          <AboutSkeleton />
+          <LeaderboardSectionSkeleton />
+          <AchievementsSectionSkeleton />
+        </View>
+      </ScrollView>
+      <View
+        className="absolute left-0 right-0 flex-row justify-between"
+        style={{ top: topInset + 8, paddingLeft: pad.left, paddingRight: pad.right }}
+        pointerEvents="none"
+      >
+        <View className="size-11 rounded-full border border-white/15 bg-black/35" />
+        <View className="size-11 rounded-full border border-white/15 bg-black/35" />
       </View>
-      <View className="absolute bottom-0 left-0 right-0" style={[padStyle, { paddingBottom: bottomInset + 12 }]}>
+      <View className="bg-background absolute bottom-0 left-0 right-0 pt-1" style={[padStyle, { paddingBottom: bottomInset + 12 }]}>
         <Skeleton className="h-14 w-full rounded-2xl" />
       </View>
     </View>
@@ -548,24 +662,57 @@ function GamePageSkeletonLandscape({
       <View style={{ width: coverWidth, paddingTop: edgeTop, paddingBottom: edgeBottom, paddingLeft: GUTTER }}>
         <Skeleton className="flex-1 rounded-3xl" />
       </View>
-      <View className="flex-1 gap-3" style={{ paddingTop: edgeTop + 4, paddingLeft: 24, paddingRight: GUTTER }}>
-        <Skeleton className="h-9 w-56 rounded-lg" />
-        <ChipSkeletons />
-        <Skeleton className="mt-3 h-14 w-full rounded-2xl" />
-        <Skeleton className="mt-3 h-4 w-full" />
-        <Skeleton className="h-4 w-2/3" />
+      <ScrollView
+        scrollEnabled={false}
+        className="flex-1"
+        contentContainerClassName="gap-6"
+        contentContainerStyle={{ paddingTop: edgeTop + 4, paddingBottom: edgeBottom + 24, paddingLeft: 24, paddingRight: GUTTER }}
+      >
+        <TitleBlockSkeleton />
+        <Skeleton className="h-14 w-full rounded-2xl" />
+        <AboutSkeleton />
+      </ScrollView>
+    </View>
+  );
+}
+
+/** TitleBlock's footprint: one 40 pt title line and a row of 26 pt chips. */
+function TitleBlockSkeleton() {
+  return (
+    <View className="gap-3">
+      <SkeletonText lineHeight={40} width={224} barClassName="rounded-lg" />
+      <View className="flex-row gap-2">
+        {[64, 52, 40, 96].map((w, i) => (
+          <Skeleton key={i} className="h-[26px] rounded-full" style={{ width: w }} />
+        ))}
       </View>
     </View>
   );
 }
 
-function ChipSkeletons() {
+/** About's footprint: three 25 pt description lines, then Details with the same rows and separators as InfoRow. */
+function AboutSkeleton() {
   return (
-    <View className="flex-row gap-2">
-      <Skeleton className="h-6 w-16 rounded-full" />
-      <Skeleton className="h-6 w-12 rounded-full" />
-      <Skeleton className="h-6 w-10 rounded-full" />
-      <Skeleton className="h-6 w-24 rounded-full" />
-    </View>
+    <>
+      <View>
+        <SkeletonText lineHeight={25} width="100%" />
+        <SkeletonText lineHeight={25} width="92%" />
+        <SkeletonText lineHeight={25} width="64%" />
+      </View>
+      <View className="gap-3">
+        <SkeletonText lineHeight={22} width={72} />
+        <View className="bg-card border-border gap-3 rounded-2xl border p-4">
+          {[0, 1, 2, 3].map((i) => (
+            <View key={i} className="gap-3">
+              {i > 0 && <Separator />}
+              <View className="flex-row justify-between gap-4">
+                <SkeletonText lineHeight={20} width={72} />
+                <SkeletonText lineHeight={20} width={i === 1 ? 140 : 88} />
+              </View>
+            </View>
+          ))}
+        </View>
+      </View>
+    </>
   );
 }
