@@ -32,6 +32,21 @@ export type Database = {
         }
         Relationships: []
       }
+      default_avatars: {
+        Row: {
+          path: string
+          sort: number
+        }
+        Insert: {
+          path: string
+          sort: number
+        }
+        Update: {
+          path?: string
+          sort?: number
+        }
+        Relationships: []
+      }
       favorites: {
         Row: {
           created_at: string
@@ -339,6 +354,7 @@ export type Database = {
     }
     Functions: {
       contains_banned_word: { Args: { input: string }; Returns: boolean }
+      random_default_avatar: { Args: never; Returns: string }
       record_play: {
         Args: { p_game_id: string; p_playtime_s?: number }
         Returns: undefined

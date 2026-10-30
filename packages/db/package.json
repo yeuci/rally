@@ -21,7 +21,8 @@
     "db:push:seed": "supabase db push --linked --include-seed",
     "db:new": "supabase migration new",
     "gen:types": "supabase gen types typescript --linked --schema public > src/types.gen.ts && mv src/types.gen.ts src/types.ts",
-    "gen:types:local": "supabase gen types typescript --local --schema public > src/types.gen.ts && mv src/types.gen.ts src/types.ts"
+    "gen:types:local": "supabase gen types typescript --local --schema public > src/types.gen.ts && mv src/types.gen.ts src/types.ts",
+    "db:avatars": "supabase storage cp -r supabase/assets/avatars ss:///avatars/defaults --linked --experimental --cache-control max-age=31536000"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0"

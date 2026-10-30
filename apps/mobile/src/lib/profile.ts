@@ -1,6 +1,7 @@
 import { PROFILE_COLUMNS, type Tables, type TablesUpdate } from '@rally/db';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSession } from '@/lib/auth/session';
+import { resolveAvatarPath } from '@/lib/avatar';
 import { supabase } from '@/lib/supabase';
 
 /**
@@ -39,6 +40,11 @@ export function useUpdateProfile() {
     },
     onSuccess: (profile) => qc.setQueryData(profileKey(profile.id), profile),
   });
+}
+
+/** Absolute URL for an `avatar_url` value (bucket-relative defaults are served from the public `avatars` bucket). */
+export function resolveAvatarUrl(value: string | null | undefined): string | null {
+  return resolveAvatarPath(value, supabase.storage.from('avatars').getPublicUrl('').data.publicUrl);
 }
 
 /** Up to two initials for the avatar fallback: display name words, else the username. */

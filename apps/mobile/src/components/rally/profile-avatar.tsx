@@ -1,3 +1,4 @@
+import { resolveAvatarUrl } from '@/lib/profile';
 import { View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { Text } from '@/components/ui/text';
@@ -24,6 +25,7 @@ export function ProfileAvatar({
   ring?: boolean;
   className?: string;
 }) {
+  const avatarUri = resolveAvatarUrl(profile?.avatar_url);
   const s = SIZES[size];
   const palette = usePalette();
   const disc = (
@@ -31,8 +33,8 @@ export function ProfileAvatar({
       className={cn('bg-subtle items-center justify-center overflow-hidden rounded-full', !ring && className)}
       style={{ width: s.px, height: s.px }}
     >
-      {profile?.avatar_url ? (
-        <Image source={{ uri: profile.avatar_url }} className="absolute inset-0" contentFit="cover" transition={150} />
+      {avatarUri ? (
+        <Image source={{ uri: avatarUri }} className="absolute inset-0" contentFit="cover" transition={150} />
       ) : (
         <Text className={cn('text-foreground font-bold', s.text)}>{initialsFor(profile)}</Text>
       )}

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { resolveAvatarPath } from '../src/lib/avatar';
 import { timeAgo } from '../src/lib/format';
 import { searchGames } from '../src/lib/search';
 import { compareSemver, satisfiesMinVersion } from '../src/lib/semver';
@@ -35,4 +36,12 @@ test('timeAgo', () => {
   assert.equal(timeAgo('2026-10-29T09:00:00Z', now), '3 h ago');
   assert.equal(timeAgo('2026-10-27T12:00:00Z', now), '2 d ago');
   assert.equal(timeAgo(null, now), '');
+});
+
+test('resolveAvatarPath keeps absolute URLs and resolves bucket paths', () => {
+  const base = 'https://x.supabase.co/storage/v1/object/public/avatars/';
+  assert.equal(resolveAvatarPath(null, base), null);
+  assert.equal(resolveAvatarPath('https://cdn.example.com/a.png', base), 'https://cdn.example.com/a.png');
+  assert.equal(resolveAvatarPath('defaults/avatar-03.webp', base), 'https://x.supabase.co/storage/v1/object/public/avatars/defaults/avatar-03.webp');
+  assert.equal(resolveAvatarPath('/defaults/avatar-10.webp', base), 'https://x.supabase.co/storage/v1/object/public/avatars/defaults/avatar-10.webp');
 });

@@ -9,7 +9,7 @@ import { createSupabaseSaveStore } from '@/game-host/supabase-saves';
 import { useSession } from '@/lib/auth/session';
 import { catalogKeys } from '@/lib/catalog';
 import { recordPlay, useGameConsent, usePlaySessionPlan } from '@/lib/launch';
-import { useProfile } from '@/lib/profile';
+import { useProfile, resolveAvatarUrl } from '@/lib/profile';
 import { supabase } from '@/lib/supabase';
 
 /**
@@ -76,7 +76,7 @@ export default function PlayScreen() {
       key={p.game.id}
       bundleUrl={p.entryUrl}
       game={{ id: p.game.id, version: p.version }}
-      user={{ id: me.id, username: me.username, avatarUrl: me.avatar_url }}
+      user={{ id: me.id, username: me.username, avatarUrl: resolveAvatarUrl(me.avatar_url) }}
       intent={p.room ? 'quick' : 'solo'}
       orientation={p.orientation}
       saves={saves}

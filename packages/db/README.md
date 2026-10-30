@@ -220,3 +220,16 @@ signal; the test `signup without birth_date metadata is refused` pins that behav
     dashboard and re-run the final `do` block of that migration to schedule it.
 - The word filter matches whole words, case-insensitively; see the header of `seed.sql` for what that
   does and does not catch.
+
+## Default avatars
+
+`supabase/assets/avatars/avatar-01.webp` … `avatar-10.webp` (1024×1024) are the bundled profile pictures. Migration
+`20261030000000_default_avatars.sql` lists them in `default_avatars`, gives every new profile a random one at signup
+(`handle_new_user` → `random_default_avatar()`), and backfills existing profiles. The rows store the bucket-relative
+path (`defaults/avatar-03.webp`); the app resolves it with the public URL of the `avatars` bucket.
+
+Upload the files once per project (after `supabase link`):
+
+```sh
+pnpm --filter @rally/db db:avatars
+```
