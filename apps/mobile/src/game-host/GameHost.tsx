@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { GameHostController, type DeviceInfo, type GameHostResult } from './controller';
+import { fetchEntryDocument, type EntryDocument } from './entry';
 import type { MatchmakingTarget } from './handlers';
 import { buildInjectedScript } from './injected';
 import type { PlaySessionService } from './play-session';
@@ -22,6 +23,8 @@ export type { GameHostResult } from './controller';
 export interface GameHostProps {
   /** Absolute URL of the game's entry document (`game_versions.entry_url`). */
   bundleUrl: string;
+  /** `game_versions.sha256`: the entry document is refused when it does not match. Null skips the check (Developer launcher). */
+  entrySha256?: string | null;
   game: LaunchContext['game'];
   /** Identity handed to the game in `ready()`; only after the 4.7.3 consent sheet was accepted. */
   user: LaunchContext['user'];
@@ -44,6 +47,8 @@ function newNonce(): string {
   return Array.from(Crypto.getRandomBytes(16), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+const sha256Hex = (text: string) => Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, text);
+
 /**
  * Full-screen game screen: WebView configured per architecture §2 plus the host side of the bridge.
  * Session state lives in a GameHostController created once per mount (key the component to relaunch); this
@@ -56,7 +61,7 @@ const ORIGIN_WHITELIST = ['*'];
 
 export function GameHost(props: GameHostProps) {
   useKeepAwake();
-  const { onExit, onPlayRecorded, orientation, bundleUrl } = props;
+  const { onExit, onPlayRecorded, orientation, bundleUrl, entrySha256 } = props;
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
 
@@ -90,6 +95,27 @@ export function GameHost(props: GameHostProps) {
   );
   const view = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   const webviewRef = useRef<WebViewHandle>(null);
+
+  // The entry document is downloaded and verified here, then given to the WebView as html + baseUrl (see entry.ts:
+  // Supabase serves HTML as text/plain). Re-fetched on every "Reload" (`view.attempt`).
+  const [fetched, setFetched] = useState<{ attempt: number; doc: EntryDocument } | null>(null);
+  const entry = fetched?.attempt === view.attempt ? fetched.doc : null;
+  useEffect(() => {
+    const attempt = view.attempt;
+    let cancelled = false;
+    const abort = new AbortController();
+    fetchEntryDocument(bundleUrl, { expectedSha256: entrySha256 ?? null, digest: sha256Hex, signal: abort.signal })
+      .then((doc) => {
+        if (!cancelled) setFetched({ attempt, doc });
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) controller.onLoadError(err instanceof Error ? err.message : String(err));
+      });
+    return () => {
+      cancelled = true;
+      abort.abort();
+    };
+  }, [controller, bundleUrl, entrySha256, view.attempt]);
 
   useEffect(() => {
     controller.update({ device, onExit, onPlayRecorded });
@@ -143,12 +169,12 @@ export function GameHost(props: GameHostProps) {
 
   return (
     <View style={styles.root}>
-      {view.phase !== 'crashed' && (
+      {view.phase !== 'crashed' && entry !== null && (
         <WebView
           key={view.attempt}
           ref={webviewRef}
           style={styles.webview}
-          source={{ uri: bundleUrl }}
+          source={{ html: entry.html, baseUrl: entry.baseUrl }}
           // Navigation gate: react-native-webview 14 hands any URL that fails `originWhitelist` to
           // Linking.openURL (Safari, tel:, the app's own rally:// routes), so the whitelist lets everything
           // through and onShouldStartLoadWithRequest is the only gate: bundle directory (http/https) or nothing.

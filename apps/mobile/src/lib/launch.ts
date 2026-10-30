@@ -17,6 +17,8 @@ export type LaunchPlan =
       game: Tables<'games'>;
       version: string;
       entryUrl: string;
+      /** Hex sha256 of the entry document, checked by the shell before it is handed to the WebView. */
+      entrySha256: string;
       manifest: GameManifest;
       orientation: 'portrait' | 'landscape' | 'any';
       /** Colyseus room from `manifest.server.room`; null for solo-only games. */
@@ -40,7 +42,7 @@ export async function fetchLaunchPlan(gameId: string): Promise<LaunchPlan> {
 
   const { data: version, error: vErr } = await supabase
     .from('game_versions')
-    .select('version, entry_url, manifest')
+    .select('version, entry_url, manifest, sha256')
     .eq('id', game.current_version_id)
     .maybeSingle();
   if (vErr) throw vErr;
@@ -64,6 +66,7 @@ export async function fetchLaunchPlan(gameId: string): Promise<LaunchPlan> {
     game,
     version: version.version,
     entryUrl: version.entry_url,
+    entrySha256: version.sha256,
     manifest,
     orientation: manifest.orientation,
     room: manifest.server?.room ?? null,

@@ -49,6 +49,12 @@ test('places the CSP meta right after <meta charset>, before any script', () => 
   assert.equal(out.html.match(/Content-Security-Policy/g)?.length, 1);
 });
 
+test('a leading BOM is dropped so the shell hashes the same bytes it fetched as text', () => {
+  const out = processIndexHtml(`\uFEFF${html}`, { csp, readAsset }).html;
+  assert.ok(!out.startsWith('\uFEFF'));
+  assert.equal(out, processIndexHtml(html, { csp, readAsset }).html);
+});
+
 test('processing is idempotent (re-run on processed output, new policy replaces old)', () => {
   const once = processIndexHtml(html, { csp, readAsset }).html;
   assert.equal(processIndexHtml(once, { csp, readAsset }).html, once);

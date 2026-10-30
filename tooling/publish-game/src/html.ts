@@ -118,7 +118,9 @@ export function processIndexHtml(html: string, opts: ProcessHtmlOptions): Proces
   const indent = lineIndent(html, anchor.start, anchor === head ? '  ' : '');
   edits.push({ start: anchor.end, end: anchor.end, text: `\n${indent}${meta}` });
 
-  return { html: applyEdits(html, edits), integrity, references: Array.from(references).sort() };
+  // No BOM: the shell fetches the entry as text (which drops a BOM) and hashes it against `game_versions.sha256`.
+  const out = applyEdits(html, edits).replace(/^\uFEFF/, '');
+  return { html: out, integrity, references: Array.from(references).sort() };
 }
 
 /**

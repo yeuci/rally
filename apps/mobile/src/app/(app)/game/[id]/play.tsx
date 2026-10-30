@@ -92,6 +92,7 @@ export default function PlayScreen() {
     <GameHost
       key={p.game.id}
       bundleUrl={p.entryUrl}
+      entrySha256={p.entrySha256}
       game={{ id: p.game.id, version: p.version }}
       user={{ id: me.id, username: me.username, avatarUrl: resolveAvatarUrl(me.avatar_url) }}
       intent={p.room ? 'quick' : 'solo'}
