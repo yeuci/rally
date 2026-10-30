@@ -12,7 +12,8 @@
     "doctor": "expo-doctor",
     "start:go": "expo start --go",
     "lint": "expo lint --max-warnings 0",
-    "test": "tsx --test test/*.test.ts"
+    "test": "tsx --test test/*.test.ts",
+    "start:go:clear": "expo start --go --clear"
   },
   "dependencies": {
     "@rally/db": "workspace:*",

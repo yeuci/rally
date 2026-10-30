@@ -33,7 +33,7 @@ pnpm typecheck && pnpm build && pnpm test
 1. **Game server** — `pnpm dev:server` (Colyseus on `http://localhost:2567`, playground at `/`).
 2. **Game bundle** — `pnpm dev:spike` serves `games/spike/client` on `http://<your-lan-ip>:5180`. Open it on the desktop
    to see the scene standalone; add `?colyseus=ws://localhost:2567` to join the hello room without the shell.
-3. **Shell** — `cp apps/mobile/.env.example apps/mobile/.env`, set both URLs to your LAN IP, then build a dev client
+3. **Shell** — `pnpm dev:mobile:go` opens the app in Expo Go (`pnpm dev:mobile:go:clear` after pulling changes to routes or styles). `cp apps/mobile/.env.example apps/mobile/.env`, set both URLs to your LAN IP, then build a dev client
    (`pnpm --filter @rally/mobile ios` / `android`, or EAS) and `pnpm dev:mobile`. Tap **Launch spike**.
 
 For the real M0 measurement, publish `games/spike/client/dist` to Supabase Storage (public bucket

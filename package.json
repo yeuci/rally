@@ -18,7 +18,8 @@
     "dev:spike": "pnpm --filter @rally/game-spike dev",
     "dev:mobile:go": "pnpm --filter @rally/mobile start:go",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "dev:mobile:go:clear": "pnpm --filter @rally/mobile start:go:clear"
   },
   "devDependencies": {
     "eslint": "^9.39.5",
