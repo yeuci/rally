@@ -15,11 +15,12 @@ import { createControls } from './controls.ts';
 import { createHud } from './hud.ts';
 import { connect, type Net } from './net.ts';
 import { Predictor, shouldPredict } from './predict.ts';
+import { MatchResultView } from './result.ts';
 import { createSumoScene } from './scene.ts';
 
 const TELEMETRY_MS = 10_000;
 /** Reconnection grace the room grants (RallyRoom.reconnectSeconds); reported to the host for "Rejoin match?". */
-const RECONNECT_TTL_SEC = 30;
+const RECONNECT_TTL_SEC = 60;
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const ui = {
@@ -64,6 +65,9 @@ let exiting = false;
 const remote = new SnapshotBuffer({ fields: ['x', 'y'] as const, delayMs: 100 });
 /** Our own puck is predicted (see predict.ts for exactly what is and is not). */
 const predictor = new Predictor();
+/** Our `result` message for the match-over banner. */
+const results = new MatchResultView();
+let lastResult: unknown = null;
 const wasAlive = new Map<string, boolean>();
 const labels = new Map<string, HTMLElement>();
 let lastPhase = '';
@@ -225,7 +229,8 @@ function frame(dt: number) {
     labels.get(id)?.remove();
     labels.delete(id);
   }
-  hud.render(st, me, net.rttMs);
+  results.observe(st.phase, st.matchWinner, now);
+  hud.render(st, me, net.rttMs, results.current());
 }
 app.on('update', (dt: number) => frame(dt));
 
@@ -318,6 +323,10 @@ async function boot() {
   net.room.send(ClientMessage.profile, { username });
   net.onPatch(onPatch);
   net.onFx(onFx);
+  net.onResult((r) => {
+    lastResult = r;
+    results.receive(r, performance.now());
+  });
   reportReconnection();
   net.room.onDrop(() => hud.setMessage('Connection lost', 'Reconnecting…'));
   net.room.onReconnect(() => {
@@ -355,6 +364,30 @@ if (import.meta.env.DEV) {
     },
     get roomId() {
       return net?.room.roomId ?? '';
+    },
+    get sessionId() {
+      return net?.sessionId ?? '';
+    },
+    /** `<roomId>:<token>` for the harness' `?resume=`. */
+    get reconnectionToken() {
+      return net?.room.reconnectionToken ?? '';
+    },
+    /** The last `result` message received (any match). */
+    get result() {
+      return lastResult;
+    },
+    /** Whether the player shown as `name` is connected (false inside their reconnection grace); null if absent. */
+    connectedOf(name: string) {
+      const found: boolean[] = [];
+      net?.state?.players?.forEach((p) => {
+        if (p.name === name) found.push(p.connected);
+      });
+      return found.length ? found[0] : null;
+    },
+    /** The match-over line on screen, if any. */
+    get resultLine() {
+      const el = document.querySelector<HTMLElement>('[data-role="result"]');
+      return el ? { kind: el.dataset.kind ?? '', text: el.textContent ?? '' } : null;
     },
     get rtt() {
       return net?.rttMs ?? null;

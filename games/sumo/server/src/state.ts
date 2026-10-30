@@ -58,7 +58,45 @@ export const ClientMessage = {
 export const ServerMessage = {
   /** Effects batch for sound and screen shake: `FxEvent[]` once per tick that had any. */
   fx: 'fx',
+  /**
+   * `ResultMessage`, to each player of a finished match, once (server v2+): what the match did to *your* Rally
+   * stats. Guests get theirs at once; signed-in players when the write to Supabase answered (usually well inside the
+   * `matchOver` screen, but it can come after the room reset if the write had to be retried).
+   */
+  result: 'result',
 } as const;
+
+/** An achievement this match unlocked (from game.json, as stored in Supabase). */
+export interface UnlockedAchievement {
+  key: string;
+  title: string;
+  icon: string | null;
+}
+
+/**
+ * `ServerMessage.result`. `matchId` is `<roomId>:<n>`, unique per match.
+ * - `recorded: true`: the match counted. `wins` / `losses` are your Sumo totals after it; `rank` is your place on the
+ *   `wins` board for the board's current period, or null when the match did not count there (under 20 s, a private
+ *   room with fewer than 2 signed-in players, the hourly cap). `boards` has every board of the game you are on;
+ *   `unlocked` only what this match unlocked.
+ * - `recorded: false`: `guest` (no Rally account, or an anonymous one: sign in to keep your wins), or `unavailable`
+ *   (the server could not save it: no database, an outage that outlasted the retries, or an account that cannot
+ *   record results).
+ */
+export type ResultMessage =
+  | {
+      matchId: string;
+      recorded: true;
+      wins: number;
+      losses: number;
+      rank: number | null;
+      boards: Record<string, { score: number; rank: number }>;
+      unlocked: UnlockedAchievement[];
+    }
+  | { matchId: string; recorded: false; reason: 'guest' | 'unavailable' };
+
+/** The board whose rank `ResultMessage.rank` reports (game.json `leaderboards[0].id`). */
+export const RESULT_BOARD = 'wins';
 
 export type FxEvent =
   | { k: 'hit'; a: string; b: string; i: number; x: number; y: number }

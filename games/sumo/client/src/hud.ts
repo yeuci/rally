@@ -2,15 +2,20 @@ import {
   MATCH_TIME_LIMIT,
   PALETTE,
   WINS_TO_MATCH,
+  type ResultMessage,
   type SumoPlayerView,
   type SumoStateView,
 } from '@rally/game-sumo-server';
+import { resultLine } from './result.ts';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
 export interface Hud {
-  /** Redraw from the latest state. `me` = our session id. */
-  render(state: SumoStateView, me: string, rttMs: number | null): void;
+  /**
+   * Redraw from the latest state. `me` = our session id. `result`: this player's `result` for the match on screen
+   * (`MatchResultView.current()`), shown as one line of the match-over banner.
+   */
+  render(state: SumoStateView, me: string, rttMs: number | null, result?: ResultMessage | 'pending' | null): void;
   /** Overrides the computed banner (errors, "Joining…"); null returns to the game's own banner. */
   setMessage(title: string | null, sub?: string): void;
   /** Big, animated one-shot title (GO!). */
@@ -59,7 +64,7 @@ export function createHud(): Hud {
   }
 
   return {
-    render(state, me, rttMs) {
+    render(state, me, rttMs, result = null) {
       const players: [string, SumoPlayerView][] = [];
       state.players.forEach((p, id) => players.push([id, p]));
       players.sort((a, b) => b[1].score - a[1].score || a[1].color - b[1].color);
@@ -129,7 +134,12 @@ export function createHud(): Hud {
         }
         case 'matchOver': {
           const w = state.matchWinner;
-          const next = `Next match in ${Math.max(1, Math.ceil(state.timer))}`;
+          // Your Rally stats from this match (server-written): wins, rank, unlocks, or why they were not kept.
+          // A guest's line is there from the start; a signed-in player's waits for the write.
+          const line = result && (result !== 'pending' || mine?.guest === false) ? resultLine(result) : null;
+          const next =
+            (line ? `<div class="result" data-role="result" data-kind="${line.kind}">${esc(line.text)}</div>` : '') +
+            `<div>Next match in ${Math.max(1, Math.ceil(state.timer))}</div>`;
           if (!w) return show('Match over', next);
           return show(w === me ? 'You win!' : `${name(w)} wins the match`, next, w === me);
         }

@@ -9,14 +9,19 @@
 //   1. ?name=Alice and ?name=Bob → host matchmaking → both in the same room; each HUD lists both names (guests are
 //      always shown as guest-<name> by the server).
 //   2. With two players a round starts (3-2-1 countdown → playing); arrow keys move your own puck (seen in the
-//      other player's state, so it went through the server).
+//      other player's state, so it went through the server). Bob then drives off the edge until Alice wins the
+//      match: both match-over banners carry the server's `result` line for guests ("Guest: sign in to keep your
+//      wins"), before the room resets.
 //   3. Private room: ?private → "Waiting for players" with a 6-character code; ?code=<code> joins that room, not the
 //      public one. A long name is ellipsized but "(you)" stays visible; a second finger lifting does not end the
 //      joystick drag.
 //   4. The harness panel's name field renames the player (reload with ?name=).
 //   5. exitRequested from the panel → the game leaves the room → the other player sees one player fewer.
 //   6. exitRequested while the room's socket is still connecting → the game leaves as soon as it lands (no ghost).
-// Env: SUMO_URL, COLYSEUS_URL, E2E_SCREENSHOT=<png path prefix> (default <tmp>/sumo).
+//   7. A closed tab keeps its seat for the 60 s reconnection grace (shown offline to the others); a new tab with
+//      ?resume=<roomId>:<token> reconnects into the same seat (same session id).
+// Env: SUMO_URL, COLYSEUS_URL (another port: the game server is started there and pages get ?colyseus=),
+// E2E_SCREENSHOT=<png path prefix> (default <tmp>/sumo).
 'use strict';
 
 const { spawn } = require('node:child_process');
@@ -27,7 +32,10 @@ const { chromium } = require('playwright');
 
 const ROOT = path.resolve(__dirname, '../../../..');
 const SUMO_URL = (process.env.SUMO_URL || 'http://localhost:5182/').replace(/\/?$/, '/');
-const COLYSEUS_URL = process.env.COLYSEUS_URL || 'http://localhost:2567';
+const COLYSEUS_URL = (process.env.COLYSEUS_URL || 'http://localhost:2567').replace(/\/+$/, '');
+const COLYSEUS_PORT = new URL(COLYSEUS_URL).port || '80';
+/** Pages talk to the harness' default server unless COLYSEUS_URL names another one. */
+const COLYSEUS_PARAM = COLYSEUS_URL === 'http://localhost:2567' ? '' : `&colyseus=${encodeURIComponent(COLYSEUS_URL)}`;
 const SHOT = process.env.E2E_SCREENSHOT || path.join(os.tmpdir(), 'sumo');
 
 const started = [];
@@ -41,7 +49,7 @@ async function isUp(url) {
   }
 }
 
-async function ensureServer(name, url, filter) {
+async function ensureServer(name, url, filter, env = {}) {
   if (await isUp(url)) {
     console.log(`· ${name} already running at ${url}`);
     return;
@@ -49,6 +57,7 @@ async function ensureServer(name, url, filter) {
   console.log(`· starting ${name} (pnpm --filter ${filter} dev)`);
   const child = spawn('pnpm', ['--filter', filter, 'dev'], {
     cwd: ROOT,
+    env: { ...process.env, ...env },
     detached: true,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -89,7 +98,7 @@ async function open(browser, query, errors, { waitForJoin = true, beforeGoto } =
   if (beforeGoto) await beforeGoto(page);
   // Every page renders WebGL in software (swiftshader); `load` can take a while on a busy machine, and the
   // game's own __sumo probe is what we wait for anyway.
-  await page.goto(`${SUMO_URL}?${query}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await page.goto(`${SUMO_URL}?${query}${COLYSEUS_PARAM}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
   if (waitForJoin) {
     await page.waitForFunction(() => window.__sumo && window.__sumo.joined, null, { timeout: 30_000 });
   }
@@ -119,11 +128,14 @@ function touch(page, type, pointerId, dx = 0) {
 }
 
 async function main() {
-  await ensureServer('game server', `${COLYSEUS_URL}/healthz`, '@rally/game-server');
+  await ensureServer('game server', `${COLYSEUS_URL}/healthz`, '@rally/game-server', { PORT: COLYSEUS_PORT });
+  const { serverVersion } = await (await fetch(`${COLYSEUS_URL}/versions`)).json();
+  assert.ok(serverVersion >= 2, `game server v${serverVersion} at ${COLYSEUS_URL} predates the result message`);
   await ensureServer('sumo dev server', SUMO_URL, '@rally/game-sumo');
 
-  // Seats of an earlier run's tabs are held for the 30 s reconnection grace; quick play would join that room.
-  const deadline = Date.now() + 45_000;
+  // Seats of an earlier run's tabs are held for the 60 s reconnection grace (RallyRoom.reconnectSeconds); quick play
+  // would join that room.
+  const deadline = Date.now() + 75_000;
   for (;;) {
     const { rooms } = await (await fetch(`${COLYSEUS_URL}/rooms/sumo`)).json();
     if (rooms.length === 0) break;
@@ -158,7 +170,7 @@ async function main() {
     assert.equal(await alice.textContent('#scores .chip.me .tag'), '(you)');
     assert.equal(await bob.textContent('#scores .chip.me .name'), 'guest-Bob');
     const panel = await alice.textContent('#rally-dev-harness >> [data-role="log"]');
-    assert.match(panel, /matchmade sumo via http:\/\/localhost:2567 \(quick, as "Alice"\)/);
+    assert.ok(panel.includes(`matchmade sumo via ${COLYSEUS_URL} (quick, as "Alice")`), panel);
     console.log('✓ Alice and Bob matchmade through the harness into one room; both HUDs list both players');
 
     // 2. A round starts; keyboard input moves Alice's puck on the server.
@@ -187,6 +199,45 @@ async function main() {
     await alice.screenshot({ path: `${SHOT}-alice.png` });
     await bob.screenshot({ path: `${SHOT}-bob.png` });
     console.log(`  screenshots: ${SHOT}-alice.png, ${SHOT}-bob.png`);
+
+    // 2b. Bob drives off the edge, away from Alice, until she has won the match (first to 3 rounds).
+    await bob.bringToFront();
+    const matchRoom = await sumo(alice, 'roomId');
+    for (let round = 0; round < 8; round++) {
+      await bob.waitForFunction(() => ['playing', 'matchOver'].includes(window.__sumo.phase), null, {
+        timeout: 20_000,
+      });
+      if ((await sumo(bob, 'phase')) === 'matchOver') break;
+      const [me, other] = await bob.evaluate(() => [
+        window.__sumo.position('guest-Bob'),
+        window.__sumo.position('guest-Alice'),
+      ]);
+      const key = me.x >= other.x ? 'ArrowRight' : 'ArrowLeft';
+      await bob.keyboard.down(key);
+      await bob.waitForFunction(
+        () => window.__sumo.phase !== 'playing' || !window.__sumo.position('guest-Bob').alive,
+        null,
+        { timeout: 15_000 },
+      );
+      await bob.keyboard.up(key);
+      await bob.waitForFunction(() => window.__sumo.phase !== 'playing', null, { timeout: 15_000 });
+    }
+    const guestResult = { matchId: `${matchRoom}:1`, recorded: false, reason: 'guest' };
+    for (const page of [alice, bob]) {
+      await page.waitForFunction(() => window.__sumo.phase === 'matchOver', null, { timeout: 10_000 });
+      await page.waitForFunction(() => window.__sumo.resultLine !== null, null, { timeout: 4_000 });
+      assert.deepEqual(await sumo(page, 'resultLine'), { kind: 'guest', text: 'Guest: sign in to keep your wins' });
+      assert.deepEqual(await sumo(page, 'result'), guestResult);
+    }
+    assert.equal(await alice.textContent('#banner-title'), 'You win!');
+    assert.equal(await bob.textContent('#banner-title'), 'guest-Alice wins the match');
+    await bob.screenshot({ path: `${SHOT}-result.png` });
+    // ...and it is gone once the room resets for the next match.
+    await alice.waitForFunction(() => window.__sumo.phase !== 'matchOver', null, { timeout: 10_000 });
+    await alice.waitForFunction(() => window.__sumo.resultLine === null, null, { timeout: 2_000 });
+    console.log(
+      `✓ Alice won the match: both match-over banners say "Guest: sign in to keep your wins" (${SHOT}-result.png)`,
+    );
 
     // 3. Private room by code. Cleo has a long name (guest-Cleopatra_VI).
     const cleo = await open(browser, 'name=Cleopatra_VII&private', errors);
@@ -278,7 +329,7 @@ async function main() {
     const eve = await open(browser, 'name=Eve', errors, {
       waitForJoin: false,
       beforeGoto: (page) =>
-        page.routeWebSocket(/:2567\//, async (ws) => {
+        page.routeWebSocket(new RegExp(`:${COLYSEUS_PORT}/`), async (ws) => {
           connecting();
           await gate;
           ws.connectToServer();
@@ -295,6 +346,40 @@ async function main() {
     assert.deepEqual(await bob.evaluate(() => window.__sumo.names()), ['guest-Bob'], 'no ghost seat for Eve');
     assert.equal(await sumo(eve, 'joined'), false);
     console.log('✓ exitRequested during the join → Eve left as soon as her socket landed (no ghost seat)');
+
+    // 7. A closed tab reconnects within the grace: Bob's tab goes away without leaving (no consent), Fay sees him
+    //    offline with his seat held; a new tab with ?resume=<roomId>:<token> takes the same seat back.
+    const fay = await open(browser, 'name=Fay', errors);
+    await fay.waitForFunction(() => window.__sumo.names().join() === 'guest-Bob,guest-Fay', null, { timeout: 10_000 });
+    const bobSeat = { roomId: await sumo(bob, 'roomId'), sessionId: await sumo(bob, 'sessionId') };
+    const token = await sumo(bob, 'reconnectionToken');
+    assert.ok(token.startsWith(`${bobSeat.roomId}:`), `reconnection token ${token}`);
+    await eve.context().close();
+    const closedAt = Date.now();
+    await bob.context().close();
+    await fay.waitForFunction(() => window.__sumo.connectedOf('guest-Bob') === false, null, { timeout: 10_000 });
+    const held = await (await fetch(`${COLYSEUS_URL}/rooms/sumo`)).json();
+    assert.equal(held.rooms.find((r) => r.roomId === bobSeat.roomId)?.metadata.players, 2, 'seat held for the grace');
+    await fay.waitForTimeout(3000); // a few seconds away, well inside the 60 s
+    const bob2 = await open(browser, `name=Bob&resume=${encodeURIComponent(token)}`, errors);
+    assert.deepEqual(
+      { roomId: await sumo(bob2, 'roomId'), sessionId: await sumo(bob2, 'sessionId') },
+      bobSeat,
+      'same room, same seat',
+    );
+    const log = await bob2.textContent('#rally-dev-harness >> [data-role="log"]');
+    assert.ok(log.includes(`reconnected to sumo via ${COLYSEUS_URL} (resume`), log);
+    await fay.waitForFunction(() => window.__sumo.connectedOf('guest-Bob') === true, null, { timeout: 10_000 });
+    assert.deepEqual(await fay.evaluate(() => window.__sumo.names()), ['guest-Bob', 'guest-Fay']);
+    console.log(
+      `✓ Bob closed his tab: seat held (offline), then ?resume reconnected him to the same seat after ${((Date.now() - closedAt) / 1000).toFixed(1)} s`,
+    );
+
+    // Leave with consent, so a rerun does not wait for these seats' grace.
+    for (const page of [bob2, fay]) {
+      await page.click('#rally-dev-harness >> button[data-action="exitRequested"]');
+      await page.waitForSelector('#rally-dev-harness >> [data-role="exit-overlay"]', { timeout: 10_000 });
+    }
 
     const unexpected = errors.filter((e) => !/WebGPU|GPU stall|favicon|Automatic fallback to software WebGL/i.test(e));
     assert.deepEqual(unexpected, [], 'no page errors');

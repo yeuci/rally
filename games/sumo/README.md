@@ -6,6 +6,24 @@ standing to win the round. First to 3 round wins takes the match (or the leader 
 tie plays on). After 20 s the platform starts shrinking so rounds always end. Then the room resets for the next match.
 2–8 players, landscape, PlayCanvas.
 
+## Results and reconnection
+
+Matches are recorded by the game server only (`server_record_match`, see apps/game-server/README.md): plays,
+wins/losses, the `wins` board and the four achievements. After each match the server sends every player a `result`
+message (`ResultMessage` in `server/src/state.ts`, server v2, hence `server.minVersion: 2` in `game.json`), and the
+match-over banner shows one line from it (`client/src/result.ts`):
+
+- signed in: "Wins 14 · Rank #3 · 🏆 Yokozuna unlocked" (rank on the `wins` board; no rank when the match did not
+  count there: under 20 s, or private with fewer than 2 signed-in players);
+- guests (and anonymous accounts): "Guest: sign in to keep your wins";
+- "Result not saved" when the server could not record it (no service key, or Supabase stayed down through the
+  retries). "Saving your result…" shows until a signed-in player's answer arrives; an answer that comes after the room
+  reset is not shown.
+
+A dropped player keeps their seat for 60 s (`RallyRoom.reconnectSeconds`), shown as "offline" to the others. Short
+drops reconnect on their own (SDK auto-reconnect); the game reports its reconnection token to the host with a 60 s
+TTL, so the shell (or the harness' `?resume`) can bring a closed app back into the same seat.
+
 ## Play: one phone and Chrome tabs in one room
 
 ```bash
@@ -78,10 +96,11 @@ id order), which the unit tests check bit for bit.
 | `server/src/match.ts`   | `SumoMatch`: waiting → countdown → playing → roundOver → matchOver, scoring, knock-out credit, results.               |
 | `server/src/state.ts`   | The synced state as the client reads it, and message names. Mirrors `apps/game-server/src/rooms/schema/SumoState.ts`. |
 | `client/src/main.ts`    | Boot, Rally SDK (`ready`, `session.join`, pause/resume/exitRequested, lowMemory), netcode wiring, sound.              |
-| `client/src/net.ts`     | Seat reservation → socket, input sending, ping, fx and patch hooks.                                                   |
+| `client/src/net.ts`     | Seat reservation → socket, input sending, ping, fx, result and patch hooks.                                           |
+| `client/src/result.ts`  | The `result` message: validation, the match-over line, which match it belongs to.                                     |
 | `client/src/predict.ts` | Own-puck prediction (above).                                                                                          |
 | `client/src/scene.ts`   | PlayCanvas: platform, pucks, falls, hit flashes, screen shake, label anchors.                                         |
-| `client/src/hud.ts`     | Score strip, round/clock/ping, countdown and result banners, join code.                                               |
+| `client/src/hud.ts`     | Score strip, round/clock/ping, countdown and result banners (with the `result` line), join code.                      |
 
 `games/sumo/server` is the `@rally/game-sumo-server` package: engine- and network-free, built with `tsc` for the game
 server and imported from source by the client (Vite alias and tsconfig `paths`) and by `pnpm dev:server`
@@ -91,7 +110,7 @@ server and imported from source by the client (Vite alias and tsconfig `paths`) 
 
 ```bash
 pnpm --filter @rally/game-sumo-server test    # physics, input clamping, match state machine (node:test)
-pnpm --filter @rally/game-sumo test           # prediction (node:test)
+pnpm --filter @rally/game-sumo test           # prediction, result line (node:test)
 pnpm --filter @rally/game-server test         # SumoRoom over real sockets (@colyseus/testing), auth, join codes
 pnpm --filter @rally/game-sumo test:e2e       # Playwright: two Chrome contexts through the harness (needs Chromium;
                                               # playwright via NODE_PATH); starts both servers if they are not up
@@ -99,10 +118,13 @@ pnpm --filter @rally/publish-game publish-game sumo --dry-run
 ```
 
 The e2e checks that Alice and Bob land in one room and see each other in the HUD (as `guest-…`), that a round
-starts and arrow keys move a puck on the server, that `?private` / `?code=` work and a bare `joinById` does not, that
-a long name keeps "(you)" visible, that a second finger does not end the joystick drag, the harness rename, that
-`exitRequested` leaves the room, and that an exit while the socket is still connecting leaves no ghost seat. It waits up to 45 s for leftover public rooms from an earlier run (their seats are held for the 30 s
-reconnection grace).
+starts and arrow keys move a puck on the server, that a whole match ends with the guest notice on both match-over
+banners, that `?private` / `?code=` work and a bare `joinById` does not, that a long name keeps "(you)" visible, that
+a second finger does not end the joystick drag, the harness rename, that `exitRequested` leaves the room, that an exit
+while the socket is still connecting leaves no ghost seat, and that a closed tab keeps its seat (offline) and a new tab
+with `?resume=<roomId>:<token>` takes it back. It waits up to 75 s for leftover public rooms from an earlier run
+(their seats are held for the 60 s reconnection grace). With `COLYSEUS_URL=http://localhost:<port>` it starts (or
+uses) a game server on that port and points the pages at it (`?colyseus=`).
 
 ## Art
 

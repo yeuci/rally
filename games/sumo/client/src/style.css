@@ -188,6 +188,26 @@ canvas {
   color: var(--fg);
   opacity: 0.85;
 }
+.banner-sub .result {
+  display: inline-block;
+  max-width: min(92vw, 560px);
+  margin: 2px 0 8px;
+  padding: 6px 14px;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  font-size: 15px;
+  line-height: 1.35;
+  opacity: 1;
+}
+.banner-sub .result[data-kind='recorded'] {
+  color: var(--gold);
+}
+.banner-sub .result[data-kind='guest'],
+.banner-sub .result[data-kind='pending'],
+.banner-sub .result[data-kind='unavailable'] {
+  color: var(--muted);
+}
 .banner-sub .code {
   display: inline-block;
   margin: 8px 0 2px;

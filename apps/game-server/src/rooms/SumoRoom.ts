@@ -1,6 +1,7 @@
 import {
   ClientMessage,
   MAX_INPUTS_PER_SECOND,
+  RESULT_BOARD,
   RateWindow,
   ServerMessage,
   SumoMatch,
@@ -10,9 +11,10 @@ import {
   type MatchEvent,
   type MatchRules,
   type MatchSummary,
+  type ResultMessage,
 } from '@rally/game-sumo-server';
 import { serverConfig } from '../config.js';
-import { reportMatchResult, type MatchResult } from '../results.js';
+import { reportMatchResult, type MatchResult, type MatchResultPlayer, type RecordedMatch } from '../results.js';
 import { RallyRoom, type RallyClient, type RallyCreateOptions } from './RallyRoom.js';
 import { SumoPlayer, SumoState } from './schema/SumoState.js';
 
@@ -30,6 +32,30 @@ export function sumoAchievements(summary: MatchSummary, playerId: string, player
   if (s.kos >= 3) keys.push('ring_out');
   if (playersInMatch >= 6) keys.push('full_house');
   return keys;
+}
+
+/**
+ * What one player of a finished match is told (`ServerMessage.result`): their entry from `server_record_match`, or
+ * why there is none. `recorded` is undefined for guests, whose message does not wait for the write.
+ */
+export function resultMessageFor(
+  matchId: string,
+  player: Pick<MatchResultPlayer, 'userId' | 'guest'>,
+  recorded: RecordedMatch | null | undefined,
+): ResultMessage {
+  if (player.guest) return { matchId, recorded: false, reason: 'guest' };
+  // A duplicate means an earlier attempt was recorded but its answer was lost: the totals are unknown here.
+  const entry = recorded && !recorded.duplicate ? recorded.players[player.userId.toLowerCase()] : undefined;
+  if (!entry) return { matchId, recorded: false, reason: 'unavailable' };
+  return {
+    matchId,
+    recorded: true,
+    wins: entry.wins,
+    losses: entry.losses,
+    rank: entry.boards[RESULT_BOARD]?.rank ?? null,
+    boards: entry.boards,
+    unlocked: entry.unlocked,
+  };
 }
 
 export interface SumoCreateOptions extends RallyCreateOptions {
@@ -160,6 +186,10 @@ export class SumoRoom extends RallyRoom<SumoState> {
     for (const id of [...s.players.keys()]) if (!m.players.has(id)) s.players.delete(id);
   }
 
+  /**
+   * Report the match (fire and forget: the simulation never waits for Supabase) and send each player their
+   * `result`: guests at once, signed-in players when the write answered (after any retries).
+   */
   private async finishMatch(summary: MatchSummary) {
     this.matchCount++;
     const endedAt = new Date();
@@ -191,7 +221,20 @@ export class SumoRoom extends RallyRoom<SumoState> {
         kos: Object.fromEntries(summary.standings.map((st) => [st.name, st.kos])),
       },
     };
-    await reportMatchResult(result);
+    // Session ids line up with `result.players` (both come from the standings, in order).
+    const seats = summary.standings.map((st, i) => ({ sessionId: st.id, player: result.players[i]! }));
+    for (const { sessionId, player } of seats) {
+      if (player.guest) this.sendResult(sessionId, resultMessageFor(result.matchId, player, undefined));
+    }
+    const recorded = await reportMatchResult(result);
+    for (const { sessionId, player } of seats) {
+      if (!player.guest) this.sendResult(sessionId, resultMessageFor(result.matchId, player, recorded));
+    }
+  }
+
+  /** To the player's current socket; a player who left (or is inside the grace) misses it. */
+  private sendResult(sessionId: string, message: ResultMessage) {
+    this.clients.getById(sessionId)?.send(ServerMessage.result, message);
   }
 }
 

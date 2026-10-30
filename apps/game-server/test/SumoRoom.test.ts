@@ -52,6 +52,7 @@ describe('SumoRoom', () => {
   async function join(username: string, options: Record<string, unknown> = {}) {
     const room = await colyseus.sdk.joinOrCreate('sumo', { username, ...options });
     room.onMessage('fx', () => {});
+    room.onMessage('result', () => {});
     await room.waitForInitialState();
     return room;
   }

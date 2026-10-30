@@ -1,5 +1,13 @@
 import { Client, type Room } from '@colyseus/sdk';
-import { ClientMessage, ServerMessage, type FxEvent, type SumoStateView, type Vec2 } from '@rally/game-sumo-server';
+import {
+  ClientMessage,
+  ServerMessage,
+  type FxEvent,
+  type ResultMessage,
+  type SumoStateView,
+  type Vec2,
+} from '@rally/game-sumo-server';
+import { parseResultMessage } from './result.ts';
 import { StickSender } from './stick.ts';
 
 export interface Net {
@@ -17,6 +25,8 @@ export interface Net {
   /** Send a zero stick right away (pause, hidden page, blur, exit). Returns it when one was sent. */
   releaseStick(now: number): Vec2 | null;
   onFx(fn: (fx: FxEvent[]) => void): void;
+  /** This player's `result` after each match (malformed messages are dropped). */
+  onResult(fn: (result: ResultMessage) => void): void;
   /** Called with the receive time after every state patch. */
   onPatch(fn: (t: number) => void): void;
   /** Consented leave (exit button / host exitRequested). Idempotent. */
@@ -44,9 +54,14 @@ export async function connect(
   const sticks = new StickSender((msg) => room.send(ClientMessage.input, msg));
   const fxHandlers: ((fx: FxEvent[]) => void)[] = [];
   const patchHandlers: ((t: number) => void)[] = [];
+  const resultHandlers: ((result: ResultMessage) => void)[] = [];
 
   room.onMessage(ServerMessage.fx, (fx: FxEvent[]) => {
     for (const fn of fxHandlers) fn(fx);
+  });
+  room.onMessage(ServerMessage.result, (raw: unknown) => {
+    const result = parseResultMessage(raw);
+    if (result) for (const fn of resultHandlers) fn(result);
   });
   room.onStateChange(() => {
     const t = performance.now();
@@ -79,6 +94,9 @@ export async function connect(
     },
     onPatch(fn) {
       patchHandlers.push(fn);
+    },
+    onResult(fn) {
+      resultHandlers.push(fn);
     },
     leave() {
       clearInterval(pingTimer);
