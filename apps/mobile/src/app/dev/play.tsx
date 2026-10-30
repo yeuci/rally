@@ -1,28 +1,48 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { toWsUrl } from '@/config';
 import { GameHost, type GameHostResult } from '@/game-host/GameHost';
 import type { MatchmakingTarget } from '@/game-host/handlers';
 import { createMemoryProgressStore } from '@/game-host/progress';
+import { createMemoryStorage, createRejoinJournal } from '@/game-host/rejoin-journal';
 import { createMemorySaveStore } from '@/game-host/saves';
 import { launchStore, useLaunchStore } from '@/launch-store';
+import { intentFor, parseJoinTarget } from '@/lib/join-target';
 
 /**
  * The launcher loads an arbitrary bundle URL, so the game never gets the real account: a fixed dev identity,
- * in-memory saves, leaderboards and achievements, no play session, and the M0 hello room without a Supabase token.
+ * in-memory saves, leaderboards and achievements, no play session, and matchmaking without a Supabase token (a
+ * guest; the `profile` room message names it).
  */
 const DEV_USER = { id: 'dev-user', username: 'dev-user', avatarUrl: null };
 const createDevProgress = () => createMemoryProgressStore(DEV_USER);
+/** Rejoin records live as long as the JS context (an in-session reload or crash reconnects through them). */
+const DEV_REJOIN = createRejoinJournal(createMemoryStorage(), DEV_USER.id);
 
-/** Full-screen host for the Developer launcher: bundle and Colyseus URLs from the launcher, in-memory saves. */
+type DevPlayParams = { join?: string; name?: string; room?: string; code?: string; friend?: string };
+
+/**
+ * Full-screen host for the Developer launcher: bundle and Colyseus URLs, room type and join target (search params
+ * built by the launcher with `joinTargetParams`) from the launcher; in-memory saves.
+ */
 export default function DevPlayScreen() {
   const { settings } = useLaunchStore();
+  const { join, name, room, code, friend } = useLocalSearchParams<DevPlayParams>();
   const [saves] = useState(createMemorySaveStore);
   const [progress] = useState(createDevProgress);
 
+  // Malformed params (only a hand-typed URL) fall back to quick play.
+  const target = useMemo(() => parseJoinTarget({ join, name, room, code, friend }) ?? { join: 'quick' as const }, [join, name, room, code, friend]);
+  const roomName = settings.roomName.trim() || 'hello';
   const matchmaking = useMemo<MatchmakingTarget>(
-    () => ({ httpUrl: settings.colyseusUrl, wsUrl: toWsUrl(settings.colyseusUrl), roomName: 'hello' }),
-    [settings.colyseusUrl],
+    () => ({
+      httpUrl: settings.colyseusUrl,
+      wsUrl: toWsUrl(settings.colyseusUrl),
+      roomName,
+      join: target,
+      rejoin: DEV_REJOIN,
+    }),
+    [settings.colyseusUrl, roomName, target],
   );
 
   const onExit = useCallback((result: GameHostResult) => {
@@ -35,9 +55,9 @@ export default function DevPlayScreen() {
   return (
     <GameHost
       bundleUrl={settings.bundleUrl}
-      game={{ id: 'spike', version: '0.1.0' }}
+      game={{ id: roomName === 'hello' ? 'spike' : roomName, version: '0.1.0' }}
       user={DEV_USER}
-      intent="quick"
+      intent={target.join === 'resume' ? 'quick' : intentFor(target.join)}
       orientation="landscape"
       saves={saves}
       progress={progress}

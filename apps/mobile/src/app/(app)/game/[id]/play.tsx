@@ -1,15 +1,25 @@
-import { useQueryClient } from '@tanstack/react-query';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Redirect, router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useMemo } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { useCallback, useEffect, useMemo } from 'react';
+import { ActivityIndicator, Alert, View } from 'react-native';
 import { config, toWsUrl } from '@/config';
+import { HostError } from '@/game-host/bridge';
 import { GameHost, type GameHostResult } from '@/game-host/GameHost';
-import type { MatchmakingTarget } from '@/game-host/handlers';
+import { MATCH_ENDED_EXIT, type MatchmakingTarget } from '@/game-host/handlers';
+import { createRejoinJournal } from '@/game-host/rejoin-journal';
 import { createSupabaseProgressStore } from '@/game-host/supabase-progress';
 import { createSupabaseSaveStore } from '@/game-host/supabase-saves';
 import { useSession } from '@/lib/auth/session';
 import { progressKeys } from '@/lib/game-progress';
-import { createPlaySessionService, invalidateAfterPlay, useGameConsent, usePlaySessionPlan } from '@/lib/launch';
+import { intentFor, parseFriendJoinTarget, parseJoinTarget, type FriendJoinTarget } from '@/lib/join-target';
+import {
+  createPlaySessionService,
+  invalidateAfterPlay,
+  useGameConsent,
+  usePlaySessionPlan,
+  withAnonymousRetry,
+} from '@/lib/launch';
 import { useProfile, resolveAvatarUrl } from '@/lib/profile';
 import { supabase } from '@/lib/supabase';
 
@@ -19,39 +29,84 @@ import { supabase } from '@/lib/supabase';
  *
  * The plan is snapshotted for the life of this screen (`usePlaySessionPlan`): a new version or a hidden game
  * takes effect on the next launch, never by remounting or redirecting a running game. Leaving any other way
- * (sign-out, a navigation from outside) unmounts GameHost, which still reports `finish('unmount')`, so the
- * server play session (`start_play_session` at mount → `end_play_session`, or `record_play` if it never started)
- * is closed exactly once (a play is recorded only if the game became ready), and journaled on the device so a
- * kill in the background is closed on the next launch. Afterwards the game page's leaderboards, achievements,
- * "Continue playing" and the player's own profile refresh.
+ * (sign-out, a navigation from outside) unmounts GameHost, which still reports `finish('unmount')`.
+ *
+ * **Solo games** open a server play session (`start_play_session` at mount → `end_play_session`, or `record_play`
+ * if it never started), closed exactly once (a play is recorded only if the game became ready) and journaled on
+ * the device so a kill in the background is closed on the next launch. Afterwards the game page's leaderboards,
+ * achievements, "Continue playing" and the player's own profile refresh.
+ *
+ * **Multiplayer games** (`manifest.server`) open no play session: the game server writes their stats, boards and
+ * achievements (m3-phase2 §3). `session.join` follows the join target in the search params (`?join=quick|create|
+ * room|friend|resume`, see lib/join-target.ts; malformed → back to the game page), and the game's reconnection
+ * reports go to the rejoin journal (§4). On exit the same queries refresh. `join=resume` without a live record for
+ * this game says "That match has ended" and goes back without loading the game.
  */
 
+type PlayParams = { id: string; join?: string; name?: string; room?: string; code?: string; friend?: string };
+
+/** `friend_join_target(friend)` → where to join them; NOT_FOUND (not friends, not joinable) → MATCHMAKE_FAILED. */
+async function resolveFriend(friendId: string): Promise<FriendJoinTarget> {
+  const { data, error } = await withAnonymousRetry(() => supabase.rpc('friend_join_target', { p_friend_id: friendId }));
+  if (error) {
+    throw new HostError('MATCHMAKE_FAILED', /^NOT_FOUND\b/.test(error.message) ? "your friend's match cannot be joined" : error.message);
+  }
+  const target = parseFriendJoinTarget(data);
+  if (!target) throw new HostError('MATCHMAKE_FAILED', 'unexpected friend_join_target answer');
+  return target;
+}
+
+function leave(id: string) {
+  if (router.canGoBack()) router.back();
+  else router.replace({ pathname: '/game/[id]', params: { id } });
+}
+
 export default function PlayScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, join, name, room: roomParam, code, friend } = useLocalSearchParams<PlayParams>();
   const qc = useQueryClient();
   const { userId } = useSession();
   const plan = usePlaySessionPlan(id);
   const consent = useGameConsent(id);
   const profile = useProfile();
 
+  const target = useMemo(() => parseJoinTarget({ join, name, room: roomParam, code, friend }), [join, name, roomParam, code, friend]);
+  const rejoin = useMemo(() => (userId ? createRejoinJournal(AsyncStorage, userId) : null), [userId]);
+  // `resume`: the record is read once, before the game loads (nothing to resume → no launch at all).
+  const resumeRecord = useQuery({
+    queryKey: ['rejoin', userId, id ?? ''],
+    enabled: target?.join === 'resume' && !!rejoin,
+    queryFn: async () => (await rejoin!.get()) ?? null,
+    staleTime: Infinity,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+
   const saves = useMemo(() => (userId && id ? createSupabaseSaveStore(userId, id) : null), [userId, id]);
   const progress = useMemo(() => (id ? createSupabaseProgressStore(id) : null), [id]);
   const playSessions = useMemo(() => (userId ? createPlaySessionService(userId) : null), [userId]);
-  const room = plan.data?.status === 'ready' ? plan.data.room : null;
+  const ready = plan.data?.status === 'ready' ? plan.data : null;
+  const room = ready?.room ?? null;
+  const minServerVersion = ready?.manifest.server?.minVersion ?? 0;
   const matchmaking = useMemo<MatchmakingTarget | null>(
     () =>
-      room
+      room && target
         ? {
             httpUrl: config.colyseusUrl,
             wsUrl: toWsUrl(config.colyseusUrl),
             roomName: room,
+            join: target,
+            minServerVersion,
+            resolveFriend,
+            rejoin,
             getAccessToken: async () => (await supabase.auth.getSession()).data.session?.access_token,
             // The JWT only goes over https/wss; dev builds may also use a LAN game server over http.
             allowPrivateHttp: __DEV__,
           }
         : null,
-    [room],
+    [room, target, minServerVersion, rejoin],
   );
+  const multiplayer = !!ready?.manifest.server;
 
   // The session is closed (or recorded) after onExit: then scores, unlocks and "Continue playing" are current.
   const onPlayRecorded = useCallback(() => {
@@ -60,17 +115,29 @@ export default function PlayScreen() {
 
   const onExit = useCallback(
     (result: GameHostResult) => {
-      // Scores and unlocks submitted during the game are already stored: refresh the game page underneath now.
-      if (id && result.played) void qc.invalidateQueries({ queryKey: progressKeys.game(userId, id) });
+      if (id) {
+        // Multiplayer: the room wrote stats, boards and unlocks (no play session to wait for).
+        if (multiplayer) invalidateAfterPlay(qc, userId, id);
+        // Scores and unlocks submitted during the game are already stored: refresh the game page underneath now.
+        else if (result.played) void qc.invalidateQueries({ queryKey: progressKeys.game(userId, id) });
+      }
       // Already leaving: the screen is unmounting (navigation away, sign-out).
       if (result.reason === 'unmount') return;
-      if (router.canGoBack()) router.back();
-      else router.replace({ pathname: '/game/[id]', params: { id } });
+      if (result.reason === MATCH_ENDED_EXIT) Alert.alert('That match has ended');
+      leave(id ?? '');
     },
-    [id, qc, userId],
+    [id, qc, userId, multiplayer],
   );
 
-  if (plan.isLoading || consent.isLoading || profile.isLoading) {
+  const resumeEnded =
+    target?.join === 'resume' && resumeRecord.isSuccess && (!resumeRecord.data || resumeRecord.data.gameId !== id);
+  useEffect(() => {
+    if (!resumeEnded) return;
+    Alert.alert('That match has ended');
+    leave(id ?? '');
+  }, [resumeEnded, id]);
+
+  if (plan.isLoading || consent.isLoading || profile.isLoading || resumeRecord.isLoading || resumeEnded) {
     return (
       <View className="flex-1 items-center justify-center bg-[#0A0A0A]">
         <ActivityIndicator size="large" />
@@ -80,9 +147,11 @@ export default function PlayScreen() {
 
   const p = plan.data;
   const me = profile.data;
-  if (!id || p?.status !== 'ready' || consent.data !== true || !me || !saves || !progress || !playSessions) {
+  if (!id || p?.status !== 'ready' || consent.data !== true || !me || !saves || !progress || !playSessions || !target) {
     return <Redirect href={{ pathname: '/game/[id]', params: { id: id ?? '' } }} />;
   }
+  // A resume needs its record (read above); a failed read is treated like a missing one by session.join.
+  const record = target.join === 'resume' ? resumeRecord.data : null;
 
   return (
     <GameHost
@@ -91,13 +160,14 @@ export default function PlayScreen() {
       entrySha256={p.entrySha256}
       game={{ id: p.game.id, version: p.version }}
       user={{ id: me.id, username: me.username, avatarUrl: resolveAvatarUrl(me.avatar_url) }}
-      intent={p.room ? 'quick' : 'solo'}
+      intent={!p.room ? 'solo' : record ? intentFor(record.join) : target.join === 'resume' ? 'quick' : intentFor(target.join)}
+      resume={record ? { reconnectionToken: record.token } : undefined}
       orientation={p.orientation}
       saves={saves}
       progress={progress}
       // Multiplayer results are written by the room (architecture §8), never client-reported.
       soloScores={!p.manifest.server}
-      playSessions={playSessions}
+      playSessions={p.manifest.server ? null : playSessions}
       matchmaking={matchmaking}
       onExit={onExit}
       onPlayRecorded={onPlayRecorded}

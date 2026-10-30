@@ -30,13 +30,18 @@ export interface GameHostProps {
   /** Identity handed to the game in `ready()`; only after the 4.7.3 consent sheet was accepted. */
   user: LaunchContext['user'];
   intent: LaunchIntent;
+  /** `join=resume`: the reconnection token the launch context carries (it only informs the game; the host reconnects). */
+  resume?: LaunchContext['resume'];
   orientation: 'portrait' | 'landscape' | 'any';
   saves: SaveStore;
   /** Leaderboards + achievements behind the bridge. */
   progress: ProgressStore;
-  /** False for multiplayer games (manifest `server`): `leaderboard.submit` answers NOT_SUPPORTED. */
+  /** False for multiplayer games (manifest `server`): `leaderboard.submit` and `achievement.unlock` answer NOT_SUPPORTED. */
   soloScores: boolean;
-  /** Server play session (started at mount, closed once on exit); null records nothing (Developer launcher). */
+  /**
+   * Server play session (started at mount, closed once on exit); null records nothing (Developer launcher, and
+   * multiplayer games, whose stats the game server writes).
+   */
   playSessions: PlaySessionService | null;
   matchmaking: MatchmakingTarget | null;
   onExit: (result: GameHostResult) => void;
@@ -55,8 +60,8 @@ const sha256Hex = (text: string) => Crypto.digestStringAsync(Crypto.CryptoDigest
  * Session state lives in a GameHostController created once per mount (key the component to relaunch); this
  * component only renders the controller's snapshot and forwards callbacks. Every session ends in exactly one
  * `onExit`, with `reason: 'unmount'` when the component unmounts first (the callee must not navigate then).
- * `bundleUrl`, `game`, `user`, `intent`, `saves`, `progress`, `soloScores`, `playSessions` and `matchmaking` are read
- * at mount.
+ * `bundleUrl`, `game`, `user`, `intent`, `resume`, `saves`, `progress`, `soloScores`, `playSessions` and
+ * `matchmaking` (with its join target) are read at mount.
  */
 const ORIGIN_WHITELIST = ['*'];
 
@@ -83,6 +88,7 @@ export function GameHost(props: GameHostProps) {
         game: props.game,
         user: props.user,
         intent: props.intent,
+        resume: props.resume,
         saves: props.saves,
         progress: props.progress,
         soloScores: props.soloScores,

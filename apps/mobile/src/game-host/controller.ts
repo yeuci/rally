@@ -1,6 +1,6 @@
 import type { LaunchContext, LaunchIntent } from '@rally/protocol';
 import { HostBridge } from './bridge';
-import { createHostHandlers, type HostHandlers, type MatchmakingTarget } from './handlers';
+import { createHostHandlers, createJoinState, type HostHandlers, type JoinState, type MatchmakingTarget } from './handlers';
 import { DIAG_PREFIX, buildDeliverScript, parseDiagnostic, type PageDiagnostic } from './injected';
 import type { PlaySessionService } from './play-session';
 import type { ProgressStore } from './progress';
@@ -54,12 +54,15 @@ export interface GameHostControllerOptions {
   game: LaunchContext['game'];
   user: LaunchContext['user'];
   intent: LaunchIntent;
+  /** `join=resume`: the game's reconnection token, shown in the launch context until the resume was used. */
+  resume?: LaunchContext['resume'];
   saves: SaveStore;
   progress: ProgressStore;
-  /** False for multiplayer games: `leaderboard.submit` answers NOT_SUPPORTED (results come from the room). */
+  /** False for multiplayer games: `leaderboard.submit` / `achievement.unlock` answer NOT_SUPPORTED (results come from the room). */
   soloScores: boolean;
-  /** Server play sessions; null records nothing (Developer launcher). */
+  /** Server play sessions; null records nothing (Developer launcher, and multiplayer games: their stats are server-written). */
   playSessions: PlaySessionService | null;
+  /** Matchmaking, with its join target and rejoin journal; the join state is kept across reloads of this session. */
   matchmaking: MatchmakingTarget | null;
   device: DeviceInfo;
   onExit: (result: GameHostResult) => void;
@@ -85,6 +88,8 @@ export class GameHostController {
   private readonly listeners = new Set<() => void>();
   private bridge: HostBridge;
   private handlers!: HostHandlers;
+  /** Sticky join target, joined room and reconnection report: one per session, shared by every bridge. */
+  private readonly joinState: JoinState;
   private getWebView: (() => WebViewHandle | null) | null = null;
 
   private device: DeviceInfo;
@@ -121,6 +126,7 @@ export class GameHostController {
     this.onExit = opts.onExit;
     this.onPlayRecorded = opts.onPlayRecorded;
     this.startedAt = this.now();
+    this.joinState = createJoinState(opts.matchmaking?.join);
     const nonce = opts.createNonce();
     this.view = { attempt: 0, nonce, phase: 'loading', progress: 0, status: 'Loading…', error: null, fps: null };
     this.bridge = this.createBridge(nonce);
@@ -298,6 +304,8 @@ export class GameHostController {
     } else {
       this.pausedAt ??= this.now();
       this.bridge.sendEvent('pause', {});
+      // The app may never come back: the rejoin record's grace counts from here.
+      this.handlers.background();
       // The app may be killed in the background without another callback: leave the playtime where the next
       // launch can close the session with it.
       this.checkpoint();
@@ -437,6 +445,7 @@ export class GameHostController {
           game: this.opts.game,
           user: this.opts.user,
           intent: this.opts.intent,
+          ...(this.opts.resume ? { resume: this.opts.resume } : {}),
           device: this.device,
         }),
         saves: this.opts.saves,
@@ -444,6 +453,7 @@ export class GameHostController {
         soloScores: this.opts.soloScores,
         getPlaySessionId: this.getPlaySessionId,
         matchmaking: this.opts.matchmaking,
+        joinState: this.joinState,
         now: this.opts.now,
         onReady: () => {
           this.readyAt = this.now();

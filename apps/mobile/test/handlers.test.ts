@@ -267,15 +267,16 @@ test('leaderboard.submit passes the play session id, awaiting a start still in f
   ]);
 });
 
-test('leaderboard.submit is NOT_SUPPORTED for multiplayer games and validates params', async () => {
+test('leaderboard.submit and achievement.unlock are NOT_SUPPORTED for multiplayer games; params are validated', async () => {
   const { store, seen } = recordingStore();
   const multi = setup({ progress: store, soloScores: false });
   const res = await multi.call('leaderboard.submit', { boardId: 'high', score: 1 });
   assert.equal(res.error?.code, 'NOT_SUPPORTED');
   assert.equal(seen.submit.length, 0);
-  // Multiplayer games may still read boards and unlock achievements.
+  // The game server writes multiplayer stats, boards and unlocks (m3-phase2 §3); boards stay readable.
+  assert.equal((await multi.call('achievement.unlock', { key: 'first-win' })).error?.code, 'NOT_SUPPORTED');
+  assert.equal(seen.unlock.length, 0);
   assert.equal((await multi.call('leaderboard.top', { boardId: 'high' })).error, undefined);
-  assert.deepEqual((await multi.call('achievement.unlock', { key: 'first-win' })).params, { unlocked: true, alreadyHad: false });
 
   const solo = setup({ progress: store });
   assert.equal((await solo.call('leaderboard.submit', { boardId: '', score: 1 })).error?.code, 'INVALID_PARAMS');

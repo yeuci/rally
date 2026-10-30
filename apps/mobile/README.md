@@ -14,7 +14,7 @@ pnpm dev:mobile:go                    # Metro for Expo Go (email sign-in + Devel
 
 pnpm --filter @rally/mobile typecheck # app + tests
 pnpm --filter @rally/mobile lint      # expo lint (React Compiler rules), zero warnings
-pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects/anonymous plan, bridge + nav gate, handlers (saves, leaderboards, achievements, join limits, token policy), controller (play sessions, playtime across reloads, diagnostics), session journal, storage reset, progress formatting, cover art, social (friendship buttons, people ranking, privacy, requests)
+pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects/anonymous plan, bridge + nav gate, handlers (saves, leaderboards, achievements, join limits, token policy), join targets + rejoin journal (target → matchmaking calls, sticky / resume-once, reportReconnection room check, journal expiry, minVersion refusal, room lookups), controller (play sessions, playtime across reloads, diagnostics), session journal, storage reset, progress formatting, cover art, social (friendship buttons, people ranking, privacy, requests)
 node scripts/generate-brand-assets.cjs  # (from apps/mobile) app icon, adaptive icon layers, splash, favicon from src/lib/brand.ts; needs Playwright
 ```
 
@@ -102,10 +102,10 @@ when they do surface (profile edits go through PostgREST, which passes them on).
 | `/search` | `src/app/(app)/search.tsx` | Games (`searchGames` over the catalog) and People (`search_profiles`, debounced 250 ms, `@name` = people only) with Add / Requested / Friends / Accept |
 | `/friends` | `src/app/(app)/friends.tsx` | your friends (`my_friends`) and requests (`my_friend_requests`: Accept / Decline, Cancel); `?tab=requests`; `?username=` lists another player's friends (`public_friends`) |
 | `/game/:id` | `src/app/(app)/game/[id]/index.tsx` | game page: screenshot gallery (else cover art), details (+ "Best" for solo games), favorite, Play → consent sheet, leaderboard, achievements |
-| `/game/:id/play` | `src/app/(app)/game/[id]/play.tsx` | full-screen `GameHost` for the published version |
+| `/game/:id/play` | `src/app/(app)/game/[id]/play.tsx` | full-screen `GameHost` for the published version; multiplayer games take `?join=quick\|create\|room\|friend\|resume` (see Multiplayer below) |
 | `/profile`, `/profile/edit` | `src/app/(app)/profile/…` | profile (stats strip, Friends row with request badge, games played), edit (display name, username, bio, Privacy: games played / friends list → Everyone / Friends / Only me, read with `my_privacy`), sign out, delete-account request |
 | `/u/:username` | `src/app/(app)/u/[username].tsx` | public profile: avatar, names, bio, member since, friendship button (`friendship_with`), games played · achievements · friends (`public_profile_stats`), games played (`public_profile_games`), friends row (`public_friends`), unlocked achievements; Block / Unblock in the ⋯ menu; your own username redirects to `/profile` |
-| `/dev`, `/dev/play` | `src/app/dev/…` | Developer launcher (M0 spike path: direct bundle + Colyseus URL, last-run metrics) |
+| `/dev`, `/dev/play` | `src/app/dev/…` | Developer launcher (M0 spike path: direct bundle + Colyseus URL, room type `hello` / `sumo`, join mode quick / create / code / room id, last-run metrics) |
 
 `src/app/_layout.tsx` gates `(app)` on a signed-in, non-anonymous session and `(auth)` on its absence
 (`Stack.Protected`); `auth/*` is reachable either way and `dev` only when dev tools are on. On Android the OAuth
@@ -151,7 +151,7 @@ one `onExit`: the game's `exit()`, the close button / back, or `finish('unmount'
    score; `accepted: false` for bounds / not a new best / server rate limit). Errors: a `RATE_LIMITED` message →
    `RATE_LIMITED`, `ANONYMOUS_FORBIDDEN` → `NOT_SUPPORTED` with the server's message, anything else `INTERNAL`
    (including a missing session). **Multiplayer games** (manifest `server`) get `NOT_SUPPORTED`: their results are
-   written by the room (architecture §8). They can still read boards and unlock achievements.
+   written by the room (architecture §8). They can still read boards; `achievement.unlock` is refused too (below).
 3. **Reads and unlocks.** `leaderboard.top(boardId, { scope, limit })` → `leaderboard_top` mapped to the protocol's
    `{ entries: [{ rank, userId, username, score }] }` ('friends' = the player and their friends);
    `achievement.unlock(key)` → `unlock_achievement` → `{ unlocked, alreadyHad }`; like a submit it waits for the
@@ -179,6 +179,49 @@ one `onExit`: the game's `exit()`, the close button / back, or `finish('unmount'
 
 The Developer launcher passes in-memory stand-ins (`createMemorySaveStore`, `createMemoryProgressStore`: best score
 per board, every key unlocks) and no play-session service, so `/dev/play` never reaches Supabase.
+
+### Multiplayer (M3 phase 2, `docs/m3-phase2.md` §1, §3, §4)
+
+- **No play sessions.** A game with `manifest.server` opens none (`playSessions={null}`): the game server writes
+  stats, boards and achievements after each match. `leaderboard.submit` and `achievement.unlock` answer
+  `NOT_SUPPORTED` (`soloScores` false). On exit the route refreshes the game page, "Continue playing" and the
+  player's stats (`invalidateAfterPlay`).
+- **Join targets** (`src/lib/join-target.ts`, zod over the route's search params; malformed → back to the game
+  page). Build them with `joinTargetParams(target)`:
+
+  | `join` | params | `session.join` | `intent` |
+  |---|---|---|---|
+  | `quick` (default) | — | `joinOrCreate/<room>` `{}` | `quick` |
+  | `create` | `name?` | `joinOrCreate/<room>` `{ private: true, name? }` (the server routes it to `create`) | `private` |
+  | `room` | `room`, `code?` | `joinById/<room>` `{ code? }` | `joinById` |
+  | `friend` | `friend` (uuid) | `friend_join_target` RPC → `joinById/<room_id>` `{ code }` | `joinById` |
+  | `resume` | — | `reconnect/<roomId>` `{ reconnectionToken }` from the rejoin journal | the original + `resume` |
+
+  Bodies never carry `username` / `avatarUrl` (the server resolves profiles). The target is **sticky** for the
+  session, across in-page and overlay reloads: a second `session.join` repeats it; `friend` becomes `room` once
+  resolved; `resume` is used once, then becomes `room` with the same id and code. While the game's latest
+  `session.reportReconnection` is within its grace, a repeated `session.join` first tries `reconnect` with it (a
+  WebView crash or reload keeps the seat), then the sticky target. `onJoined({ roomId, gameId })` runs after each
+  join (`roomId` read defensively from the reservation: `roomId`, else `room.roomId`).
+- **Server version.** `session.join` refuses with `MATCHMAKE_FAILED "game server is updating"` while `GET /versions`
+  (cached 60 s) reports a `serverVersion` below `manifest.server.minVersion`; an unreachable `/versions` lets the
+  matchmaking request answer.
+- **Rejoin journal** (`game-host/rejoin-journal.ts`, AsyncStorage `rally.rejoin.<userId>` =
+  `{ gameId, roomId, token, code?, join, ttlSec, expiresAt }`). Written on `session.reportReconnection` only for the
+  room the host joined (and a `<roomId>:<token>` token for that room), TTL clamped to the 60 s grace; re-stamped
+  (`expiresAt = now + ttl`) when the app goes to the background; cleared on a consented `exit`, on joining another
+  room, on a failed resume, and when it expires. `join=resume` reads it before the game loads (none → "That match
+  has ended", back to the game page), sends `reconnect/<roomId>` with the token split on its first `:`, and adds
+  `reconnectionToken` to the reservation so the SDK's `consumeSeatReservation` forwards it (games need no change).
+  A failed reconnect answers `MATCHMAKE_FAILED`, exits with reason `match-ended` and the route says "That match has
+  ended"; there is no silent quick play.
+- **Room lookups** for the rooms screen and the code sheet (`game-host/matchmake.ts`): `listRooms(httpUrl, room)`
+  (`GET /rooms/<name>`), `roomByCode(httpUrl, code)` (`GET /rooms/code/<CODE>`; 404 → `NO_ROOM`, 429 →
+  `RATE_LIMITED`, as `RoomLookupError`), `serverVersion(httpUrl)`, and `targetForCode(input, room, lookup)` in
+  join-target.ts (normalise the code, refuse another game's code, → `join=room&room=<id>&code=<code>`).
+- **Developer launcher**: the room type (`hello`, preset `sumo`) and join mode (quick / create / code / room id) map
+  to the same `JoinTarget` (a code is looked up before launch). Still a guest: no token is sent; rejoin records are
+  kept in memory.
 
 **Game page.** Below the details: a **Leaderboard** section (boards from `leaderboards`, in manifest order, with a
 segmented picker when there are several; Global / Friends toggle with a note that friends arrive in M4; top 10 from
@@ -229,6 +272,8 @@ identity, never the real profile.
 - `src/lib/game-progress.ts`: React Query hooks for boards, `leaderboard_top`, `my_leaderboard_rank`, achievements +
   own unlocks, and public profiles (`profiles` by username, `public_profile_stats`, unlocked achievements across
   games); `src/lib/progress-format.ts`: the pure parts (score formatting, board order/labels, "Your rank", tiles).
+- `src/lib/join-target.ts`: the play route's `JoinTarget` (`parseJoinTarget` / `joinTargetParams`, `intentFor`,
+  join-code normalisation, `targetForCode`, `parseFriendJoinTarget`); pure.
 - `src/lib/brand.ts`: the monochrome palette (shadcn neutral: near-black `#0A0A0A` / white, primary = foreground, no
   accent hue; `destructive` is the only colour), the logo mark's geometry (drawn in the foreground colour) and the
   splash layout (`SPLASH.imageWidth` mirrors `app.json`); `src/lib/cover-art.ts`: generated greyscale covers (grey
@@ -249,9 +294,13 @@ Bridge host code (`src/game-host/`):
 - `injected.ts`: the script installed before any game code runs (`window.__rally = { nonce, version, recv }`, the
   per-launch web storage reset, page diagnostics)
 - `bridge.ts`: envelope validation, nonce + origin checks, request dispatch, event delivery
-- `handlers.ts`: SDK v1 handlers. `ready`, `ping`, `session.join` (Colyseus matchmaking, Supabase JWT attached over
-  https only; single-flight, 6/min), `save.get` / `save.put` (60 gets / 10 puts per min, slot + 64 KB checks), `leaderboard.submit` / `leaderboard.top` /
-  `achievement.unlock` (per-method buckets; submit refused for multiplayer games), `ui.loading`, `party.get`, `exit`.
+- `handlers.ts`: SDK v1 handlers. `ready`, `ping`, `session.join` (Colyseus matchmaking per the sticky join target,
+  `minVersion` check, Supabase JWT attached over https only; single-flight, 6/min), `session.reportReconnection`
+  (joined room only → rejoin journal; 12/min), `save.get` / `save.put` (60 gets / 10 puts per min, slot + 64 KB checks), `leaderboard.submit` / `leaderboard.top` /
+  `achievement.unlock` (per-method buckets; submit and unlock refused for multiplayer games), `ui.loading`, `party.get`, `exit`.
+- `matchmake.ts`: `POST /matchmake/<method>/…` (incl. `reconnect`), the token policy, and the room lookups
+  (`listRooms`, `roomByCode`, `serverVersion`).
+- `rejoin-journal.ts`: the per-user rejoin record (§4 above), `splitReconnectionToken`, `rejoinSecondsLeft`.
   `invite.open`, `haptics`, `orientation.lock` answer `NOT_SUPPORTED`.
 - `saves.ts` / `supabase-saves.ts`: in-memory saves (Developer launcher) and `game_saves` + the `save_put` RPC
   (its `CONFLICT` maps to the bridge's `CONFLICT`).
