@@ -170,6 +170,7 @@ export function GameHost(props: GameHostProps) {
           }
           onError={(e) => controller.onLoadError(`load error: ${e.nativeEvent.description}`)}
           onHttpError={(e) => controller.onLoadError(`HTTP ${e.nativeEvent.statusCode} loading ${e.nativeEvent.url}`)}
+          onLoadStart={(e) => controller.onMainFrameLoadStart(e.nativeEvent.url)}
           onLoadProgress={(e) => controller.onLoadProgress(e.nativeEvent.progress)}
         />
       )}

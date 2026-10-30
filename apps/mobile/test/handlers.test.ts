@@ -116,3 +116,18 @@ test('mapSaveError maps save_put errors to bridge codes', () => {
   assert.equal(mapSaveError({ message: 'INVALID: data must be JSON', code: '23514' }).code, 'INVALID_PARAMS');
   assert.equal(mapSaveError({ message: 'UNAUTHENTICATED', code: '42501' }).code, 'INTERNAL');
 });
+
+test('resetHandshake lets a reloaded page call ready() again', async () => {
+  const handlers = createHostHandlers({
+    getLaunchContext: () => launchContext,
+    saves: createMemorySaveStore(),
+    matchmaking: null,
+    onReady: () => {},
+    onLoading: () => {},
+    onExit: () => {},
+  });
+  await handlers.ready!({ sdkVersion: '0.1.0' });
+  assert.throws(() => handlers.ready!({ sdkVersion: '0.1.0' }), /already called/);
+  handlers.resetHandshake();
+  assert.equal((await handlers.ready!({ sdkVersion: '0.1.0' })).game.id, launchContext.game.id);
+});

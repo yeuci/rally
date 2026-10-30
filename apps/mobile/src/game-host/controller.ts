@@ -1,6 +1,6 @@
 import type { LaunchContext, LaunchIntent } from '@rally/protocol';
 import { HostBridge } from './bridge';
-import { createHostHandlers, type MatchmakingTarget } from './handlers';
+import { createHostHandlers, type HostHandlers, type MatchmakingTarget } from './handlers';
 import { buildDeliverScript } from './injected';
 import type { SaveStore } from './saves';
 import type { WebViewHandle } from './webview';
@@ -62,6 +62,7 @@ export class GameHostController {
   private view: HostView;
   private readonly listeners = new Set<() => void>();
   private bridge: HostBridge;
+  private handlers!: HostHandlers;
   private getWebView: (() => WebViewHandle | null) | null = null;
 
   private device: DeviceInfo;
@@ -156,6 +157,20 @@ export class GameHostController {
   };
 
   /** `onShouldStartLoadWithRequest`: only the bundle's own directory may load. */
+  /**
+   * The WebView began loading a main document. On a reload of the bundle (Vite re-optimising dependencies on a
+   * cold cache, a game calling location.reload()) the game will call ready() again, so the handshake is reset and
+   * the loading overlay returns until it does.
+   */
+  onMainFrameLoadStart = (url: string): void => {
+    if (!this.bridge.isInsideBundle(url)) return;
+    this.handlers.resetHandshake();
+    if (this.view.phase === 'ready') {
+      this.setView({ phase: 'loading', progress: 0, status: 'Reloading…' });
+      this.armReadyTimeout();
+    }
+  };
+
   allowNavigation = (url: string): boolean => {
     if (this.bridge.isInsideBundle(url)) return true;
     this.warn(`[bridge] blocked navigation to ${url}`);
@@ -245,7 +260,7 @@ export class GameHostController {
       deliver: (json) => {
         if (this.active) this.getWebView?.()?.injectJavaScript(buildDeliverScript(json));
       },
-      handlers: createHostHandlers({
+      handlers: (this.handlers = createHostHandlers({
         getLaunchContext: () => ({
           game: this.opts.game,
           user: this.opts.user,
@@ -264,7 +279,7 @@ export class GameHostController {
           if (this.view.phase === 'loading') this.setView({ progress: Math.max(this.view.progress, progress) });
         },
         onExit: (reason) => this.finish(reason),
-      }),
+      })),
       onGameEvent: (ev) => {
         if (ev.method === 'telemetry.report') this.metrics = ev.params.values;
         else if (ev.method === 'game.error') this.lastError = ev.params.message;

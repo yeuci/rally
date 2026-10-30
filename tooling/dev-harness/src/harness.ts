@@ -82,7 +82,9 @@ function main(): void {
     return;
   }
   if (window.__rally) {
-    log('window.__rally already exists (inside the real shell?); harness not installed', 'warn');
+    // Inside the real shell (a phone loading the dev server): stand down completely, including the panel.
+    console.warn(TAG, 'window.__rally already exists (inside the real shell); harness not installed');
+    panel.destroy();
     return;
   }
 

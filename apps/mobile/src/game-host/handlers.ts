@@ -33,7 +33,13 @@ const SAVE_PUTS_PER_MINUTE = 10;
  * orientation.lock) answers NOT_SUPPORTED from the bridge: leaderboards/achievements arrive in M2, the
  * capability methods sit behind the 4.7.2 kill switch.
  */
-export function createHostHandlers(deps: HostHandlerDeps): RequestHandlers {
+/** Bridge handlers plus a hook the host calls when the WebView starts loading a new main document. */
+export type HostHandlers = RequestHandlers & {
+  /** A page reload (Vite's first-run dependency optimisation, a game calling location.reload()) must be allowed to call ready() again. */
+  resetHandshake(): void;
+};
+
+export function createHostHandlers(deps: HostHandlerDeps): HostHandlers {
   let ready = false;
   const putBucket = new TokenBucket(SAVE_PUTS_PER_MINUTE, 60_000, deps.now);
 
@@ -42,6 +48,10 @@ export function createHostHandlers(deps: HostHandlerDeps): RequestHandlers {
   };
 
   return {
+    resetHandshake: () => {
+      ready = false;
+    },
+
     ready: () => {
       if (ready) throw new HostError('ALREADY_READY', 'ready() was already called');
       ready = true;

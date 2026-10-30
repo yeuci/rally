@@ -46,6 +46,14 @@ button.toggle.on { border-color: #3fb950; } button.toggle.off { border-color: #d
 
 /** Floating, collapsible control panel in a shadow root so neither side's CSS leaks into the other. */
 export class Panel {
+  private hostEl: HTMLElement | null = null;
+
+  /** Remove the panel entirely (used when the harness stands down inside the real shell). */
+  destroy(): void {
+    this.hostEl?.remove();
+    this.hostEl = null;
+  }
+
   private readonly opts: PanelOptions;
   private root: ShadowRoot | null = null;
   private logEl: HTMLElement | null = null;
@@ -67,6 +75,7 @@ export class Panel {
     const host = document.createElement('div');
     host.id = 'rally-dev-harness';
     document.documentElement.appendChild(host);
+    this.hostEl = host;
     const root = host.attachShadow({ mode: 'open' });
     this.root = root;
 
