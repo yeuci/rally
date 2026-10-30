@@ -35,6 +35,7 @@ function game(id: string, extra: Partial<GameCard> = {}): GameCard {
     age_rating: '4+',
     featured_rank: null,
     created_at: '2026-10-01T00:00:00Z',
+    visits: 0,
     ...extra,
   };
 }
@@ -140,12 +141,13 @@ test('New: newest first, then A–Z; an unparseable date sorts last', () => {
   assert.deepEqual(ids([...games].sort(compareNew)), ['new', 'a', 'b', 'old', 'bad']);
 });
 
-test('Popular: live players (multiplayer only), then featured rank, then newest, then A–Z', () => {
+test('Popular: visits first, then live players (multiplayer only), then featured rank, then newest, then A–Z', () => {
   const counts = toLiveCounts([
     { game_id: 'sumo', players: 12, rooms: 3 },
     { game_id: 'brawl', players: 40, rooms: 5 },
     // A solo game never has live players; a stray row must not lift it.
     { game_id: 'solo', players: 99, rooms: 1 },
+    { game_id: 'busy-few-visits', players: 500, rooms: 20 },
   ]);
   const games = [
     game('plain-old', { created_at: '2026-01-01T00:00:00Z' }),
@@ -154,8 +156,25 @@ test('Popular: live players (multiplayer only), then featured rank, then newest,
     game('featured-1', { featured_rank: 1 }),
     game('sumo', { max_players: 8 }),
     game('brawl', { max_players: 4 }),
+    game('hit', { visits: 3_100_000 }),
+    game('known', { visits: 12_400, featured_rank: 2 }),
+    // More players live right now, fewer visits: visits still win.
+    game('busy-few-visits', { max_players: 8, visits: 950 }),
+    // Same visits as `known`: live players break the tie before featured rank.
+    game('known-live', { max_players: 8, visits: 12_400 }),
   ];
-  assert.deepEqual(ids([...games].sort(comparePopular(counts))), [
+  const withLive = toLiveCounts([
+    { game_id: 'sumo', players: 12, rooms: 3 },
+    { game_id: 'brawl', players: 40, rooms: 5 },
+    { game_id: 'solo', players: 99, rooms: 1 },
+    { game_id: 'busy-few-visits', players: 500, rooms: 20 },
+    { game_id: 'known-live', players: 1, rooms: 1 },
+  ]);
+  assert.deepEqual(ids([...games].sort(comparePopular(withLive))), [
+    'hit',
+    'known-live',
+    'known',
+    'busy-few-visits',
     'brawl',
     'sumo',
     'featured-1',
@@ -163,8 +182,27 @@ test('Popular: live players (multiplayer only), then featured rank, then newest,
     'plain-new',
     'plain-old',
   ]);
-  // Without live counts it falls back to featured rank / recent.
-  assert.deepEqual(ids([...games].sort(comparePopular(undefined))).slice(0, 2), ['featured-1', 'solo']);
+  // Without a live room for `known-live`, the tie on visits falls to the featured rank.
+  assert.deepEqual(ids([...games].sort(comparePopular(counts))).slice(0, 4), ['hit', 'known', 'known-live', 'busy-few-visits']);
+  // Without live counts: visits, then featured rank / recent.
+  assert.deepEqual(ids([...games].sort(comparePopular(undefined))), [
+    'hit',
+    'known',
+    'known-live',
+    'busy-few-visits',
+    'featured-1',
+    'solo',
+    'plain-new',
+    'brawl',
+    'sumo',
+    'plain-old',
+  ]);
+});
+
+test('sortGames popular: visits desc on the whole list, the cached array untouched', () => {
+  const games = [game('a', { visits: 5 }), game('b', { visits: 50 }), game('c', { visits: 500 })];
+  assert.deepEqual(ids(sortGames(games, 'popular')), ['c', 'b', 'a']);
+  assert.deepEqual(ids(games), ['a', 'b', 'c']);
 });
 
 test('sortGames returns a sorted copy and leaves the cached array alone', () => {

@@ -75,6 +75,7 @@ import type { JoinKind } from '@/lib/join-target';
 import { toggleHaptic } from '@/lib/haptics';
 import { useLaunchPlan } from '@/lib/launch';
 import { GUTTER, gameCoverColumnWidth, gameHeroHeight, pageIndex, titleBarRange } from '@/lib/layout';
+import { formatCount } from '@/lib/format';
 import { formatScore, orderBoards } from '@/lib/progress-format';
 import { gameShareContent } from '@/lib/share';
 import { noticeFor, useLaunchGame } from '@/lib/use-launch-game';
@@ -593,6 +594,8 @@ function About({
         <View className="bg-card border-border gap-3 rounded-2xl border p-4">
           <InfoRow label="Players" value={playersLabel(g)} />
           <Separator />
+          <InfoRow label="Visits" value={formatCount(g.visits)} />
+          <Separator />
           <InfoRow label="Modes" value={g.modes.map((m) => MODE_LABEL[m] ?? m).join(', ')} />
           <Separator />
           <InfoRow label="Age rating" value={g.age_rating} />
@@ -939,7 +942,7 @@ function AboutSkeleton() {
       <View className="gap-3">
         <SkeletonText lineHeight={22} width={72} />
         <View className="bg-card border-border gap-3 rounded-2xl border p-4">
-          {[0, 1, 2, 3].map((i) => (
+          {[0, 1, 2, 3, 4].map((i) => (
             <View key={i} className="gap-3">
               {i > 0 && <Separator />}
               <View className="flex-row justify-between gap-4">

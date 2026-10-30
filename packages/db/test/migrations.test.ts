@@ -30,6 +30,7 @@ test('migrations apply from scratch', async () => {
     'presence',
     'match_results',
     'user_sanctions',
+    'game_visits_daily',
   ]) {
     assert.ok(names.includes(t), `missing table ${t}`);
   }

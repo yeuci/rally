@@ -2,7 +2,14 @@ import type { Tables } from '@rally/db';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { useSession } from '@/lib/auth/session';
-import { LIVE_COUNTS_REFRESH_MS, toLiveCounts, type LiveCount } from '@/lib/dashboard';
+import {
+  LIVE_COUNTS_REFRESH_MS,
+  toLiveCounts,
+  toVisitsDaily,
+  visitsDailyRange,
+  type LiveCount,
+  type VisitsDay,
+} from '@/lib/dashboard';
 import { supabase } from '@/lib/supabase';
 
 /**
@@ -11,9 +18,12 @@ import { supabase } from '@/lib/supabase';
  */
 export type Game = Tables<'games'>;
 
-/** Columns a card needs (art: lib/game-art.ts); the game page selects `*`. */
+/**
+ * Columns a card needs (art: lib/game-art.ts; `visits` for Browse's Popular order and the "12.4K visits" lines); the
+ * game page selects `*`.
+ */
 const CARD =
-  'id, title, description, genres, icon_url, cover_url, screenshots, min_players, max_players, age_rating, featured_rank, created_at' as const;
+  'id, title, description, genres, icon_url, cover_url, screenshots, min_players, max_players, age_rating, featured_rank, created_at, visits' as const;
 export type GameCard = Pick<
   Game,
   | 'id'
@@ -28,6 +38,7 @@ export type GameCard = Pick<
   | 'age_rating'
   | 'featured_rank'
   | 'created_at'
+  | 'visits'
 >;
 
 export const catalogKeys = {
@@ -38,6 +49,7 @@ export const catalogKeys = {
   recent: (uid: string | null) => ['me', uid, 'recent'] as const,
   favorites: (uid: string | null) => ['me', uid, 'favorites'] as const,
   liveCounts: ['catalog', 'live-counts'] as const,
+  visitsDaily: (id: string) => ['catalog', 'game', id, 'visits-daily'] as const,
 };
 
 /**
@@ -113,6 +125,32 @@ export function useGame(id: string | undefined) {
       const { data, error } = await supabase.from('games').select('*').eq('id', id!).maybeSingle();
       if (error) throw error;
       return data;
+    },
+  });
+}
+
+/**
+ * Visits per UTC day over the last `VISITS_DAILY_DAYS` days (today included) from `game_visits_daily`, oldest first,
+ * missing days as 0 (lib/dashboard.ts `toVisitsDaily`). For a later "trending" view; nothing renders it yet. Keyed
+ * under the game's catalog entry, so `invalidateAfterPlay` refreshes it with the total.
+ */
+export function useVisitsDaily(gameId: string | undefined) {
+  return useQuery({
+    queryKey: catalogKeys.visitsDaily(gameId ?? ''),
+    enabled: !!gameId,
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<VisitsDay[]> => {
+      const now = Date.now();
+      const { from, to } = visitsDailyRange(now);
+      const { data, error } = await supabase
+        .from('game_visits_daily')
+        .select('day, visits')
+        .eq('game_id', gameId!)
+        .gte('day', from)
+        .lte('day', to)
+        .order('day', { ascending: true });
+      if (error) throw error;
+      return toVisitsDaily(data, now);
     },
   });
 }

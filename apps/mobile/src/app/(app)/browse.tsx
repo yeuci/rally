@@ -32,6 +32,7 @@ import {
 } from '@/lib/browse';
 import { playersLabel, useAllGames, useLiveCounts, type GameCard } from '@/lib/catalog';
 import { gamesCountLabel, liveCountLabel } from '@/lib/dashboard';
+import { visitsLabel } from '@/lib/format';
 import { ROW_GAP } from '@/lib/layout';
 import { useLayout } from '@/lib/use-layout';
 import { usePalette } from '@/lib/use-palette';
@@ -48,7 +49,7 @@ const CHIP_SKELETONS = [72, 96, 80, 88];
  * their choice back into the route (`router.setParams`), so a deep link or a state restore shows the same page.
  * Opened from the dashboard (genre rows' "See all", category cards, "Browse all games"), the drawer and search's
  * "See all" (which carries its query as `q`). Multiplayer tiles show "12 playing" (`game_live_counts`, every 30 s
- * while in front). Columns follow the dashboard rows' tile size (lib/browse.ts `browseGrid`): 2 on a portrait phone,
+ * while in front); other tiles add a second "12.4K visits" line. Popular orders by visits, then live players. Columns follow the dashboard rows' tile size (lib/browse.ts `browseGrid`): 2 on a portrait phone,
  * 3–4 when wide. Skeleton grid while loading, pull to refresh, an empty state per genre / query, Retry on failure.
  */
 export default function BrowseScreen() {
@@ -85,15 +86,20 @@ export default function BrowseScreen() {
 
   // With a genre picked the genre is the same on every tile: show the player count instead.
   const genrePicked = params.genre !== null;
+  // Second line: "12.4K visits", unless the tile shows a live count (its space is kept, so grid rows line up).
   const renderItem = useCallback<ListRenderItem<GameCard>>(
-    ({ item }) => (
-      <GameTile
-        game={item}
-        width={tileWidth}
-        subtitle={genrePicked ? playersLabel(item) : undefined}
-        live={liveCountLabel(item, counts)}
-      />
-    ),
+    ({ item }) => {
+      const live = liveCountLabel(item, counts);
+      return (
+        <GameTile
+          game={item}
+          width={tileWidth}
+          subtitle={genrePicked ? playersLabel(item) : undefined}
+          live={live}
+          detail={live ? null : visitsLabel(item.visits)}
+        />
+      );
+    },
     [tileWidth, genrePicked, counts],
   );
 
@@ -291,7 +297,7 @@ function BrowseGridSkeleton({
       {rows.map((r) => (
         <View key={r} className="flex-row" style={{ gap: ROW_GAP }}>
           {cols.map((c) => (
-            <GameTileSkeleton key={c} width={tileWidth} />
+            <GameTileSkeleton key={c} width={tileWidth} detail />
           ))}
         </View>
       ))}
