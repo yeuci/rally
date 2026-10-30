@@ -14,7 +14,7 @@ pnpm dev:mobile:go                    # Metro for Expo Go (email sign-in + Devel
 
 pnpm --filter @rally/mobile typecheck # app + tests
 pnpm --filter @rally/mobile lint      # expo lint (React Compiler rules), zero warnings
-pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects/anonymous plan, bridge + nav gate, handlers (saves, leaderboards, achievements, join limits, token policy), join targets + rejoin journal (target → matchmaking calls, sticky / resume-once, reportReconnection room check, journal expiry, minVersion refusal, room lookups), controller (play sessions, playtime across reloads, diagnostics), session journal, storage reset, progress formatting, cover art, social (friendship buttons, people ranking, privacy, requests), dashboard (hero / category geometry, genre rows, hero auto-advance rules), drawer (width, swipe routes, items)
+pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects/anonymous plan, bridge + nav gate, handlers (saves, leaderboards, achievements, join limits, token policy), join targets + rejoin journal (target → matchmaking calls, sticky / resume-once, reportReconnection room check, journal expiry, minVersion refusal, room lookups), controller (play sessions, playtime across reloads, diagnostics), session journal, storage reset, progress formatting, cover art, social (friendship buttons, people ranking, privacy, requests), dashboard (hero / category geometry, genre rows, hero auto-advance rules), drawer (width, swipe routes, items), join UI (code input normalisation and lookup copy, room rows, rejoin countdown and offer rules)
 node scripts/generate-brand-assets.cjs  # (from apps/mobile) app icon, adaptive icon layers, splash, favicon from src/lib/brand.ts; needs Playwright
 ```
 
@@ -101,7 +101,8 @@ when they do surface (profile edits go through PostgREST, which passes them on).
 | `/` | `src/app/(app)/index.tsx` | dashboard: full-bleed featured hero (paged, auto-advancing) under a floating top bar (menu → drawer, greeting, avatar with the request badge), search pill, Continue playing / New on Rally / Favorites, Browse by category, one row per genre ("See all" → category sheet) |
 | `/search` | `src/app/(app)/search.tsx` | Games (`searchGames` over the catalog) and People (`search_profiles`, debounced 250 ms, `@name` = people only) with Add / Requested / Friends / Accept |
 | `/friends` | `src/app/(app)/friends.tsx` | your friends (`my_friends`) and requests (`my_friend_requests`: Accept / Decline, Cancel); `?tab=requests`; `?username=` lists another player's friends (`public_friends`) |
-| `/game/:id` | `src/app/(app)/game/[id]/index.tsx` | game page: screenshot gallery (else cover art), details (+ "Best" for solo games), favorite, Play → consent sheet, leaderboard, achievements |
+| `/game/:id` | `src/app/(app)/game/[id]/index.tsx` | game page: screenshot gallery (else cover art), details (+ "Best" for solo games), favorite, Play → consent sheet (multiplayer: Quick play, Rooms, Private → Create room / Join with code), leaderboard, achievements |
+| `/game/:id/rooms` | `src/app/(app)/game/[id]/rooms.tsx` | server browser for multiplayer games with the `browser` mode (see Multiplayer below) |
 | `/game/:id/play` | `src/app/(app)/game/[id]/play.tsx` | full-screen `GameHost` for the published version; multiplayer games take `?join=quick\|create\|room\|friend\|resume` (see Multiplayer below) |
 | `/profile`, `/profile/edit` | `src/app/(app)/profile/…` | profile (stats strip, Friends row with request badge, games played), edit (display name, username, bio, Privacy: games played / friends list → Everyone / Friends / Only me, read with `my_privacy`), sign out, delete-account request |
 | `/u/:username` | `src/app/(app)/u/[username].tsx` | public profile: avatar, names, bio, member since, friendship button (`friendship_with`), games played · achievements · friends (`public_profile_stats`), games played (`public_profile_games`), friends row (`public_friends`), unlocked achievements; Block / Unblock in the ⋯ menu; your own username redirects to `/profile` |
@@ -122,7 +123,7 @@ screens are outside `(app)`. Android back closes it first. Pure JS on gesture-ha
 
 **Dashboard.** The hero pages through the featured games (`coverUriFor(game, 'feature')` under a scrim that shades
 the top bar and fades into the page), with dots, Play (same plan → consent → host steps as the game page,
-`lib/use-quick-play.ts`) and Details. It advances every 6 s except under reduced motion or a screen reader, while
+`lib/use-launch-game.ts`) and Details. It advances every 6 s except under reduced motion or a screen reader, while
 touched, while another screen covers the dashboard or while the drawer is open (`lib/dashboard.ts`
 `heroAutoAdvances`). Portrait: ≈10:13, at most 66 % of the window; wide: 16:7, at most 78 % of the window height.
 Genre rows and category cards come from the whole catalog (`useAllGames`, `groupByGenre`: biggest genre first, at
@@ -241,6 +242,32 @@ per board, every key unlocks) and no play-session service, so `/dev/play` never 
 - **Developer launcher**: the room type (`hello`, preset `sumo`) and join mode (quick / create / code / room id) map
   to the same `JoinTarget` (a code is looked up before launch). Still a guest: no token is sent; rejoin records are
   kept in memory.
+- **Launching** (`lib/use-launch-game.ts`, `useLaunchGame()`): every Play in the shell (dashboard hero, game page,
+  rooms screen, code sheet, rejoin sheet) resolves the plan, then the 4.7.3 consent (`LaunchConsentDialog`), then
+  pushes `/game/[id]/play` with `joinTargetParams(target)`; a plan that cannot start leaves a per-game `notice`.
+- **Game page actions** for a manifest with `server`: **Quick play** (`join=quick`); **Rooms** (`browser` mode) →
+  `/game/[id]/rooms`; **Private** (`private` mode) → an action sheet with *Create room* (`join=create`: the server
+  makes a private room and the game shows its code, Sumo's HUD reads `state.code`) and *Join with code*.
+- **Rooms** (`(app)/game/[id]/rooms.tsx`): `listRooms` under React Query, every 5 s while the screen is in front and
+  on pull to refresh. `lib/rooms.ts` `roomRows` drops private rooms and rooms whose `metadata.serverVersion` is below
+  `manifest.server.minVersion`, and builds the row (name, `players/maxPlayers`, *Waiting* / *In match* from Sumo's
+  `phase`; full or locked rooms stay listed, dimmed, after the joinable ones). A tap → `join=room&room=<id>`.
+  Empty: "No open rooms. Quick play starts one." (with Quick play); unreachable server, rate limit and other errors
+  get their own states (a stale list stays with a one-line notice).
+- **Join with code** (`components/rally/join-code-sheet.tsx`, a `BottomSheet`): six cells over one hidden
+  `TextInput`; `lib/join-code-input.ts` keeps alphabet symbols only (upper-cased, at most six; a pasted message keeps
+  the code in it) and shows `K7M-2PQ`. The sixth symbol (or Join room) runs `checkJoinCode` → `targetForCode` with
+  `roomByCode`: another room type → "That code is for another game", `NO_ROOM` / `RATE_LIMITED` / unreachable →
+  their own copy, a found room → `join=room&room=<id>&code=<code>`.
+- **Rejoin sheet** (`components/rally/rejoin-sheet.tsx`, `RejoinPrompt` in `(app)/_layout.tsx`): reads the journal on
+  cold start and whenever the app becomes active, unless a game is open (`/…/play`). A record with more than 5 s
+  left (`lib/rejoin.ts`) shows "Rejoin your Sumo match? 0:42" with a live countdown: **Rejoin** →
+  `join=resume` (the record stays for the play route), **Leave match** clears it, a backdrop tap hides it for this
+  run, and it closes itself when the countdown ends.
+- **"That match has ended"** (a failed or impossible resume) is a toast (`lib/toast.ts` `showToast`, `ToastHost` in
+  `(app)/_layout.tsx`): one line under the status bar for 3.5 s, announced to screen readers.
+- Not yet: a share button for the private room's code (the shell does not learn the code of a room it created;
+  the game shows it), friend Join buttons (step 6).
 
 **Game page.** Below the details: a **Leaderboard** section (boards from `leaderboards`, in manifest order, with a
 segmented picker when there are several; Global / Friends toggle with a note that friends arrive in M4; top 10 from
@@ -292,7 +319,9 @@ identity, never the real profile.
   own unlocks, and public profiles (`profiles` by username, `public_profile_stats`, unlocked achievements across
   games); `src/lib/progress-format.ts`: the pure parts (score formatting, board order/labels, "Your rank", tiles).
 - `src/lib/join-target.ts`: the play route's `JoinTarget` (`parseJoinTarget` / `joinTargetParams`, `intentFor`,
-  join-code normalisation, `targetForCode`, `parseFriendJoinTarget`); pure.
+  join-code normalisation, `targetForCode`, `parseFriendJoinTarget`); pure. `join-code-input.ts`, `rooms.ts`,
+  `rejoin.ts`: the code sheet's, server browser's and rejoin sheet's pure parts; `use-launch-game.ts`: the shared
+  plan → consent → host launch; `toast.ts`: the toast store.
 - `src/lib/brand.ts`: the monochrome palette (shadcn neutral: near-black `#0A0A0A` / white, primary = foreground, no
   accent hue; `destructive` is the only colour), the logo mark's geometry (drawn in the foreground colour) and the
   splash layout (`SPLASH.imageWidth` mirrors `app.json`); `src/lib/cover-art.ts`: generated greyscale covers (grey
@@ -301,7 +330,8 @@ identity, never the real profile.
   hero without screenshots = `cover_url` → first screenshot; the hero gallery = `screenshots`).
 - `src/components/rally/`: app components (logo + wordmark, cold-start intro overlay, game cover / cards / rows, faint
   white glows, avatar with ring, empty states, form fields, consent dialog, segmented control, leaderboard and
-  achievements sections, app drawer, dashboard hero / top bar / tile rows / category cards and sheet).
+  achievements sections, app drawer, dashboard hero / top bar / tile rows / category cards and sheet, bottom sheet,
+  join-code and rejoin sheets, toast).
 - `src/lib/dashboard.ts`, `src/lib/drawer.ts`: the dashboard's and drawer's pure parts (geometry, genre grouping,
   auto-advance rules, drawer items); `src/lib/use-app-drawer.ts`: the drawer's context (`useAppDrawer`).
 - `src/components/ui/`: [React Native Reusables](https://reactnativereusables.com) on [Uniwind](https://docs.uniwind.dev)

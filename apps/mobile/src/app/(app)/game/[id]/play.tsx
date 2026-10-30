@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo } from 'react';
-import { ActivityIndicator, Alert, View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
 import { config, toWsUrl } from '@/config';
 import { HostError } from '@/game-host/bridge';
 import { GameHost, type GameHostResult } from '@/game-host/GameHost';
@@ -22,6 +22,7 @@ import {
 } from '@/lib/launch';
 import { useProfile, resolveAvatarUrl } from '@/lib/profile';
 import { supabase } from '@/lib/supabase';
+import { showToast } from '@/lib/toast';
 
 /**
  * Full-screen play route. Only renders the host once the version is resolved, the app version is new enough and
@@ -123,7 +124,7 @@ export default function PlayScreen() {
       }
       // Already leaving: the screen is unmounting (navigation away, sign-out).
       if (result.reason === 'unmount') return;
-      if (result.reason === MATCH_ENDED_EXIT) Alert.alert('That match has ended');
+      if (result.reason === MATCH_ENDED_EXIT) showToast('That match has ended');
       leave(id ?? '');
     },
     [id, qc, userId, multiplayer],
@@ -133,7 +134,7 @@ export default function PlayScreen() {
     target?.join === 'resume' && resumeRecord.isSuccess && (!resumeRecord.data || resumeRecord.data.gameId !== id);
   useEffect(() => {
     if (!resumeEnded) return;
-    Alert.alert('That match has ended');
+    showToast('That match has ended');
     leave(id ?? '');
   }, [resumeEnded, id]);
 

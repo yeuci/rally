@@ -3,6 +3,8 @@ import { Redirect, Stack } from 'expo-router';
 import { useEffect } from 'react';
 import { useUniwind } from 'uniwind';
 import { AppDrawer } from '@/components/rally/app-drawer';
+import { RejoinPrompt } from '@/components/rally/rejoin-sheet';
+import { ToastHost } from '@/components/rally/toast';
 import { useSession } from '@/lib/auth/session';
 import { recoverPlaySession } from '@/lib/launch';
 import { NAV_THEME } from '@/lib/theme';
@@ -45,7 +47,12 @@ export default function AppLayout() {
         {/* Pushed from the dashboard pill; draws its own bar (search field + Cancel). */}
         <Stack.Screen name="search" options={{ headerShown: false, animation: 'fade' }} />
         <Stack.Screen name="friends" options={{ title: 'Friends' }} />
+        <Stack.Screen name="game/[id]/rooms" options={{ title: 'Rooms' }} />
       </Stack>
+      {/* Over the stack: the toast ("That match has ended") and the rejoin sheet (a match left within its grace,
+          m3-phase2 §4; a modal, so it also covers the drawer). */}
+      <ToastHost />
+      <RejoinPrompt />
     </AppDrawer>
   );
 }

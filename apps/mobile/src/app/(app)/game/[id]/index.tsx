@@ -1,10 +1,11 @@
 import { useQueryClient } from '@tanstack/react-query';
-import * as Haptics from 'expo-haptics';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
   ChevronLeftIcon,
   CircleAlertIcon,
   HeartIcon,
+  LayoutListIcon,
+  LockIcon,
   PlayIcon,
   RectangleHorizontalIcon,
   RectangleVerticalIcon,
@@ -14,7 +15,17 @@ import {
   type LucideIcon,
 } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import {
+  ActionSheetIOS,
+  ActivityIndicator,
+  Alert,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
 import Animated, {
   Extrapolation,
   interpolate,
@@ -25,10 +36,11 @@ import Animated, {
   type SharedValue,
 } from 'react-native-reanimated';
 import { AchievementsSection, AchievementsSectionSkeleton } from '@/components/rally/achievements';
-import { ConsentDialog } from '@/components/rally/consent-dialog';
+import { LaunchConsentDialog } from '@/components/rally/consent-dialog';
 import { EmptyState } from '@/components/rally/empty-state';
 import { CoverScrim, GameCover } from '@/components/rally/game-cover';
 import { Image } from '@/components/rally/image';
+import { JoinCodeSheet } from '@/components/rally/join-code-sheet';
 import { LeaderboardSection, LeaderboardSectionSkeleton } from '@/components/rally/leaderboard';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -40,10 +52,11 @@ import { useSession } from '@/lib/auth/session';
 import { playersLabel, useFavorites, useGame, useToggleFavorite, type Game } from '@/lib/catalog';
 import { coverUriFor, heroScreenshots } from '@/lib/game-art';
 import { progressKeys, useGameAchievements, useGameBoards, useMyRank } from '@/lib/game-progress';
-import { fetchConsent, fetchLaunchPlan, launchKeys, useGrantConsent, useLaunchPlan } from '@/lib/launch';
+import type { JoinKind } from '@/lib/join-target';
+import { useLaunchPlan } from '@/lib/launch';
 import { GUTTER, gameCoverColumnWidth, gameHeroHeight, pageIndex, titleBarRange } from '@/lib/layout';
-import { useProfile } from '@/lib/profile';
 import { formatScore, orderBoards } from '@/lib/progress-format';
+import { noticeFor, useLaunchGame } from '@/lib/use-launch-game';
 import { useBoxSize, useLayout } from '@/lib/use-layout';
 import { usePalette } from '@/lib/use-palette';
 import { cn } from '@/lib/utils';
@@ -69,7 +82,12 @@ function playersShort(g: Pick<Game, 'min_players' | 'max_players'>): string {
   return `${g.min_players}–${g.max_players}`;
 }
 
-/** Game page (deep link `/game/:id`): cover hero, details, favorite, and Play → consent → full-screen host. */
+/**
+ * Game page (deep link `/game/:id`): cover hero, details, favorite, and Play → consent → full-screen host
+ * (`useLaunchGame`). Multiplayer games (`manifest.server`, m3-phase2 §1) get Quick play (`join=quick`), Rooms
+ * (`browser` mode: the server browser) and Private (`private` mode: Create room → `join=create`, the game shows the
+ * code; Join with code → the code sheet → `join=room&room=<id>&code=<code>`) instead of Play.
+ */
 export default function GamePage() {
   const { id } = useLocalSearchParams<{ id: string }>();
   // Live window + insets on every render: rotation re-renders and every size below is recomputed.
@@ -80,16 +98,13 @@ export default function GamePage() {
 
   const game = useGame(id);
   const plan = useLaunchPlan(id); // prefetch so Play is instant
-  const profile = useProfile();
   const favorites = useFavorites();
   const toggleFavorite = useToggleFavorite();
-  const grantConsent = useGrantConsent();
+  const launcher = useLaunchGame();
   const boardsQuery = useGameBoards(id);
   const achievements = useGameAchievements(id);
 
-  const [resolving, setResolving] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [consentOpen, setConsentOpen] = useState(false);
+  const [codeOpen, setCodeOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   // Portrait: the scroll offset drives the title bar that slides in once the hero has scrolled away (UI thread).
@@ -122,7 +137,6 @@ export default function GamePage() {
   );
 
   const back = () => (router.canGoBack() ? router.back() : router.replace('/'));
-  const openHost = () => router.push({ pathname: '/game/[id]/play', params: { id } });
 
   async function refresh() {
     setRefreshing(true);
@@ -137,37 +151,6 @@ export default function GamePage() {
       ]);
     } finally {
       setRefreshing(false);
-    }
-  }
-
-  async function play() {
-    if (!id || !userId || resolving) return;
-    setNotice(null);
-    setResolving(true);
-    try {
-      const resolved = await qc.fetchQuery({ queryKey: launchKeys.plan(id), queryFn: () => fetchLaunchPlan(id), staleTime: 10_000 });
-      if (resolved.status === 'unavailable') return setNotice(resolved.message);
-      if (resolved.status === 'update-required') {
-        return setNotice(`Update Rally to version ${resolved.minAppVersion} or later to play this game.`);
-      }
-      const consented = await qc.fetchQuery({ queryKey: launchKeys.consent(userId, id), queryFn: () => fetchConsent(userId, id) });
-      if (consented) openHost();
-      else setConsentOpen(true);
-    } catch {
-      setNotice("Couldn't start the game. Check your connection and try again.");
-    } finally {
-      setResolving(false);
-    }
-  }
-
-  async function allow() {
-    try {
-      await grantConsent.mutateAsync(id);
-      setConsentOpen(false);
-      openHost();
-    } catch {
-      setConsentOpen(false);
-      setNotice("Couldn't save your choice. Try again.");
     }
   }
 
@@ -207,7 +190,26 @@ export default function GamePage() {
       <AchievementsSection tiles={achievements.data} loading={achievements.isLoading} error={achievements.isError} />
     </>
   );
-  const playDisabled = resolving || plan.data?.status === 'unavailable';
+  const server = manifest?.server ?? null;
+  const modes: readonly string[] = manifest?.modes ?? g.modes;
+  const playDisabled = !!launcher.pending || plan.data?.status === 'unavailable';
+  const openPrivate = () => {
+    const create = () => launcher.launch(g, { join: 'create' });
+    const join = () => setCodeOpen(true);
+    const message = 'Create a room and share its code, or enter the code a friend gave you.';
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { title: 'Private room', message, options: ['Create room', 'Join with code', 'Cancel'], cancelButtonIndex: 2 },
+        (i) => (i === 0 ? create() : i === 1 ? join() : undefined),
+      );
+    } else {
+      Alert.alert('Private room', message, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Join with code', onPress: join },
+        { text: 'Create room', onPress: create },
+      ]);
+    }
+  };
   const orientation = ORIENTATION[g.orientation];
 
   const refreshControl = (
@@ -237,27 +239,39 @@ export default function GamePage() {
     </>
   );
   const gallery = heroScreenshots(g).length > 1;
+  const secondary = !solo && (modes.includes('browser') || modes.includes('private'));
   const playButton = (
-    <PlayButton
-      resolving={resolving}
+    <PlayActions
+      multiplayer={!solo}
+      rooms={!solo && modes.includes('browser')}
+      privateRooms={!solo && modes.includes('private')}
+      pending={launcher.pending?.gameId === g.id ? launcher.pending.join : null}
       disabled={playDisabled}
-      notice={notice}
+      // The code sheet and Create room need the room type from the resolved manifest.
+      serverReady={!!server}
+      notice={noticeFor(launcher, g.id)}
       spinnerColor={palette.primaryForeground}
-      onPress={() => {
-        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-        void play();
-      }}
+      onPlay={() => launcher.launch(g, solo ? undefined : { join: 'quick' })}
+      onRooms={() => router.push({ pathname: '/game/[id]/rooms', params: { id: g.id } })}
+      onPrivate={openPrivate}
     />
   );
   const consent = (
-    <ConsentDialog
-      open={consentOpen}
-      gameTitle={g.title}
-      profile={profile.data}
-      busy={grantConsent.isPending}
-      onAllow={() => void allow()}
-      onDecline={() => setConsentOpen(false)}
-    />
+    <>
+      <LaunchConsentDialog launcher={launcher} />
+      {server ? (
+        <JoinCodeSheet
+          open={codeOpen}
+          onClose={() => setCodeOpen(false)}
+          gameTitle={g.title}
+          roomName={server.room}
+          onJoin={(target) => {
+            setCodeOpen(false);
+            launcher.launch(g, target);
+          }}
+        />
+      ) : null}
+    </>
   );
 
   if (landscape) {
@@ -290,7 +304,8 @@ export default function GamePage() {
   return (
     <View className="bg-background flex-1">
       <Animated.ScrollView
-        contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
+        // Clear of the sticky actions: Play (or Quick play), plus the Rooms / Private row for multiplayer games.
+        contentContainerStyle={{ paddingBottom: insets.bottom + (secondary ? 176 : 120) }}
         refreshControl={refreshControl}
         onScroll={onScroll}
         scrollEventThrottle={16}
@@ -317,7 +332,7 @@ export default function GamePage() {
         {controls(barProgress)}
       </View>
 
-      {/* Sticky Play above the home indicator: fades the page out above it instead of a hard border */}
+      {/* Sticky Play (or the multiplayer actions) above the home indicator: fades the page out instead of a hard border */}
       <View className="absolute bottom-0 left-0 right-0" pointerEvents="box-none">
         <View className="h-6" pointerEvents="none">
           <CoverScrim kind="fade" color={palette.background} />
@@ -474,18 +489,36 @@ function About({
   );
 }
 
-function PlayButton({
-  resolving,
+/**
+ * Play for solo games. Multiplayer games: Quick play, then a row with Rooms (`browser` mode) and Private (`private`
+ * mode: the Create room / Join with code action sheet). The pressed action shows the spinner while the launch
+ * resolves.
+ */
+function PlayActions({
+  multiplayer,
+  rooms,
+  privateRooms,
+  pending,
   disabled,
+  serverReady,
   notice,
   spinnerColor,
-  onPress,
+  onPlay,
+  onRooms,
+  onPrivate,
 }: {
-  resolving: boolean;
+  multiplayer: boolean;
+  rooms: boolean;
+  privateRooms: boolean;
+  /** The join kind being launched for this game (Quick play / Play → `quick`, Create room → `create`). */
+  pending: JoinKind | null;
   disabled: boolean;
+  serverReady: boolean;
   notice: string | null;
   spinnerColor: string;
-  onPress: () => void;
+  onPlay: () => void;
+  onRooms: () => void;
+  onPrivate: () => void;
 }) {
   return (
     <View className="gap-2">
@@ -497,14 +530,45 @@ function PlayButton({
           </Text>
         </View>
       )}
-      <Button size="lg" className="h-14 rounded-2xl" disabled={disabled} onPress={onPress}>
-        {resolving ? (
+      <Button size="lg" className="h-14 rounded-2xl" disabled={disabled} onPress={onPlay}>
+        {pending === 'quick' ? (
           <ActivityIndicator color={spinnerColor} />
         ) : (
           <Icon as={PlayIcon} className="text-primary-foreground fill-primary-foreground size-5" />
         )}
-        <Text className="text-[17px] font-bold">Play</Text>
+        <Text className="text-[17px] font-bold">{multiplayer ? 'Quick play' : 'Play'}</Text>
       </Button>
+      {rooms || privateRooms ? (
+        <View className="flex-row gap-2">
+          {rooms && (
+            <Button
+              variant="secondary"
+              className="h-12 flex-1 rounded-2xl"
+              onPress={onRooms}
+              accessibilityHint="Lists open rooms"
+            >
+              <Icon as={LayoutListIcon} className="text-secondary-foreground size-[18px]" />
+              <Text>Rooms</Text>
+            </Button>
+          )}
+          {privateRooms && (
+            <Button
+              variant="secondary"
+              className="h-12 flex-1 rounded-2xl"
+              disabled={disabled || !serverReady}
+              onPress={onPrivate}
+              accessibilityHint="Create a private room or join one with a code"
+            >
+              {pending === 'create' ? (
+                <ActivityIndicator />
+              ) : (
+                <Icon as={LockIcon} className="text-secondary-foreground size-[18px]" />
+              )}
+              <Text>Private</Text>
+            </Button>
+          )}
+        </View>
+      ) : null}
     </View>
   );
 }

@@ -10,7 +10,8 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Text } from '@/components/ui/text';
-import type { Profile } from '@/lib/profile';
+import { useProfile, type Profile } from '@/lib/profile';
+import type { GameLauncher } from '@/lib/use-launch-game';
 import { ProfileAvatar } from './profile-avatar';
 
 /**
@@ -63,5 +64,20 @@ export function ConsentDialog({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  );
+}
+
+/** `ConsentDialog` wired to a `useLaunchGame()` launcher (Allow → the host with the pending join target). */
+export function LaunchConsentDialog({ launcher }: { launcher: GameLauncher }) {
+  const profile = useProfile();
+  return (
+    <ConsentDialog
+      open={!!launcher.consentGame}
+      gameTitle={launcher.consentGame?.title ?? ''}
+      profile={profile.data}
+      busy={launcher.granting}
+      onAllow={launcher.allow}
+      onDecline={launcher.decline}
+    />
   );
 }

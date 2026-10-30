@@ -14,7 +14,7 @@ import Animated, {
 import { scheduleOnRN } from 'react-native-worklets';
 import { useUniwind } from 'uniwind';
 import { CategoryRow, CategorySheet } from '@/components/rally/category-card';
-import { ConsentDialog } from '@/components/rally/consent-dialog';
+import { LaunchConsentDialog } from '@/components/rally/consent-dialog';
 import { DashboardHero, DashboardHeroSkeleton } from '@/components/rally/dashboard-hero';
 import { DashboardTopBar, TOP_BAR_ROW } from '@/components/rally/dashboard-top-bar';
 import { EmptyState } from '@/components/rally/empty-state';
@@ -48,7 +48,7 @@ import { countBadge } from '@/lib/social';
 import { useAppDrawer } from '@/lib/use-app-drawer';
 import { useLayout } from '@/lib/use-layout';
 import { usePalette } from '@/lib/use-palette';
-import { useQuickPlay } from '@/lib/use-quick-play';
+import { useLaunchGame } from '@/lib/use-launch-game';
 
 const GENRE_SKELETON_ROWS = [0, 1];
 
@@ -65,7 +65,7 @@ export default function Dashboard() {
   const { theme } = useUniwind();
   const focused = useIsFocused();
   const drawer = useAppDrawer();
-  const quick = useQuickPlay();
+  const launcher = useLaunchGame();
 
   const profile = useProfile();
   const requests = useFriendRequests();
@@ -164,9 +164,9 @@ export default function Dashboard() {
               height={heroHeight}
               wide={wide}
               pad={pad}
-              onPlay={quick.play}
-              resolvingId={quick.resolvingId}
-              notice={quick.notice}
+              onPlay={launcher.launch}
+              resolvingId={launcher.resolvingId}
+              notice={launcher.notice}
             />
           )
         ) : (
@@ -276,14 +276,7 @@ export default function Dashboard() {
         open={!!sheet?.open}
         onClose={() => setSheet((s) => (s ? { ...s, open: false } : s))}
       />
-      <ConsentDialog
-        open={!!quick.consentGame}
-        gameTitle={quick.consentGame?.title ?? ''}
-        profile={profile.data}
-        busy={quick.granting}
-        onAllow={quick.allow}
-        onDecline={quick.decline}
-      />
+      <LaunchConsentDialog launcher={launcher} />
       {focused && showHero && overArt && theme === 'light' ? <StatusBar style="light" /> : null}
     </View>
   );
