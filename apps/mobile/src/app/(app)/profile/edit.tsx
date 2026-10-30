@@ -11,6 +11,7 @@ import { Text } from '@/components/ui/text';
 import { Textarea } from '@/components/ui/textarea';
 import { describeAuthError } from '@/lib/auth/errors';
 import { useUsernameAvailability } from '@/lib/auth/use-username-availability';
+import { BRAND } from '@/lib/brand';
 import { useProfile, useUpdateProfile, type Profile, type ProfileUpdate } from '@/lib/profile';
 
 const DISPLAY_NAME_MAX = 32; // profiles_display_name_len
@@ -21,7 +22,7 @@ export default function EditProfileScreen() {
   if (!profile.data) {
     return (
       <View className="bg-background flex-1 items-center justify-center">
-        <ActivityIndicator />
+        <ActivityIndicator color={BRAND.violet} />
       </View>
     );
   }
@@ -58,12 +59,12 @@ function EditProfileForm({ profile }: { profile: Profile }) {
   return (
     <KeyboardAvoidingView className="bg-background flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView
-        contentContainerClassName="gap-5 px-4 pt-4"
+        contentContainerClassName="gap-5 px-4 pt-6"
         contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
         keyboardShouldPersistTaps="handled"
       >
         <View className="items-center">
-          <ProfileAvatar profile={{ ...profile, display_name: displayName || null, username }} size="xl" />
+          <ProfileAvatar profile={{ ...profile, display_name: displayName || null, username }} size="xl" ring />
         </View>
         <FormField id="display-name" label="Display name" hint={`${displayName.length}/${DISPLAY_NAME_MAX}`}>
           <Input

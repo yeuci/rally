@@ -120,6 +120,7 @@ export default function SignUp() {
               aria-labelledby="password"
               value={password}
               onChangeText={setPassword}
+              invalid={password.length > 0 && password.length < MIN_PASSWORD}
               secureTextEntry
               autoComplete="new-password"
               textContentType="newPassword"

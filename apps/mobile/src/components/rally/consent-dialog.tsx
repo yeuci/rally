@@ -42,7 +42,7 @@ export function ConsentDialog({
             birthday or friends list. You can play only if you allow this.
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <View className="bg-muted/60 flex-row items-center gap-3 rounded-lg p-3">
+        <View className="bg-muted flex-row items-center gap-3 rounded-lg p-3">
           <ProfileAvatar profile={profile} size="sm" />
           <View className="shrink">
             <Text className="text-sm font-medium" numberOfLines={1}>

@@ -76,8 +76,8 @@ export default function AgeGate() {
       }
     >
       <View className="flex-row gap-3">
-        <View className="flex-1 gap-1.5">
-          <Label nativeID="dob-month">Month</Label>
+        <View className="flex-1 gap-2">
+          <Label nativeID="dob-month" className="text-secondary-foreground text-[13px] font-semibold">Month</Label>
           <Input
             aria-labelledby="dob-month"
             value={month}
@@ -90,11 +90,11 @@ export default function AgeGate() {
             placeholder="MM"
             maxLength={2}
             autoFocus
-            className="h-12 text-center text-lg"
+            className="h-14 text-center text-xl font-semibold"
           />
         </View>
-        <View className="flex-1 gap-1.5">
-          <Label nativeID="dob-day">Day</Label>
+        <View className="flex-1 gap-2">
+          <Label nativeID="dob-day" className="text-secondary-foreground text-[13px] font-semibold">Day</Label>
           <Input
             ref={dayRef}
             aria-labelledby="dob-day"
@@ -107,11 +107,11 @@ export default function AgeGate() {
             keyboardType="number-pad"
             placeholder="DD"
             maxLength={2}
-            className="h-12 text-center text-lg"
+            className="h-14 text-center text-xl font-semibold"
           />
         </View>
-        <View className="flex-[1.6] gap-1.5">
-          <Label nativeID="dob-year">Year</Label>
+        <View className="flex-[1.6] gap-2">
+          <Label nativeID="dob-year" className="text-secondary-foreground text-[13px] font-semibold">Year</Label>
           <Input
             ref={yearRef}
             aria-labelledby="dob-year"
@@ -120,7 +120,7 @@ export default function AgeGate() {
             keyboardType="number-pad"
             placeholder="YYYY"
             maxLength={4}
-            className="h-12 text-center text-lg"
+            className="h-14 text-center text-xl font-semibold"
             returnKeyType="done"
             onSubmitEditing={submit}
           />

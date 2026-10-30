@@ -14,7 +14,8 @@ pnpm dev:mobile:go                    # Metro for Expo Go (email sign-in + Devel
 
 pnpm --filter @rally/mobile typecheck # app + tests
 pnpm --filter @rally/mobile lint      # expo lint (React Compiler rules), zero warnings
-pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects/anonymous plan, bridge + nav gate, handlers, controller
+pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects/anonymous plan, bridge + nav gate, handlers, controller, cover art
+node scripts/generate-brand-assets.cjs  # (from apps/mobile) app icon, adaptive icon layers, splash, favicon from src/lib/brand.ts; needs Playwright
 ```
 
 ## Environment
@@ -136,10 +137,15 @@ identity, never the real profile.
 - `src/lib/profile.ts`, `catalog.ts`, `launch.ts`: React Query hooks over `profiles` (always `PROFILE_COLUMNS` from
   `@rally/db`: `birth_date` and `privacy` are not readable, so `select('*')` fails), `games` / `game_versions` /
   `game_stats` / `favorites`, and the launch plan + `game_consents`.
-- `src/components/rally/`: app components (game cards and rows, cover, avatar, form fields, consent dialog).
+- `src/lib/brand.ts`: palette, the logo mark's geometry and the splash layout (`SPLASH.imageWidth` mirrors `app.json`);
+  `src/lib/cover-art.ts`: generated covers (gradient + shapes from a hash of the game id) for games without screenshots.
+- `src/components/rally/`: app components (logo + wordmark, cold-start intro overlay, game cover / cards / rows, glows,
+  avatar with gradient ring, empty states, form fields, consent dialog).
 - `src/components/ui/`: [React Native Reusables](https://reactnativereusables.com) on [Uniwind](https://docs.uniwind.dev)
   (ADR 0005). Owned source; theme tokens in `global.css`. Add more with
-  `npx @react-native-reusables/cli@latest add <name> --styling-library uniwind`.
+  `npx @react-native-reusables/cli@latest add <name> --styling-library uniwind`. Opacity modifiers on theme colours
+  (`bg-muted/60`) compile to no colour on native with Tailwind 4.3 + Uniwind 1.13; use the alpha tokens (`bg-brand-soft`,
+  `bg-fill`, …) or static colours (`bg-black/35`).
 
 Bridge host code (`src/game-host/`):
 

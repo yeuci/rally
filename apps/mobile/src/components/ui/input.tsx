@@ -1,15 +1,22 @@
 import { cn } from '@/lib/utils';
 import { Platform, TextInput } from 'react-native';
 
+/**
+ * Text input. Focus ring: the accent (`ring`) border with a faint brand tint (Uniwind's TextInput tracks focus
+ * for `focus:` on native). `invalid` draws the destructive border.
+ */
 function Input({
   className,
   placeholderTextColorClassName,
+  invalid,
   ...props
-}: React.ComponentProps<typeof TextInput>) {
+}: React.ComponentProps<typeof TextInput> & { invalid?: boolean }) {
   return (
     <TextInput
       className={cn(
-        'dark:bg-input/30 border-input bg-background text-foreground flex h-10 w-full min-w-0 flex-row items-center rounded-md border px-3 py-1 text-base leading-5 shadow-sm shadow-black/5 sm:h-9',
+        'border-input bg-card text-foreground flex h-12 w-full min-w-0 flex-row items-center rounded-lg border px-4 py-1 text-base leading-5',
+        'focus:border-ring focus:bg-field-focus',
+        invalid && 'border-destructive focus:border-destructive',
         props.editable === false &&
           cn(
             'opacity-50',
@@ -21,11 +28,12 @@ function Input({
             'focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]',
             'aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive'
           ),
-          native: 'placeholder:text-muted-foreground/50',
         }),
         className
       )}
-      placeholderTextColorClassName={cn('text-muted-foreground', placeholderTextColorClassName)}
+      placeholderTextColorClassName={cn('accent-muted-foreground', placeholderTextColorClassName)}
+      selectionColorClassName="accent-brand"
+      cursorColorClassName="accent-brand"
       {...props}
     />
   );

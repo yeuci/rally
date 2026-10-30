@@ -46,6 +46,7 @@ export function UsernameField({
         maxLength={20}
         autoFocus={autoFocus}
         placeholder="your_name"
+        invalid={TONE[status] === 'error'}
       />
     </FormField>
   );

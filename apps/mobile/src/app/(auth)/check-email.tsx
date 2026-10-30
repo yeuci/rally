@@ -17,10 +17,10 @@ export default function CheckEmail() {
       }
     >
       <View className="items-center gap-4 pt-10">
-        <View className="bg-muted size-16 items-center justify-center rounded-2xl">
-          <Icon as={MailCheckIcon} className="size-8" />
+        <View className="bg-brand-soft border-brand-line size-20 items-center justify-center rounded-3xl border">
+          <Icon as={MailCheckIcon} className="text-brand size-9" />
         </View>
-        <Text variant="h3" className="text-center">
+        <Text className="text-center text-[28px] font-extrabold leading-[34px] tracking-tight" role="heading">
           Check your inbox
         </Text>
         <Text variant="muted" className="text-center text-base leading-6">

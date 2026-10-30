@@ -1,9 +1,11 @@
 import { router } from 'expo-router';
 import { ChevronRightIcon, LifeBuoyIcon, LogOutIcon, PencilIcon, Trash2Icon, WrenchIcon, type LucideIcon } from 'lucide-react-native';
 import { useState } from 'react';
-import { Linking, Pressable, ScrollView, View } from 'react-native';
+import { Linking, Pressable, ScrollView, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ErrorText } from '@/components/rally/form-field';
+import { Glow } from '@/components/rally/glow';
+import { LogoMark } from '@/components/rally/logo';
 import { ProfileAvatar } from '@/components/rally/profile-avatar';
 import {
   AlertDialog,
@@ -28,6 +30,7 @@ import { cn } from '@/lib/utils';
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
   const profile = useProfile();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
@@ -55,38 +58,40 @@ export default function ProfileScreen() {
   return (
     <ScrollView
       className="bg-background flex-1"
-      contentContainerClassName="gap-6 px-4 pt-4"
+      contentContainerClassName="gap-6 px-4 pt-6"
       contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
     >
-      <View className="items-center gap-3">
-        <ProfileAvatar profile={p} size="xl" />
+      <Glow size={width * 1.1} opacity={0.2} style={{ top: -width * 0.55, left: -width * 0.05 }} />
+
+      <View className="items-center gap-4">
+        <ProfileAvatar profile={p} size="xl" ring />
         {p ? (
           <View className="items-center gap-1">
-            <Text variant="h3">{p.display_name || p.username}</Text>
-            <Text variant="muted">@{p.username}</Text>
+            <Text className="text-center text-[26px] font-extrabold leading-8 tracking-tight">{p.display_name || p.username}</Text>
+            <Text className="text-muted-foreground text-[15px] font-medium">@{p.username}</Text>
           </View>
         ) : (
           <View className="items-center gap-2">
-            <Skeleton className="h-7 w-40" />
-            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-7 w-40 rounded-lg" />
+            <Skeleton className="h-4 w-24 rounded-full" />
           </View>
         )}
-        {p?.bio ? <Text className="max-w-sm text-center leading-6">{p.bio}</Text> : null}
-        <Button variant="outline" size="sm" className="mt-1" onPress={() => router.push('/profile/edit')} disabled={!p}>
-          <Icon as={PencilIcon} className="size-4" />
+        {p?.bio ? <Text className="text-secondary-foreground max-w-sm text-center leading-6">{p.bio}</Text> : null}
+        <Button variant="outline" size="sm" className="rounded-full px-4" onPress={() => router.push('/profile/edit')} disabled={!p}>
+          <Icon as={PencilIcon} className="size-3.5" />
           <Text>Edit profile</Text>
         </Button>
       </View>
 
-      <View className="bg-card border-border overflow-hidden rounded-xl border">
+      <View className="bg-card border-border overflow-hidden rounded-2xl border">
         {config.devTools && (
           <>
             <Row icon={WrenchIcon} label="Developer" onPress={() => router.push('/dev')} />
-            <Separator />
+            <Separator className="ml-16" />
           </>
         )}
         <Row icon={LifeBuoyIcon} label="Help & support" onPress={() => mail('Rally support')} />
-        <Separator />
+        <Separator className="ml-16" />
         <Row
           icon={LogOutIcon}
           label={signingOut ? 'Signing out…' : 'Sign out'}
@@ -95,13 +100,16 @@ export default function ProfileScreen() {
       </View>
       <ErrorText>{signOutError}</ErrorText>
 
-      <View className="bg-card border-border overflow-hidden rounded-xl border">
+      <View className="bg-card border-border overflow-hidden rounded-2xl border">
         <Row icon={Trash2Icon} label="Delete account" destructive onPress={() => setDeleteOpen(true)} />
       </View>
 
-      <Text variant="muted" className="text-center text-xs">
-        Rally {config.appVersion}
-      </Text>
+      <View className="flex-row items-center justify-center gap-1.5 opacity-70">
+        <LogoMark size={16} />
+        <Text variant="muted" className="text-xs">
+          Rally {config.appVersion}
+        </Text>
+      </View>
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent className="w-[22rem] max-w-full">
@@ -128,9 +136,11 @@ export default function ProfileScreen() {
 
 function Row({ icon, label, onPress, destructive }: { icon: LucideIcon; label: string; onPress: () => void; destructive?: boolean }) {
   return (
-    <Pressable onPress={onPress} accessibilityRole="button" className="active:bg-accent flex-row items-center gap-3 px-4 py-3.5">
-      <Icon as={icon} className={cn('size-5', destructive ? 'text-destructive' : 'text-muted-foreground')} />
-      <Text className={cn('flex-1', destructive && 'text-destructive')}>{label}</Text>
+    <Pressable onPress={onPress} accessibilityRole="button" className="active:bg-accent flex-row items-center gap-3.5 px-4 py-3">
+      <View className={cn('size-9 items-center justify-center rounded-xl', destructive ? 'bg-destructive-soft' : 'bg-muted')}>
+        <Icon as={icon} className={cn('size-[18px]', destructive ? 'text-destructive' : 'text-secondary-foreground')} />
+      </View>
+      <Text className={cn('flex-1 text-[15px] font-medium', destructive && 'text-destructive')}>{label}</Text>
       {!destructive && <Icon as={ChevronRightIcon} className="text-muted-foreground size-4" />}
     </Pressable>
   );

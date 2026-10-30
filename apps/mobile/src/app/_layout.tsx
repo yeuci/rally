@@ -2,12 +2,14 @@ import '../../global.css';
 
 import { PortalHost } from '@rn-primitives/portal';
 import { QueryClientProvider } from '@tanstack/react-query';
+import { isRunningInExpoGo } from 'expo';
 import { Stack } from 'expo-router';
 import { ThemeProvider } from 'expo-router/react-navigation';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useUniwind } from 'uniwind';
+import { IntroOverlay, introPending } from '@/components/rally/intro-overlay';
 import { config } from '@/config';
 import { useSession } from '@/lib/auth/session';
 import { queryClient } from '@/lib/query-client';
@@ -16,6 +18,9 @@ import { NAV_THEME } from '@/lib/theme';
 export { ErrorBoundary } from 'expo-router';
 
 void SplashScreen.preventAutoHideAsync().catch(() => {});
+// Hide the native splash instantly (Android fades it over 400 ms by default): the intro overlay underneath is
+// pixel-identical, so a cut is invisible while a fade would ghost the static mark over the spinning one.
+if (!isRunningInExpoGo()) SplashScreen.setOptions({ duration: 0, fade: false });
 
 /**
  * Session gate: `(app)` needs a signed-in (non-anonymous) session, `(auth)` is for everyone else. `auth/*` holds the
@@ -26,10 +31,12 @@ export default function RootLayout() {
   const { theme } = useUniwind();
   const nav = NAV_THEME[theme ?? 'dark'];
   const { initialized } = useSession();
+  // Cold start only: the overlay takes over the native splash and hides it once it has drawn a frame.
+  const [intro] = useState(introPending);
 
   useEffect(() => {
-    if (initialized) void SplashScreen.hideAsync().catch(() => {});
-  }, [initialized]);
+    if (initialized && !intro) void SplashScreen.hideAsync().catch(() => {});
+  }, [initialized, intro]);
 
   if (!initialized) return null;
 
@@ -57,6 +64,7 @@ export default function RootLayout() {
           </Stack.Protected>
         </Stack>
         <PortalHost />
+        {intro && <IntroOverlay />}
       </ThemeProvider>
     </QueryClientProvider>
   );

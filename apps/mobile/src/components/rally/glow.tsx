@@ -1,0 +1,38 @@
+import { memo } from 'react';
+import { View, type StyleProp, type ViewStyle } from 'react-native';
+import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
+import { BRAND } from '@/lib/brand';
+import { cn } from '@/lib/utils';
+import { useSvgId } from './logo';
+
+/** A soft radial light (accent violet by default). Absolutely positioned, ignores touches; place with className. */
+export const Glow = memo(function Glow({
+  size,
+  color = BRAND.violet,
+  opacity = 0.35,
+  className,
+  style,
+}: {
+  size: number;
+  color?: string;
+  opacity?: number;
+  className?: string;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const id = useSvgId('glow');
+  const r = size / 2;
+  return (
+    <View pointerEvents="none" className={cn('absolute', className)} style={[{ width: size, height: size }, style]}>
+      <Svg width={size} height={size}>
+        <Defs>
+          <RadialGradient id={id} gradientUnits="userSpaceOnUse" cx={r} cy={r} r={r}>
+            <Stop offset={0} stopColor={color} stopOpacity={opacity} />
+            <Stop offset={0.55} stopColor={color} stopOpacity={opacity * 0.35} />
+            <Stop offset={1} stopColor={color} stopOpacity={0} />
+          </RadialGradient>
+        </Defs>
+        <Circle cx={r} cy={r} r={r} fill={`url(#${id})`} />
+      </Svg>
+    </View>
+  );
+});

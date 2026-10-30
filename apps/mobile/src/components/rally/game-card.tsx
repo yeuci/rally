@@ -1,43 +1,79 @@
 import { Link } from 'expo-router';
+import { PlayIcon, UsersIcon } from 'lucide-react-native';
+import { memo } from 'react';
 import { Pressable, View } from 'react-native';
 import { Badge } from '@/components/ui/badge';
+import { Icon } from '@/components/ui/icon';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Text } from '@/components/ui/text';
 import { playersLabel, type GameCard as GameCardData } from '@/lib/catalog';
 import { cn } from '@/lib/utils';
 import { GameCover } from './game-cover';
 
-/** Large card for the featured carousel. */
-export function FeaturedGameCard({ game, width }: { game: GameCardData; width: number }) {
+/** Featured card height for a given width (shared with its skeleton). */
+export const featuredHeight = (width: number) => Math.round(width * 0.7);
+
+/** Hero card for the featured carousel: full-bleed cover, big title, age chip, Play pill (opens the game page). */
+export const FeaturedGameCard = memo(function FeaturedGameCard({ game, width }: { game: GameCardData; width: number }) {
+  const meta = [game.genres[0] && capitalize(game.genres[0]), playersLabel(game)].filter(Boolean).join(' · ');
   return (
     <Link href={{ pathname: '/game/[id]', params: { id: game.id } }} asChild>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={game.title}
-        className="bg-card border-border overflow-hidden rounded-2xl border active:opacity-90"
+        accessibilityLabel={`${game.title}, ${meta}`}
+        accessibilityHint="Opens the game page"
+        className="active:opacity-90"
         style={{ width }}
       >
-        <GameCover title={game.title} uri={game.screenshots[0]} className="aspect-video w-full" />
-        <View className="gap-1.5 p-4">
-          <View className="flex-row items-center justify-between gap-2">
-            <Text className="shrink text-lg font-semibold" numberOfLines={1}>
-              {game.title}
-            </Text>
-            <Badge variant="secondary">
-              <Text>{game.age_rating}</Text>
+        <GameCover
+          id={game.id}
+          title={game.title}
+          uri={game.screenshots[0]}
+          variant="feature"
+          showTitle={false}
+          scrim="dark"
+          className="border-border rounded-3xl border"
+          style={{ height: featuredHeight(width) }}
+        >
+          <View className="absolute left-4 top-4 flex-row gap-2">
+            <Badge variant="overlay">
+              <Text>Featured</Text>
             </Badge>
           </View>
-          <Text variant="muted" numberOfLines={2}>
-            {game.description || [game.genres.join(' · '), playersLabel(game)].filter(Boolean).join(' · ')}
-          </Text>
-        </View>
+          <View className="absolute bottom-0 left-0 right-0 gap-3 p-4">
+            <Text className="text-[28px] font-extrabold leading-[32px] tracking-tight text-white" numberOfLines={2}>
+              {game.title}
+            </Text>
+            <View className="flex-row items-center justify-between gap-3">
+              <View className="shrink flex-row items-center gap-2">
+                <Badge variant="overlay">
+                  <Text>{game.age_rating}</Text>
+                </Badge>
+                <Text className="shrink text-[13px] font-medium text-white/80" numberOfLines={1}>
+                  {meta}
+                </Text>
+              </View>
+              <PlayPill />
+            </View>
+          </View>
+        </GameCover>
       </Pressable>
     </Link>
   );
+});
+
+/** Warm "Play" pill (decorative inside a pressable card). */
+function PlayPill() {
+  return (
+    <View className="bg-primary h-10 flex-row items-center gap-1.5 rounded-full pl-3.5 pr-4" importantForAccessibility="no">
+      <Icon as={PlayIcon} className="text-primary-foreground fill-primary-foreground size-3.5" />
+      <Text className="text-primary-foreground text-[15px] font-bold">Play</Text>
+    </View>
+  );
 }
 
-/** Compact tile for horizontal rows and the search grid. */
-export function GameTile({
+/** Compact tile for horizontal rows and the search grid: box-art cover with the title set in, one meta line. */
+export const GameTile = memo(function GameTile({
   game,
   className,
   subtitle,
@@ -46,47 +82,54 @@ export function GameTile({
   game: GameCardData;
   className?: string;
   subtitle?: string;
-  width?: number;
+  width: number;
 }) {
+  const meta = subtitle || (game.genres[0] ? capitalize(game.genres[0]) : playersLabel(game));
   return (
     <Link href={{ pathname: '/game/[id]', params: { id: game.id } }} asChild>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={game.title}
-        className={cn('w-36 gap-2 active:opacity-80', className)}
-        style={width ? { width } : undefined}
+        accessibilityLabel={`${game.title}, ${meta}`}
+        className={cn('gap-2 active:opacity-80', className)}
+        style={{ width }}
       >
-        <GameCover title={game.title} uri={game.screenshots[0]} className="border-border aspect-square w-full rounded-xl border" />
-        <View className="gap-0.5 px-0.5">
-          <Text className="text-sm font-medium" numberOfLines={1}>
-            {game.title}
-          </Text>
-          <Text variant="muted" className="text-xs" numberOfLines={1}>
-            {subtitle ?? (game.genres[0] ? capitalize(game.genres[0]) : playersLabel(game))}
+        <GameCover
+          id={game.id}
+          title={game.title}
+          uri={game.screenshots[0]}
+          className="border-border rounded-2xl border"
+          style={{ width, height: width }}
+        />
+        <View className="flex-row items-center gap-1.5 px-1">
+          {!subtitle && game.max_players > 1 && <Icon as={UsersIcon} className="text-muted-foreground size-3" />}
+          <Text className="text-muted-foreground shrink text-[13px]" numberOfLines={1}>
+            {meta}
           </Text>
         </View>
       </Pressable>
     </Link>
   );
-}
+});
 
-export function GameTileSkeleton({ className }: { className?: string }) {
+export function GameTileSkeleton({ width, className }: { width: number; className?: string }) {
   return (
-    <View className={cn('w-36 gap-2', className)}>
-      <Skeleton className="aspect-square w-full rounded-xl" />
-      <Skeleton className="h-3.5 w-24" />
-      <Skeleton className="h-3 w-16" />
+    <View className={cn('gap-2', className)} style={{ width }}>
+      <Skeleton className="rounded-2xl" style={{ width, height: width }} />
+      <Skeleton className="mx-1 h-3 w-16 rounded-full" />
     </View>
   );
 }
 
 export function FeaturedGameSkeleton({ width }: { width: number }) {
   return (
-    <View className="border-border overflow-hidden rounded-2xl border" style={{ width }}>
-      <Skeleton className="aspect-video w-full rounded-none" />
-      <View className="gap-2 p-4">
-        <Skeleton className="h-5 w-40" />
-        <Skeleton className="h-3.5 w-56" />
+    <View className="bg-muted overflow-hidden rounded-3xl" style={{ width, height: featuredHeight(width) }}>
+      <Skeleton className="absolute left-4 top-4 h-6 w-20 rounded-full" />
+      <View className="absolute bottom-0 left-0 right-0 gap-3 p-4">
+        <Skeleton className="h-7 w-48 rounded-lg" />
+        <View className="flex-row items-center justify-between">
+          <Skeleton className="h-5 w-32 rounded-full" />
+          <Skeleton className="h-10 w-20 rounded-full" />
+        </View>
       </View>
     </View>
   );

@@ -1,26 +1,33 @@
 import { Link } from 'expo-router';
-import { SearchIcon, XIcon } from 'lucide-react-native';
-import { useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, View, useWindowDimensions } from 'react-native';
+import { HeartIcon, SearchXIcon, SparklesIcon, WifiOffIcon } from 'lucide-react-native';
+import { useCallback, useState } from 'react';
+import { FlatList, Pressable, RefreshControl, ScrollView, View, useWindowDimensions, type ListRenderItem } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { EmptyState } from '@/components/rally/empty-state';
 import { FeaturedGameCard, FeaturedGameSkeleton, GameTile } from '@/components/rally/game-card';
-import { GameRow } from '@/components/rally/game-row';
+import { GameRow, ROW_GAP } from '@/components/rally/game-row';
+import { Glow } from '@/components/rally/glow';
+import { LogoMark } from '@/components/rally/logo';
 import { ProfileAvatar } from '@/components/rally/profile-avatar';
+import { SearchPill } from '@/components/rally/search-pill';
+import { SectionHeader } from '@/components/rally/section-header';
 import { Button } from '@/components/ui/button';
-import { Icon } from '@/components/ui/icon';
-import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Text } from '@/components/ui/text';
-import { useAllGames, useFavorites, useFeaturedGames, useNewGames, useRecentlyPlayed } from '@/lib/catalog';
+import { BRAND } from '@/lib/brand';
+import { useAllGames, useFavorites, useFeaturedGames, useNewGames, useRecentlyPlayed, type GameCard } from '@/lib/catalog';
 import { timeAgo } from '@/lib/format';
 import { useProfile } from '@/lib/profile';
 import { searchGames } from '@/lib/search';
+import { usePalette } from '@/lib/use-palette';
 
 const GUTTER = 16;
 
-/** Dashboard: search, featured carousel, continue playing, favorites, new. */
+/** Dashboard: greeting, search, featured hero carousel, then continue playing / new / favorites rows. */
 export default function Dashboard() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
+  const palette = usePalette();
   const [query, setQuery] = useState('');
   const searching = query.trim().length > 0;
 
@@ -31,13 +38,18 @@ export default function Dashboard() {
   const favorites = useFavorites();
   const all = useAllGames(searching);
 
-  const cardWidth = Math.min(width - GUTTER * 2 - 24, 520);
+  const featuredCount = featured.data?.length ?? 0;
+  // One featured game fills the width; several peek the next card past the edge.
+  const cardWidth = Math.min(featuredCount > 1 || featured.isLoading ? width - GUTTER * 2 - 28 : width - GUTTER * 2, 560);
+  // Rows show two tiles and part of a third, so it is obvious they scroll.
+  const tileWidth = Math.min(Math.floor((width - GUTTER - ROW_GAP * 2) / 2.45), 172);
   const columns = width >= 600 ? 4 : 3;
-  const tileWidth = Math.floor((width - GUTTER * 2 - 12 * (columns - 1)) / columns);
+  const gridTile = Math.floor((width - GUTTER * 2 - ROW_GAP * (columns - 1)) / columns);
   const lastPlayed = new Map(recent.data?.map((g) => [g.id, g.last_played_at]));
   const results = searching ? searchGames(all.data ?? [], query) : [];
   const refreshing = featured.isRefetching || newest.isRefetching || recent.isRefetching || favorites.isRefetching;
   const failed = featured.isError && newest.isError;
+  const name = profile.data ? profile.data.display_name || profile.data.username : null;
 
   const refresh = () => {
     void featured.refetch();
@@ -46,106 +58,147 @@ export default function Dashboard() {
     void favorites.refetch();
   };
 
+  const renderFeatured = useCallback<ListRenderItem<GameCard>>(
+    ({ item }) => <FeaturedGameCard game={item} width={cardWidth} />,
+    [cardWidth],
+  );
+
   return (
     <ScrollView
       className="bg-background flex-1"
-      contentContainerClassName="gap-7"
-      contentContainerStyle={{ paddingTop: insets.top + 8, paddingBottom: insets.bottom + 32 }}
+      contentContainerClassName="gap-8"
+      contentContainerStyle={{ paddingTop: insets.top + 12, paddingBottom: insets.bottom + 40 }}
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={refresh}
+          tintColor={BRAND.violet}
+          colors={[BRAND.violet]}
+          progressBackgroundColor={palette.card}
+        />
+      }
     >
-      <View className="gap-4 px-4">
-        <View className="flex-row items-center justify-between">
-          <View className="gap-0.5">
-            <Text variant="muted">{profile.data ? `Hey, ${profile.data.display_name || profile.data.username}` : ' '}</Text>
-            <Text variant="h3">Play something</Text>
+      <Glow size={width * 1.4} opacity={0.22} style={{ top: -width * 0.85, left: -width * 0.45 }} />
+      <Glow size={width} color={BRAND.cyan} opacity={0.1} style={{ top: -width * 0.55, right: -width * 0.55 }} />
+
+      <View className="gap-5 px-4">
+        <View className="flex-row items-center justify-between gap-4">
+          <View className="shrink gap-1">
+            <View className="flex-row items-center gap-1.5">
+              <LogoMark size={20} />
+              {profile.isLoading ? (
+                <Skeleton className="h-3.5 w-24 rounded-full" />
+              ) : (
+                <Text className="text-muted-foreground shrink text-[13px] font-semibold" numberOfLines={1}>
+                  {name ? `Hey, ${name}` : 'Welcome back'}
+                </Text>
+              )}
+            </View>
+            <Text className="text-[28px] font-extrabold leading-[34px] tracking-tight">Let&apos;s play</Text>
           </View>
           <Link href="/profile" asChild>
             <Pressable accessibilityRole="button" accessibilityLabel="Profile" hitSlop={8} className="active:opacity-70">
-              <ProfileAvatar profile={profile.data} size="md" />
+              <ProfileAvatar profile={profile.data} size="md" ring />
             </Pressable>
           </Link>
         </View>
 
-        <View className="justify-center">
-          <Icon as={SearchIcon} className="text-muted-foreground absolute left-3 z-10 size-4" />
-          <Input
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Search games"
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="search"
-            className="h-11 rounded-xl pl-9 pr-9"
-            accessibilityLabel="Search games"
-          />
-          {searching && (
-            <Pressable accessibilityLabel="Clear search" onPress={() => setQuery('')} hitSlop={10} className="absolute right-3">
-              <Icon as={XIcon} className="text-muted-foreground size-4" />
-            </Pressable>
-          )}
-        </View>
+        <SearchPill value={query} onChangeText={setQuery} />
       </View>
 
       {searching ? (
-        <View className="gap-3 px-4">
-          {all.isLoading ? (
-            <Text variant="muted">Searching…</Text>
-          ) : results.length === 0 ? (
-            <Text variant="muted">No games match “{query.trim()}”.</Text>
-          ) : (
-            <View className="flex-row flex-wrap" style={{ gap: 12 }}>
-              {results.map((g) => (
-                <GameTile key={g.id} game={g} width={tileWidth} />
-              ))}
-            </View>
-          )}
+        <View className="gap-3">
+          <SectionHeader title="Results" detail={all.isLoading ? undefined : String(results.length)} />
+          <View className="px-4">
+            {all.isLoading ? (
+              <View className="flex-row flex-wrap" style={{ gap: ROW_GAP }}>
+                {Array.from({ length: columns }, (_, i) => (
+                  <Skeleton key={i} className="rounded-2xl" style={{ width: gridTile, height: gridTile }} />
+                ))}
+              </View>
+            ) : results.length === 0 ? (
+              <EmptyState
+                icon={SearchXIcon}
+                title={`No games match “${query.trim()}”`}
+                body="Try a title, or a genre like puzzle or racing."
+              />
+            ) : (
+              <View className="flex-row flex-wrap" style={{ gap: ROW_GAP }}>
+                {results.map((g) => (
+                  <GameTile key={g.id} game={g} width={gridTile} />
+                ))}
+              </View>
+            )}
+          </View>
         </View>
       ) : failed ? (
-        <View className="items-center gap-3 px-4 py-10">
-          <Text variant="large">Couldn&apos;t load games</Text>
-          <Text variant="muted" className="text-center">
-            Check your connection and try again.
-          </Text>
-          <Button variant="secondary" onPress={refresh}>
-            <Text>Retry</Text>
-          </Button>
+        <View className="px-4">
+          <EmptyState
+            icon={WifiOffIcon}
+            title="Couldn't load games"
+            body="Check your connection and try again."
+            action={
+              <Button variant="secondary" onPress={refresh}>
+                <Text>Retry</Text>
+              </Button>
+            }
+          />
         </View>
       ) : (
         <>
-          {(featured.isLoading || (featured.data?.length ?? 0) > 0) && (
-            <View className="gap-3">
-              <Text className="px-4 text-lg font-semibold">Featured</Text>
-              <ScrollView
+          {(featured.isLoading || featuredCount > 0) &&
+            (featured.isLoading ? (
+              <View className="flex-row overflow-hidden px-4" style={{ gap: ROW_GAP }}>
+                <FeaturedGameSkeleton width={cardWidth} />
+                <FeaturedGameSkeleton width={cardWidth} />
+              </View>
+            ) : (
+              <FlatList
                 horizontal
+                data={featured.data}
+                keyExtractor={(g) => g.id}
+                renderItem={renderFeatured}
                 showsHorizontalScrollIndicator={false}
-                snapToInterval={cardWidth + 12}
+                contentContainerClassName="px-4"
+                ItemSeparatorComponent={RowSeparator}
+                snapToInterval={cardWidth + ROW_GAP}
+                snapToAlignment="start"
                 decelerationRate="fast"
-                contentContainerClassName="gap-3 px-4"
-              >
-                {featured.isLoading
-                  ? [0, 1].map((i) => <FeaturedGameSkeleton key={i} width={cardWidth} />)
-                  : featured.data!.map((g) => <FeaturedGameCard key={g.id} game={g} width={cardWidth} />)}
-              </ScrollView>
-            </View>
-          )}
+                initialNumToRender={2}
+              />
+            ))}
 
           <GameRow
             title="Continue playing"
             games={recent.data}
             loading={recent.isLoading}
+            tileWidth={tileWidth}
             subtitleFor={(g) => timeAgo(lastPlayed.get(g.id))}
           />
-          <GameRow title="Favorites" games={favorites.data} loading={favorites.isLoading} />
           <GameRow
             title="New on Rally"
             games={newest.data}
             loading={newest.isLoading}
-            empty={<Text variant="muted">No games published yet.</Text>}
+            tileWidth={tileWidth}
+            empty={
+              <EmptyState icon={SparklesIcon} title="No games yet" body="New games land here as soon as they're published." />
+            }
+          />
+          <GameRow
+            title="Favorites"
+            games={favorites.data}
+            loading={favorites.isLoading}
+            tileWidth={tileWidth}
+            empty={<EmptyState compact icon={HeartIcon} title="No favorites yet" body="Tap the heart on any game to keep it here." />}
           />
         </>
       )}
     </ScrollView>
   );
+}
+
+function RowSeparator() {
+  return <View style={{ width: ROW_GAP }} />;
 }

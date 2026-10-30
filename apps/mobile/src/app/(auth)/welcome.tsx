@@ -1,11 +1,13 @@
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { router } from 'expo-router';
-import { Gamepad2Icon, MailIcon, WrenchIcon } from 'lucide-react-native';
+import { MailIcon, WrenchIcon } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUniwind } from 'uniwind';
 import { ErrorText } from '@/components/rally/form-field';
+import { Wordmark } from '@/components/rally/logo';
+import { PulseGlow } from '@/components/rally/pulse-glow';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Icon } from '@/components/ui/icon';
@@ -50,21 +52,19 @@ export default function Welcome() {
 
   return (
     <View className="bg-background flex-1 px-6" style={{ paddingTop: insets.top + 24, paddingBottom: insets.bottom + 16 }}>
-      <View className="flex-1 items-center justify-center gap-5">
-        <View className="bg-primary size-20 items-center justify-center rounded-3xl">
-          <Icon as={Gamepad2Icon} className="text-primary-foreground size-10" />
+      <View className="flex-1 items-center justify-center gap-6">
+        <View className="items-center justify-center" style={{ width: 300, height: 140 }}>
+          <PulseGlow size={340} />
+          <Wordmark size={60} />
         </View>
-        <View className="items-center gap-2">
-          <Text variant="h1">Rally</Text>
-          <Text variant="lead" className="text-center">
-            One app. Every game.{'\n'}Play together.
-          </Text>
-        </View>
+        <Text className="text-muted-foreground max-w-xs text-center text-[17px] leading-6">
+          Quick games with your friends, all in one app.
+        </Text>
       </View>
 
       <View className="gap-3">
         {!config.supabaseConfigured && (
-          <Card className="py-4">
+          <Card className="border-brand-line bg-brand-soft py-4">
             <CardContent className="px-4">
               <Text variant="muted">
                 Supabase is not configured. Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in apps/mobile/.env.
@@ -83,17 +83,17 @@ export default function Welcome() {
                 ? AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
                 : AppleAuthentication.AppleAuthenticationButtonStyle.WHITE
             }
-            cornerRadius={8}
-            style={{ height: 48, width: '100%' }}
+            cornerRadius={18}
+            style={{ height: 52, width: '100%' }}
             onPress={() => void continueWith('apple')}
           />
         )}
 
-        <Button size="lg" variant="outline" className="h-12" disabled={!!busy} onPress={() => void continueWith('google')}>
+        <Button size="lg" variant="outline" disabled={!!busy} onPress={() => void continueWith('google')}>
           {busy === 'google' ? <ActivityIndicator /> : <Text className="text-base">Continue with Google</Text>}
         </Button>
 
-        <Button size="lg" variant="secondary" className="h-12" disabled={!!busy} onPress={() => router.push('/sign-in')}>
+        <Button size="lg" variant="secondary" disabled={!!busy} onPress={() => router.push('/sign-in')}>
           <Icon as={MailIcon} className="size-4" />
           <Text className="text-base">Continue with email</Text>
         </Button>

@@ -215,7 +215,7 @@ export function GameHost(props: GameHostProps) {
       <Pressable
         accessibilityLabel="Close game"
         onPress={() => controller.requestExit()}
-        className="bg-background/70 absolute h-8 w-8 items-center justify-center rounded-full"
+        className="bg-card border-border absolute h-8 w-8 items-center justify-center rounded-full border"
         style={{ top: Math.max(insets.top, 8), right: Math.max(insets.right, 8) }}
         hitSlop={12}
       >
