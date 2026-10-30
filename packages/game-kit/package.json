@@ -1,0 +1,38 @@
+{
+  "name": "@rally/game-kit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Client helpers every Rally game uses: PlayCanvas boot with a DPR cap, safe area, tap/drag input, WebAudio unlock, host lifecycle (pause/resume/exit/lowMemory), optimistic-concurrency saves, frame metrics.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint . --max-warnings 0",
+    "test": "node --experimental-strip-types --no-warnings=ExperimentalWarning --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@rally/protocol": "workspace:*",
+    "@rally/sdk": "workspace:*",
+    "playcanvas": "^2.23.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "~6.0.3"
+  }
+}

@@ -1,3 +1,4 @@
+import { createApp } from '@rally/game-kit';
 import * as pc from 'playcanvas';
 
 export interface SceneHandle {
@@ -7,28 +8,10 @@ export interface SceneHandle {
   destroy(): void;
 }
 
-/** DPR is capped at 2: higher only burns fill rate on phones (architecture §2). */
-export const MAX_PIXEL_RATIO = 2;
-
 export function createScene(canvas: HTMLCanvasElement): SceneHandle {
-  const app = new pc.Application(canvas, {
-    graphicsDeviceOptions: {
-      antialias: true,
-      alpha: false,
-      powerPreference: 'high-performance',
-      preserveDrawingBuffer: false,
-    },
-    mouse: new pc.Mouse(canvas),
-    touch: pc.platform.touch ? new pc.TouchDevice(canvas) : undefined,
-  });
-
-  app.setCanvasFillMode(pc.FILLMODE_FILL_WINDOW);
-  app.setCanvasResolution(pc.RESOLUTION_AUTO);
-  app.graphicsDevice.maxPixelRatio = Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO);
-
-  const onResize = () => app.resizeCanvas();
-  window.addEventListener('resize', onResize);
-  window.addEventListener('orientationchange', onResize);
+  // Full-window canvas, DPR capped at 2, resize/orientation handling (shared boot in @rally/game-kit).
+  const boot = createApp({ canvas, pointerDevices: true });
+  const { app } = boot;
 
   // Camera
   const camera = new pc.Entity('camera');
@@ -150,9 +133,7 @@ export function createScene(canvas: HTMLCanvasElement): SceneHandle {
       return cubes.length;
     },
     destroy() {
-      window.removeEventListener('resize', onResize);
-      window.removeEventListener('orientationchange', onResize);
-      app.destroy();
+      boot.destroy();
     },
   };
 }

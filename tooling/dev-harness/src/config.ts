@@ -1,4 +1,5 @@
 import type { LaunchIntent, SafeArea } from '@rally/protocol';
+import type { AchievementDef, BoardDef } from './progress.ts';
 
 /** Launch-context knobs a game developer may want to vary while testing in the browser. */
 export interface HarnessLaunchOptions {
@@ -18,6 +19,10 @@ export interface HarnessConfig {
   game: { id: string; version: string };
   /** `server.room` from game.json; null for solo games (session.join then answers NOT_SUPPORTED). */
   room: string | null;
+  /** `leaderboards` from game.json: `leaderboard.*` validates board ids against it (none → NOT_SUPPORTED). */
+  leaderboards: BoardDef[];
+  /** `achievements` from game.json: `achievement.unlock` validates keys against it (none → NOT_SUPPORTED). */
+  achievements: AchievementDef[];
   /** Colyseus HTTP base URL used for matchmaking (ws(s):// is accepted and converted). */
   colyseusUrl: string;
   launch: HarnessLaunchOptions;

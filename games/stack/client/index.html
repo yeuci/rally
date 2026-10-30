@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#0a0a0a" />
+    <title>Stack</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <canvas id="stage" aria-label="Stack game"></canvas>
+    <div id="hud" aria-live="polite">
+      <div id="score" class="score" hidden>0</div>
+      <div id="combo" class="combo"></div>
+      <div id="prompt" class="prompt" hidden>Tap to start</div>
+      <section id="over" class="card" hidden>
+        <div class="label">Score</div>
+        <div id="over-score" class="big">0</div>
+        <div id="over-best" class="best">Best 0</div>
+        <div id="over-board" class="board">Leaderboard …</div>
+        <div id="over-unlocked" class="unlocked" hidden></div>
+        <button id="again" type="button">Play again</button>
+      </section>
+      <div id="paused" class="veil" hidden><div class="veil-title">Paused</div></div>
+      <div id="loading" class="veil solid">
+        <div class="veil-title">Stack</div>
+        <div class="bar"><i id="loading-bar"></i></div>
+      </div>
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

@@ -1,14 +1,22 @@
-/** Rolling frame statistics for the HUD and telemetry. */
+export interface FrameSnapshot {
+  fps: number;
+  frameMs: number;
+  p95Ms: number;
+  worstMs: number;
+}
+
+/** Rolling frame statistics for HUDs and `telemetry.report`. */
 export class FrameMetrics {
   private frames: number[] = [];
-  private lastFrame = performance.now();
+  private lastFrame: number;
   private readonly windowMs: number;
 
-  constructor(windowMs = 2000) {
+  constructor(windowMs = 2000, now = performance.now()) {
     this.windowMs = windowMs;
+    this.lastFrame = now;
   }
 
-  /** Call once per rendered frame. */
+  /** Call once per rendered frame (e.g. on the app's `frameend`). */
   tick(now = performance.now()): void {
     const dt = now - this.lastFrame;
     this.lastFrame = now;
@@ -24,7 +32,13 @@ export class FrameMetrics {
     }
   }
 
-  snapshot() {
+  /** Forget history (after a pause, so the paused gap does not count as one long frame). */
+  reset(now = performance.now()): void {
+    this.frames = [];
+    this.lastFrame = now;
+  }
+
+  snapshot(): FrameSnapshot {
     const n = this.frames.length;
     if (n === 0) return { fps: 0, frameMs: 0, p95Ms: 0, worstMs: 0 };
     const sorted = [...this.frames].sort((a, b) => a - b);
@@ -37,6 +51,11 @@ export class FrameMetrics {
       worstMs: round(sorted[n - 1]!),
     };
   }
+}
+
+/** `new FrameMetrics(windowMs)`; hook `tick` to the app's `frameend`. */
+export function createFrameMetrics(windowMs = 2000): FrameMetrics {
+  return new FrameMetrics(windowMs);
 }
 
 export function round(x: number, d = 1): number {

@@ -239,11 +239,36 @@ importers:
         specifier: ~6.0.3
         version: 6.0.3
 
+  apps/web:
+    dependencies:
+      '@rally/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+      '@supabase/supabase-js':
+        specifier: ^2.118.0
+        version: 2.118.0
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.5
+        version: 22.20.5
+      tsx:
+        specifier: ^4.21.0
+        version: 4.23.15
+      typescript:
+        specifier: ~6.0.3
+        version: 6.0.3
+
   games/spike/client:
     dependencies:
       '@colyseus/sdk':
         specifier: ^0.18.8
         version: 0.18.8(@colyseus/core@0.18.23)(typescript@6.0.3)(zod@4.6.7)
+      '@rally/game-kit':
+        specifier: workspace:*
+        version: link:../../../packages/game-kit
       '@rally/sdk':
         specifier: workspace:*
         version: link:../../../packages/sdk
@@ -261,6 +286,31 @@ importers:
         specifier: ^8.3.5
         version: 8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)
 
+  games/stack/client:
+    dependencies:
+      '@rally/game-kit':
+        specifier: workspace:*
+        version: link:../../../packages/game-kit
+      '@rally/sdk':
+        specifier: workspace:*
+        version: link:../../../packages/sdk
+      playcanvas:
+        specifier: ^2.23.3
+        version: 2.23.3
+    devDependencies:
+      '@rally/dev-harness':
+        specifier: workspace:*
+        version: link:../../../tooling/dev-harness
+      '@types/node':
+        specifier: ^22.20.5
+        version: 22.20.5
+      typescript:
+        specifier: ~6.0.3
+        version: 6.0.3
+      vite:
+        specifier: ^8.3.5
+        version: 8.3.5(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)
+
   packages/db:
     dependencies:
       '@supabase/supabase-js':
@@ -276,6 +326,25 @@ importers:
       supabase:
         specifier: ^2.122.0
         version: 2.122.0
+      typescript:
+        specifier: ~6.0.3
+        version: 6.0.3
+
+  packages/game-kit:
+    dependencies:
+      '@rally/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@rally/sdk':
+        specifier: workspace:*
+        version: link:../sdk
+      playcanvas:
+        specifier: ^2.23.3
+        version: 2.23.3
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.5
+        version: 22.20.5
       typescript:
         specifier: ~6.0.3
         version: 6.0.3
@@ -11847,7 +11916,6 @@ snapshots:
       jiti: 2.7.0
       terser: 5.51.2
       tsx: 4.23.15
-    optional: true
 
   vite@8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15):
     dependencies:

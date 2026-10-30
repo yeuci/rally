@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@colyseus/sdk": "^0.18.8",
+    "@rally/game-kit": "workspace:*",
     "@rally/sdk": "workspace:*",
     "playcanvas": "^2.23.3"
   },

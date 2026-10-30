@@ -1,6 +1,6 @@
+import { createFrameMetrics, jsHeapMb, round } from '@rally/game-kit';
 import { rally } from '@rally/sdk';
 import { createScene } from './scene.ts';
-import { FrameMetrics, jsHeapMb, round } from './metrics.ts';
 import { connect, type NetHandle } from './net.ts';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
@@ -16,7 +16,7 @@ const canvas = $<HTMLCanvasElement>('#application-canvas');
 const scene = createScene(canvas);
 scene.setCubeCount(300);
 
-const metrics = new FrameMetrics(2000);
+const metrics = createFrameMetrics(2000);
 scene.app.on('frameend', () => metrics.tick());
 
 let bridgeRtt: number | null = null;

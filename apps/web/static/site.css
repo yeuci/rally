@@ -1,0 +1,357 @@
+/* Rally static site: dark, neutral, system fonts, mobile-first. */
+:root {
+  --bg: #0a0a0a;
+  --surface: #141414;
+  --surface-hover: #1b1b1b;
+  --border: #262626;
+  --text: #ffffff;
+  --muted: #a3a3a3;
+  --radius: 16px;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font:
+    16px/1.5 system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    'Helvetica Neue',
+    Arial,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+}
+
+img {
+  max-width: 100%;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.wrap {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 0 max(16px, env(safe-area-inset-left)) 0 max(16px, env(safe-area-inset-right));
+}
+
+.site-header {
+  padding: max(16px, env(safe-area-inset-top)) 16px 0;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+}
+
+.brand img {
+  border-radius: 7px;
+}
+
+h1 {
+  font-size: clamp(32px, 9vw, 52px);
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  margin: 0 0 12px;
+}
+
+h2 {
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  margin: 0 0 6px;
+}
+
+.lead {
+  font-size: 18px;
+  color: var(--muted);
+  margin: 0 0 24px;
+  max-width: 38em;
+}
+
+.muted {
+  color: var(--muted);
+  margin: 0 0 16px;
+}
+
+.hero {
+  padding: 48px 0 40px;
+}
+
+.crumb {
+  margin: 24px 0 8px;
+  font-size: 15px;
+}
+
+.crumb a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+/* Buttons */
+.actions,
+.stores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 22px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 120ms ease;
+}
+
+.btn:hover {
+  background: var(--surface-hover);
+}
+
+.btn.primary {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+  font-size: 17px;
+  min-width: 200px;
+}
+
+.btn.primary:hover {
+  background: #e5e5e5;
+}
+
+.btn.store {
+  flex: 1 1 200px;
+}
+
+.hero .actions {
+  margin-bottom: 10px;
+}
+
+.desktop-hint {
+  color: var(--muted);
+  margin: 12px 0 0;
+}
+
+/* Chips */
+.chips {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+}
+
+.chips li {
+  font-size: 13px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+
+/* Game index */
+.cards {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 48px;
+  display: grid;
+  gap: 12px;
+}
+
+.card {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  text-decoration: none;
+  transition: background 120ms ease;
+}
+
+.card:hover {
+  background: var(--surface-hover);
+}
+
+.card-title {
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.card-title::after {
+  content: ' →';
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.card-text {
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.empty {
+  color: var(--muted);
+}
+
+/* Game page */
+.game h1 {
+  margin-top: 8px;
+}
+
+.game > .chips {
+  margin-bottom: 24px;
+}
+
+.game > .actions {
+  margin-bottom: 28px;
+}
+
+.shots {
+  list-style: none;
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding: 0 0 8px;
+  margin: 0 0 24px;
+}
+
+.shots li {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+}
+
+.shots img {
+  display: block;
+  height: 220px;
+  width: auto;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.shots-portrait img {
+  height: 360px;
+}
+
+.prose p {
+  margin: 0 0 14px;
+  font-size: 17px;
+  max-width: 38em;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 24px 0 40px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--border);
+}
+
+.facts div {
+  background: var(--surface);
+  padding: 12px 16px;
+}
+
+.facts dt {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.facts dd {
+  margin: 2px 0 0;
+  font-weight: 600;
+}
+
+.get {
+  padding: 24px 0 48px;
+  border-top: 1px solid var(--border);
+}
+
+.site-footer {
+  border-top: 1px solid var(--border);
+  padding-top: 20px;
+  padding-bottom: max(32px, env(safe-area-inset-bottom));
+  color: var(--muted);
+  font-size: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.site-footer p {
+  margin: 0;
+}
+
+@media (min-width: 640px) {
+  .hero {
+    padding: 72px 0 56px;
+  }
+
+  .cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .facts {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .btn.store {
+    flex: 0 0 auto;
+  }
+
+  .shots img {
+    height: 300px;
+  }
+
+  .shots-portrait img {
+    height: 440px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

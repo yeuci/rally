@@ -94,7 +94,8 @@ export function rallyDevHarness(options: RallyDevHarnessOptions = {}): Plugin {
       await harnessCode();
       const cfg = readConfig(root, options, logger);
       logger?.info(
-        `  rally dev harness: fake host for ${cfg.game.id}@${cfg.game.version}, room ${cfg.room ?? '(none)'}, colyseus ${cfg.colyseusUrl}  (?nohost for standalone)`,
+        `  rally dev harness: fake host for ${cfg.game.id}@${cfg.game.version}, room ${cfg.room ?? '(none)'}, ` +
+          `${cfg.leaderboards.length} leaderboard(s), ${cfg.achievements.length} achievement(s), colyseus ${cfg.colyseusUrl}  (?nohost for standalone)`,
       );
     },
     transformIndexHtml: {
@@ -140,6 +141,17 @@ function readConfig(root: string, options: RallyDevHarnessOptions, logger: Logge
       version: String(parsed.success ? parsed.data.version : (raw.version ?? '0.0.0')),
     },
     room: server?.room ?? null,
+    // Only from a valid manifest: board ids / keys are what the real catalog would hold.
+    leaderboards: parsed.success
+      ? parsed.data.leaderboards.map((b) => ({
+          id: b.id,
+          sort: b.sort,
+          ...(b.maxScorePerMinute ? { maxScorePerMinute: b.maxScorePerMinute } : {}),
+        }))
+      : [],
+    achievements: parsed.success
+      ? parsed.data.achievements.map((a) => ({ key: a.key, title: a.title, hidden: a.hidden }))
+      : [],
     colyseusUrl: options.colyseusUrl ?? 'http://localhost:2567',
     launch: options.launch ?? {},
     panel: options.panel ?? true,

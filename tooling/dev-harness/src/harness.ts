@@ -20,6 +20,7 @@ import { createHarnessHandlers, localSaveStore } from './handlers.ts';
 import { HostBridge } from './host-bridge.ts';
 import { toHttpUrl } from './matchmake.ts';
 import { Panel, type LogLevel } from './panel.ts';
+import { localProgressStore } from './progress.ts';
 
 /** Same as the shell's GameHost: how long the game may take to call ready(). */
 const READY_TIMEOUT_MS = 20_000;
@@ -42,6 +43,8 @@ declare global {
 const DEFAULT_CONFIG: HarnessConfig = {
   game: { id: 'dev-game', version: '0.0.0' },
   room: null,
+  leaderboards: [],
+  achievements: [],
   colyseusUrl: 'http://localhost:2567',
   launch: {},
   panel: true,
@@ -53,6 +56,10 @@ function main(): void {
   const hostOn = !params.has('nohost');
   const colyseusUrl = toHttpUrl(params.get('colyseus') || cfg.colyseusUrl);
   const saves = localSaveStore(cfg.game.id);
+  const progress = localProgressStore(cfg.game.id);
+  // Older plugin builds may inline a config without these fields.
+  const leaderboards = cfg.leaderboards ?? [];
+  const achievements = cfg.achievements ?? [];
 
   const panel = new Panel({
     hostOn,
@@ -66,7 +73,8 @@ function main(): void {
     },
     onClearSaves: () => {
       saves.clear();
-      log('save slots cleared', 'warn');
+      progress.clear();
+      log('save slots, leaderboards and achievements cleared', 'warn');
     },
   });
   /** Panel line + console. Error *responses* are normal flow (CONFLICT, NOT_SUPPORTED), so they go to console.warn. */
@@ -133,6 +141,10 @@ function main(): void {
       colyseusUrl,
       room: cfg.room,
       saves,
+      leaderboards,
+      achievements,
+      progress,
+      user: { id: user.id, username: user.username },
       onReady: (ctx) => {
         readyAt = performance.now();
         panel.setLoading(1);
@@ -154,6 +166,13 @@ function main(): void {
         log(`matchmade ${cfg.room} via ${colyseusUrl} → room ${String(roomId)}, session ${String(sessionId)}`, 'ok');
       },
       onReconnection: ({ roomId, ttlSec }) => log(`reconnection token stored for room ${roomId} (${ttlSec} s)`),
+      onScore: ({ boardId, score, accepted, best, note }) =>
+        log(
+          `score ${score} on "${boardId}": ${accepted ? 'new best' : note ? `rejected, ${note}` : 'not a new best'} (best ${best ?? '—'})`,
+          accepted ? 'ok' : note ? 'warn' : 'info',
+        ),
+      onUnlock: ({ key, title, alreadyHad }) =>
+        log(`achievement "${title}" (${key}) ${alreadyHad ? 'already unlocked' : 'unlocked'}`, alreadyHad ? 'info' : 'ok'),
     }),
     onRequest: (env) => {
       if (env.method !== 'ping') log(`→ ${env.method}`, 'info');
@@ -208,7 +227,10 @@ function main(): void {
   }, READY_TIMEOUT_MS);
 
   panel.setStatus(`on · ${cfg.game.id}@${cfg.game.version} · waiting for ready()`);
-  log(`host installed (nonce ${nonce.slice(0, 6)}…, room ${cfg.room ?? 'none'}, colyseus ${colyseusUrl})`);
+  log(
+    `host installed (nonce ${nonce.slice(0, 6)}…, room ${cfg.room ?? 'none'}, boards ${leaderboards.map((b) => b.id).join(', ') || 'none'}, ` +
+      `${achievements.length} achievement(s), colyseus ${colyseusUrl})`,
+  );
 }
 
 main();

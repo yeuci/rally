@@ -90,7 +90,7 @@ export class Panel {
     <div class="row">${HOST_EVENTS.map((e) => `<button data-action="${e}" ${this.opts.hostOn ? '' : 'disabled'}>${e}</button>`).join('')}</div>
     <div class="row">
       <button class="toggle ${this.opts.hostOn ? 'on' : 'off'}" data-action="toggle-host" title="Reload with or without ?nohost">host: ${this.opts.hostOn ? 'on' : 'off'}</button>
-      <button data-action="clear-saves" title="Delete this game's localStorage save slots">clear saves</button>
+      <button data-action="clear-saves" title="Delete this game's localStorage save slots, leaderboard entries and achievements">clear data</button>
       <button data-action="reload">reload</button>
     </div>
     <div class="log" data-role="log"></div>
