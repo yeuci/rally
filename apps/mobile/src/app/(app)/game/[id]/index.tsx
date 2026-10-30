@@ -13,7 +13,7 @@ import {
   UsersIcon,
   type LucideIcon,
 } from 'lucide-react-native';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import Animated, {
   Extrapolation,
@@ -97,6 +97,11 @@ export default function GamePage() {
   const onScroll = useAnimatedScrollHandler((e) => {
     scrollY.value = e.contentOffset.y;
   });
+  // The scroll view remounts at offset 0 when the layout flips between portrait and landscape; the shared value
+  // would otherwise keep the old offset and show the title bar over the hero until the first scroll event.
+  useEffect(() => {
+    scrollY.set(0);
+  }, [landscape, scrollY]);
 
   const g = game.data;
   const manifest = plan.data?.status === 'ready' ? plan.data.manifest : null;

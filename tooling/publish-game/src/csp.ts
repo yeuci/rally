@@ -25,6 +25,12 @@ export function buildCsp(opts: { cdnOrigin: string; colyseusOrigins?: readonly s
     ['connect-src', ["'self'", cdn, ...colyseus, 'ws:', 'wss:']],
     ['worker-src', ["'self'", 'blob:']],
     ['media-src', ["'self'", 'blob:', cdn]],
+    // No plugins, no <base> rewriting, no form posts (a POST would be a main-frame navigation the host must
+    // refuse), and never framed by another page.
+    ['object-src', ["'none'"]],
+    ['base-uri', ["'none'"]],
+    ['form-action', ["'none'"]],
+    ['frame-ancestors', ["'none'"]],
   ];
   return directives.map(([name, sources]) => `${name} ${dedupe(sources).join(' ')}`).join('; ');
 }

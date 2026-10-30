@@ -139,7 +139,10 @@ export function createHostHandlers(deps: HostHandlerDeps): HostHandlers {
     'party.get': () => null,
 
     exit: (params) => {
-      deps.onExit(params?.reason ?? 'game');
+      // 'unmount' is the host's own reason ("the screen is already going away"): a game that sent it would stay
+      // on screen with a dead bridge. Any other string is the game's to choose.
+      const reason = params?.reason && params.reason !== 'unmount' ? params.reason : 'game';
+      deps.onExit(reason);
       return null;
     },
   };

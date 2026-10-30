@@ -86,7 +86,7 @@ test('requestExit asks the game first, then force-exits on a second request', as
 
 test('ready timeout fails the load; reload rotates the nonce and resets state', async () => {
   const { controller } = setup({ readyTimeoutMs: 5 });
-  await new Promise((r) => setTimeout(r, 20));
+  await new Promise((r) => setTimeout(r, 120));
   assert.equal(controller.getSnapshot().phase, 'failed');
   assert.match(controller.getSnapshot().error ?? '', /ready\(\)/);
   controller.reload();
@@ -255,7 +255,7 @@ test('page diagnostics from the injected script are shown in the load-timeout er
   (controller as unknown as { opts: { warn: (m: string) => void } }).opts.warn = (m) => warnings.push(m);
   controller.handleMessage('{"rallyDiag":1,"kind":"boot","message":"injected script ran (ReactNativeWebView present, https://cdn.example.com/games/spike/0.1.0/index.html)"}', BUNDLE);
   controller.handleMessage('{"rallyDiag":1,"kind":"csp","message":"script-src-elem blocked https://cdn.example.com/games/spike/0.1.0/assets/index.js"}', BUNDLE);
-  await new Promise((r) => setTimeout(r, 20));
+  await new Promise((r) => setTimeout(r, 120));
   const v = controller.getSnapshot();
   assert.equal(v.phase, 'failed');
   assert.match(v.error ?? '', /no messages from the game/);
@@ -268,7 +268,7 @@ test('page diagnostics from the injected script are shown in the load-timeout er
 
 test('a load timeout without the injected script having run says so', async () => {
   const { controller } = setup({ readyTimeoutMs: 5 });
-  await new Promise((r) => setTimeout(r, 20));
+  await new Promise((r) => setTimeout(r, 120));
   assert.match(controller.getSnapshot().error ?? '', /injected script did not run/);
   controller.stop();
 });
@@ -285,7 +285,7 @@ test('fps reports update the view only while the overlay is on, and never land i
   assert.equal(controller.getSnapshot().fps, 58);
   controller.setFpsOverlay(false);
   assert.equal(controller.getSnapshot().fps, null);
-  await new Promise((r) => setTimeout(r, 20));
+  await new Promise((r) => setTimeout(r, 120));
   assert.doesNotMatch(controller.getSnapshot().error ?? '', /fps/);
   controller.stop();
 });
@@ -304,4 +304,26 @@ test('launch timings: entry, page start and ready are measured from start()', as
   assert.equal(exits[0]?.entryMs, 150);
   assert.equal(exits[0]?.pageMs, 250);
   assert.equal(exits[0]?.readyMs, 1250);
+});
+
+test('a main-frame load outside the bundle is stopped and fails the session (Android fail-open guard)', () => {
+  const { controller } = setup();
+  const calls: string[] = [];
+  controller.setWebView(() => ({ injectJavaScript: () => {}, stopLoading: () => calls.push('stop') }) as never);
+  controller.onMainFrameLoadStart('https://phish.example.com/login');
+  assert.deepEqual(calls, ['stop']);
+  assert.equal(controller.getSnapshot().phase, 'failed');
+  assert.match(controller.getSnapshot().error ?? '', /outside the game bundle/);
+  controller.stop();
+});
+
+test('oversized diagnostics messages are ignored; a game cannot exit with the host-only reason "unmount"', async () => {
+  const { controller, exits } = setup();
+  controller.handleMessage(`{"rallyDiag":1,"kind":"error","message":"${'x'.repeat(5000)}"}`, BUNDLE);
+  controller.handleMessage(req('ready', { sdkVersion: '1' }), BUNDLE);
+  await tick();
+  controller.handleMessage(req('exit', { reason: 'unmount' }), BUNDLE);
+  await tick();
+  assert.equal(exits.length, 1);
+  assert.equal(exits[0]?.reason, 'game');
 });

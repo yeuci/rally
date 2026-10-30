@@ -75,6 +75,9 @@ begin
   if jsonb_typeof(new.privacy) is distinct from 'object' then
     raise exception 'INVALID: privacy must be a JSON object' using errcode = 'invalid_parameter_value';
   end if;
+  if pg_column_size(new.privacy) > 2048 then
+    raise exception 'INVALID: privacy is too large' using errcode = 'invalid_parameter_value';
+  end if;
   foreach k in array array['games', 'friends'] loop
     if new.privacy ? k
        and (jsonb_typeof(new.privacy -> k) <> 'string' or new.privacy ->> k not in ('public', 'friends', 'private')) then
@@ -101,6 +104,14 @@ returns boolean language sql stable set search_path = public, extensions as $$
     select 1 from public.blocks
      where (blocker_id = a and blocked_id = b) or (blocker_id = b and blocked_id = a)
   );
+$$;
+
+-- Serialises every write about one pair of users for the rest of the transaction (friend request, response,
+-- removal, block, unblock), so a block and a request can never be created side by side by two concurrent calls.
+-- Keyed on the unordered pair; released at commit/rollback.
+create or replace function private.lock_pair(a uuid, b uuid)
+returns void language sql volatile set search_path = public, extensions as $$
+  select pg_advisory_xact_lock(hashtext(least(a, b)::text), hashtext(greatest(a, b)::text));
 $$;
 
 -- a and b are accepted friends (either direction). False when either is null.
@@ -277,11 +288,18 @@ begin
   if exists (select 1 from auth.users u where u.id = p_user_id and u.is_anonymous) then
     raise exception 'NOT_FOUND: user' using errcode = 'no_data_found';
   end if;
-  if private.is_blocked(v_uid, p_user_id) then
+  perform private.lock_pair(v_uid, p_user_id);
+  -- The caller blocked them: say so (the caller already knows).
+  if exists (select 1 from public.blocks where blocker_id = v_uid and blocked_id = p_user_id) then
     raise exception 'BLOCKED: cannot send a friend request to this user' using errcode = 'insufficient_privilege';
   end if;
   if not public.take_rate_limit_token(v_uid, 'send_friend_request', 30, 30.0 / 3600) then
     raise exception 'RATE_LIMITED: too many friend requests, try again later';
+  end if;
+  -- They blocked the caller: never reveal it (friendship_with says 'none'). The request looks sent and goes
+  -- nowhere, which is what the blocked side would see anywhere else.
+  if exists (select 1 from public.blocks where blocker_id = p_user_id and blocked_id = v_uid) then
+    return 'outgoing';
   end if;
 
   -- At most a few rounds: a concurrent request from the other side makes our insert a no-op (pair index), and
@@ -319,6 +337,7 @@ begin
     raise exception 'INVALID: accept must be true or false' using errcode = 'invalid_parameter_value';
   end if;
   perform private.require_profile(p_user_id);
+  perform private.lock_pair(v_uid, p_user_id);
   if p_accept then
     update public.friendships set status = 'accepted', accepted_at = now()
      where user_id = p_user_id and friend_id = v_uid and status = 'pending';
@@ -339,6 +358,7 @@ declare
   v_uid uuid := private.require_member();
 begin
   perform private.require_profile(p_user_id);
+  perform private.lock_pair(v_uid, p_user_id);
   delete from public.friendships f
    where (f.status = 'accepted'
           and ((f.user_id = v_uid and f.friend_id = p_user_id) or (f.user_id = p_user_id and f.friend_id = v_uid)))
@@ -355,6 +375,7 @@ begin
     raise exception 'INVALID: cannot block yourself' using errcode = 'invalid_parameter_value';
   end if;
   perform private.require_profile(p_user_id);
+  perform private.lock_pair(v_uid, p_user_id);
   insert into public.blocks (blocker_id, blocked_id) values (v_uid, p_user_id) on conflict do nothing;
   delete from public.friendships f
    where (f.user_id = v_uid and f.friend_id = p_user_id) or (f.user_id = p_user_id and f.friend_id = v_uid);
@@ -370,6 +391,7 @@ begin
     raise exception 'INVALID: cannot unblock yourself' using errcode = 'invalid_parameter_value';
   end if;
   perform private.require_profile(p_user_id);
+  perform private.lock_pair(v_uid, p_user_id);
   delete from public.blocks where blocker_id = v_uid and blocked_id = p_user_id;
 end $$;
 

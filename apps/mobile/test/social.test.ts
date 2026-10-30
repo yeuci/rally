@@ -246,3 +246,9 @@ test('avatarRowCapacity fits whole cells with gaps; titleBarRange', () => {
   assert.deepEqual(titleBarRange(400, 107), [245, 293]);
   assert.deepEqual(titleBarRange(60, 107), [0, 1], 'never inverted on tiny heroes');
 });
+
+test('peopleQuery never exceeds what search_profiles accepts', async () => {
+  const { peopleQuery, PEOPLE_QUERY_MAX } = await import('../src/lib/social');
+  assert.equal(peopleQuery('@' + 'a'.repeat(50)).length, PEOPLE_QUERY_MAX);
+  assert.equal(peopleQuery('  @@sloth  '), 'sloth');
+});

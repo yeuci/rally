@@ -73,9 +73,10 @@ test('dry run end to end against the real spike build', { timeout: 60_000 }, asy
     title: 'Rally Spike',
     description: written.db.games.description,
     genres: ['arcade'],
-    screenshots: [],
-    icon_url: null,
-    cover_url: null,
+    // games/spike/art/*: content-addressed CDN URLs (the hash prefix changes whenever the file does).
+    screenshots: written.db.games.screenshots,
+    icon_url: written.db.games.icon_url,
+    cover_url: written.db.games.cover_url,
     engine: 'playcanvas',
     orientation: 'landscape',
     min_players: 1,
@@ -87,7 +88,13 @@ test('dry run end to end against the real spike build', { timeout: 60_000 }, asy
   // spike declares no leaderboards or achievements: the plan lists none (and the printout says so).
   assert.deepEqual(written.db.leaderboards, []);
   assert.deepEqual(written.db.achievements, []);
-  assert.deepEqual(written.art, []);
+  // The spike ships an icon, a cover and two screenshots; every art URL must be one of the planned uploads.
+  assert.equal(written.art.length, 4);
+  const artUrls = new Set(written.art.map((a) => a.url));
+  for (const url of [written.db.games.icon_url, written.db.games.cover_url, ...written.db.games.screenshots]) {
+    assert.ok(url && artUrls.has(url), `art URL not planned for upload: ${url}`);
+  }
+  assert.ok(written.art.every((a) => a.objectKey.startsWith('spike/art/') && a.headers['cache-control'].includes('immutable')));
   assert.ok(logs.some((l) => /leaderboards .*never deleted \(none\)/.test(l)));
   assert.equal(written.db.activate, true);
   assert.ok(logs.some((l) => l.includes('Dry run: nothing uploaded')));

@@ -1,12 +1,12 @@
 import { CheckIcon, ClockIcon, UserPlusIcon, type LucideIcon } from 'lucide-react-native';
 import { useState } from 'react';
-import { Alert, View } from 'react-native';
+import { View } from 'react-native';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Text } from '@/components/ui/text';
 import { useFriendshipAction } from '@/lib/friends';
-import { confirmCopy, describeSocialError, friendButtons, type FriendIntent, type Friendship } from '@/lib/social';
+import { confirmCopy, friendButtons, type FriendIntent, type Friendship } from '@/lib/social';
 import { cn } from '@/lib/utils';
 import { ConfirmDialog } from './confirm-dialog';
 
@@ -43,10 +43,7 @@ export function FriendButtons({
 
   const busy = action.isPending && action.variables?.userId === userId;
   const run = (intent: FriendIntent) =>
-    action.mutate(
-      { userId, intent, current: status },
-      { onError: (err) => Alert.alert("Couldn't update", describeSocialError(err)) },
-    );
+    action.mutate({ userId, intent, current: status }); // failures are reported by the hook itself
   const copy = confirming ? confirmCopy(confirming, name) : null;
   const compact = mode === 'compact';
 

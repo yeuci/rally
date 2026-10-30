@@ -92,7 +92,7 @@ each listed in http(s) and ws(s) form):
 ```
 default-src 'self' <cdn>; script-src 'self' <cdn>; style-src 'self' 'unsafe-inline' <cdn>;
 img-src 'self' data: blob: <cdn>; font-src 'self' data: <cdn>;
-connect-src 'self' <cdn> <colyseus origins> ws: wss:; worker-src 'self' blob:; media-src 'self' blob: <cdn>
+connect-src 'self' <cdn> <colyseus origins> ws: wss:; worker-src 'self' blob:; media-src 'self' blob: <cdn>; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
 ```
 
 `--dry-run` prints the exact policy. Verified in Chromium against the processed spike bundle (`vite preview`):

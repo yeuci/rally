@@ -13,7 +13,9 @@ test('the spike manifest validates and carries the catalog fields', async () => 
   assert.equal(m.title, 'Rally Spike');
   assert.ok(m.description.length > 0);
   assert.deepEqual(m.genres, ['arcade']);
-  assert.deepEqual(m.screenshots, []);
+  assert.equal(m.icon, 'art/icon.webp');
+  assert.equal(m.cover, 'art/cover.webp');
+  assert.deepEqual(m.screenshots, ['art/shot-1.webp', 'art/shot-2.webp']);
   assert.equal(m.server?.room, 'hello');
 });
 

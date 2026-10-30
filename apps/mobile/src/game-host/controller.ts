@@ -1,7 +1,7 @@
 import type { LaunchContext, LaunchIntent } from '@rally/protocol';
 import { HostBridge } from './bridge';
 import { createHostHandlers, type HostHandlers, type MatchmakingTarget } from './handlers';
-import { buildDeliverScript, parseDiagnostic, type PageDiagnostic } from './injected';
+import { DIAG_PREFIX, buildDeliverScript, parseDiagnostic, type PageDiagnostic } from './injected';
 import type { PlaySessionService } from './play-session';
 import type { ProgressStore } from './progress';
 import type { SaveStore } from './saves';
@@ -190,6 +190,8 @@ export class GameHostController {
   private readonly diagnostics: PageDiagnostic[] = [];
 
   handleMessage = (data: string, sourceUrl: string | undefined): void => {
+    // The page's diagnostics are capped at 400 chars each by the injected script; anything bigger is not ours.
+    if (data.length > 4096 && data.startsWith(DIAG_PREFIX)) return;
     const diag = parseDiagnostic(data);
     if (diag) {
       if (diag.kind === 'fps') {
@@ -227,7 +229,14 @@ export class GameHostController {
   };
 
   onMainFrameLoadStart = (url: string): void => {
-    if (!this.bridge.isInsideBundle(url)) return;
+    if (!this.bridge.isInsideBundle(url)) {
+      // Belt and braces for the navigation gate: Android's onShouldStartLoadWithRequest fails open when the JS
+      // thread does not answer within its timeout, so a main-frame load outside the bundle is stopped here too.
+      this.getWebView?.()?.stopLoading?.();
+      this.warn(`[bridge] stopped main-frame load outside the bundle: ${url}`);
+      this.onLoadError(`navigation outside the game bundle was blocked (${url})`);
+      return;
+    }
     this.pageAt ??= this.now();
     this.handlers.resetHandshake();
     if (this.view.phase === 'ready') {

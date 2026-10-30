@@ -1,7 +1,7 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { CircleAlertIcon, InboxIcon, SearchIcon, UserPlusIcon, UsersIcon } from 'lucide-react-native';
 import { useState } from 'react';
-import { Alert, RefreshControl, ScrollView, View } from 'react-native';
+import { RefreshControl, ScrollView, View } from 'react-native';
 import { EmptyState } from '@/components/rally/empty-state';
 import { PersonList, PersonListSkeleton, PersonRow } from '@/components/rally/person-row';
 import { SectionHeader } from '@/components/rally/section-header';
@@ -139,10 +139,7 @@ function RequestRow({ request: r }: { request: FriendRequest }) {
   const action = useFriendshipAction();
   const busy = action.isPending;
   const run = (intent: FriendIntent) =>
-    action.mutate(
-      { userId: r.userId, intent, current: r.direction },
-      { onError: (err) => Alert.alert("Couldn't update", describeSocialError(err)) },
-    );
+    action.mutate({ userId: r.userId, intent, current: r.direction }); // failures are reported by the hook itself
   return (
     <PersonRow
       person={r}

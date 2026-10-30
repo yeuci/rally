@@ -16,7 +16,8 @@ test('buildCsp produces the exact documented policy', () => {
       "font-src 'self' data: https://abc.supabase.co; " +
       "connect-src 'self' https://abc.supabase.co https://eu.rally.colyseus.cloud wss://eu.rally.colyseus.cloud ws: wss:; " +
       "worker-src 'self' blob:; " +
-      "media-src 'self' blob: https://abc.supabase.co",
+      "media-src 'self' blob: https://abc.supabase.co; " +
+      "object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
   );
 });
 

@@ -272,8 +272,10 @@ signal; the test `signup without birth_date metadata is refused` pins that behav
   | schema `private`: `is_blocked(a, b)`, `is_friend(a, b)`, `can_view(owner, viewer, key)`, `viewer()`, `require_member()`, `require_profile(id)` | nobody (no usage grant; not exposed by the Data API) | helpers called by the security definer RPCs |
 
   A pair of users has at most one `friendships` row, in one direction (a unique index on the unordered pair backs
-  it up); `status = 'accepted'` exactly when `accepted_at` is set. Errors as in M2, plus `BLOCKED` (SQLSTATE 42501,
-  same message whoever blocked whom). Every `p_user_id` must be an existing profile (`NOT_FOUND` otherwise).
+  it up); `status = 'accepted'` exactly when `accepted_at` is set. Errors as in M2, plus `BLOCKED` (SQLSTATE 42501)
+  when the caller blocked the target; a request to someone who blocked the caller returns 'outgoing' and
+  writes nothing, so being blocked is never revealed. Writes about one pair are serialised with an advisory
+  lock (`private.lock_pair`). Every `p_user_id` must be an existing profile (`NOT_FOUND` otherwise).
 
   ```ts
   // 'self' | 'friends' | 'outgoing' | 'incoming' | 'blocked' (caller blocked them) | 'none' (also: they blocked the

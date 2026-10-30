@@ -1,8 +1,10 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
+import { Alert } from 'react-native';
 import { useSession } from '@/lib/auth/session';
 import { progressKeys } from '@/lib/game-progress';
 import {
+  describeSocialError,
   nextFriendship,
   parseFriendship,
   PEOPLE_SEARCH_LIMIT,
@@ -223,14 +225,19 @@ export function useFriendshipAction() {
       nextFriendship(current, intent, await runIntent(intent, userId)),
     onMutate: async ({ userId, intent, current }) => {
       void Haptics.selectionAsync().catch(() => {});
-      await qc.cancelQueries({ queryKey: socialKeys.friendship(uid, userId) });
+      // Every social query may hold this relationship (search rows, request lists): stop in-flight refetches
+      // so none of them lands on top of the optimistic state; onSettled refetches them all.
+      await qc.cancelQueries({ queryKey: socialKeys.all(uid) });
       const snapshot = qc.getQueriesData({ queryKey: socialKeys.all(uid) });
       writeFriendship(qc, uid, userId, nextFriendship(current, intent));
       return { snapshot };
     },
     onSuccess: (status, { userId }) => writeFriendship(qc, uid, userId, status),
-    onError: (_err, _vars, ctx) => {
+    // Reported here, not in the callers' mutate(): the optimistic update removes a request row before the
+    // server answers, and callbacks passed to mutate() never fire once their component has unmounted.
+    onError: (err, _vars, ctx) => {
       for (const [key, data] of ctx?.snapshot ?? []) qc.setQueryData(key, data);
+      Alert.alert("Couldn't update", describeSocialError(err));
     },
     onSettled: (_data, _err, { userId }) => invalidateSocial(qc, uid, userId),
   });

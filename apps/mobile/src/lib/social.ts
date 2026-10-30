@@ -186,9 +186,12 @@ export function describeSocialError(err: unknown): string {
 export const PEOPLE_SEARCH_DEBOUNCE_MS = 250;
 export const PEOPLE_SEARCH_LIMIT = 20;
 
-/** The text sent to `search_profiles`: trimmed, a leading "@" dropped. Empty means "don't search". */
+/** Longest query `search_profiles` accepts (it raises INVALID above this). */
+export const PEOPLE_QUERY_MAX = 32;
+
+/** The text sent to `search_profiles`: trimmed, a leading "@" dropped, cut to PEOPLE_QUERY_MAX. Empty = don't search. */
 export function peopleQuery(query: string): string {
-  return query.trim().replace(/^@+/, '').trim();
+  return query.trim().replace(/^@+/, '').trim().slice(0, PEOPLE_QUERY_MAX);
 }
 
 /** "@name" searches people only. */

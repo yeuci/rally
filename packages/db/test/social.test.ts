@@ -362,11 +362,12 @@ describe('blocks', () => {
     assert.deepEqual(await pairRows(db, ann, ben), []);
   });
 
-  test('BLOCKED both ways, with the same message (no hint of who blocked whom)', async () => {
+  test("the blocker gets BLOCKED; the blocked side's request looks sent but is dropped (never revealed)", async () => {
     await a.block(ann, ben);
     await assert.rejects(a.send(ann, ben), blocked);
-    await assert.rejects(a.send(ben, ann), blocked);
+    assert.equal(await a.send(ben, ann), 'outgoing');
     assert.deepEqual(await pairRows(db, ann, ben), []);
+    assert.equal(await a.rel(ben, ann), 'none');
   });
 
   test("friendship_with: the blocker sees 'blocked', the blocked user sees 'none'; unblock restores 'none'", async () => {
@@ -388,7 +389,9 @@ describe('blocks', () => {
     assert.equal(await a.rel(ben, ann), 'blocked');
     await a.unblock(ann, ben);
     assert.equal(await a.rel(ann, ben), 'none');
-    await assert.rejects(a.send(ann, ben), blocked);
+    // ben still blocks ann: ann's request is silently dropped.
+    assert.equal(await a.send(ann, ben), 'outgoing');
+    assert.deepEqual(await pairRows(db, ann, ben), []);
   });
 
   test('self is INVALID; unknown users are NOT_FOUND', async () => {
@@ -581,6 +584,7 @@ describe('profile privacy: public_friends, public_profile_games, public_profile_
     await assert.rejects(a.setPrivacy(olive, { friends: 1 }), invalid);
     await assert.rejects(a.setPrivacy(olive, { friends: null }), invalid);
     await assert.rejects(a.setPrivacy(olive, ['games']), invalid);
+    await assert.rejects(a.setPrivacy(olive, { games: 'public', note: 'x'.repeat(3000) }), invalid);
     await a.setPrivacy(olive, { games: 'friends', friends: 'private', online: false });
     const r = await db.query<{ p: unknown }>(`select privacy as p from public.profiles where id = $1`, [olive]);
     assert.deepEqual(r.rows[0]!.p, { games: 'friends', friends: 'private', online: false });
