@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { View } from 'react-native';
+import { View, type StyleProp, type ViewStyle } from 'react-native';
 import { Text } from '@/components/ui/text';
 import { cn } from '@/lib/utils';
 
@@ -9,14 +9,17 @@ export function SectionHeader({
   detail,
   accessory,
   className,
+  style,
 }: {
   title: string;
   detail?: string;
   accessory?: ReactNode;
   className?: string;
+  /** Overrides the default 16 pt side padding (e.g. with the safe-area insets in landscape). */
+  style?: StyleProp<ViewStyle>;
 }) {
   return (
-    <View className={cn('flex-row items-end justify-between gap-3 px-4', className)}>
+    <View className={cn('flex-row items-end justify-between gap-3 px-4', className)} style={style}>
       <View className="shrink flex-row items-baseline gap-2">
         <Text className="text-[17px] font-bold tracking-tight" role="heading" numberOfLines={1}>
           {title}

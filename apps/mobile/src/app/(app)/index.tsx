@@ -1,11 +1,10 @@
 import { Link } from 'expo-router';
 import { HeartIcon, SearchXIcon, SparklesIcon, WifiOffIcon } from 'lucide-react-native';
 import { useCallback, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, ScrollView, View, useWindowDimensions, type ListRenderItem } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { FlatList, Pressable, RefreshControl, ScrollView, View, type ListRenderItem } from 'react-native';
 import { EmptyState } from '@/components/rally/empty-state';
 import { FeaturedGameCard, FeaturedGameSkeleton, GameTile } from '@/components/rally/game-card';
-import { GameRow, ROW_GAP } from '@/components/rally/game-row';
+import { GameRow } from '@/components/rally/game-row';
 import { Glow } from '@/components/rally/glow';
 import { LogoMark } from '@/components/rally/logo';
 import { ProfileAvatar } from '@/components/rally/profile-avatar';
@@ -16,16 +15,26 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Text } from '@/components/ui/text';
 import { useAllGames, useFavorites, useFeaturedGames, useNewGames, useRecentlyPlayed, type GameCard } from '@/lib/catalog';
 import { timeAgo } from '@/lib/format';
-import { useProfile } from '@/lib/profile';
+import {
+  ROW_GAP,
+  contentWidth,
+  featuredCardWidth,
+  gridColumns,
+  gridTileWidth,
+  pageIndex,
+  rowTileWidth,
+  snapInterval,
+} from '@/lib/layout';
+import { useProfile, type Profile } from '@/lib/profile';
 import { searchGames } from '@/lib/search';
+import { useLayout } from '@/lib/use-layout';
 import { usePalette } from '@/lib/use-palette';
-
-const GUTTER = 16;
+import { cn } from '@/lib/utils';
 
 /** Dashboard: greeting, search, featured hero carousel, then continue playing / new / favorites rows. */
 export default function Dashboard() {
-  const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
+  // Every size below is recomputed from the live window on each render; rotation re-renders through useLayout.
+  const { width, insets, wide, pad } = useLayout();
   const palette = usePalette();
   const [query, setQuery] = useState('');
   const searching = query.trim().length > 0;
@@ -38,17 +47,18 @@ export default function Dashboard() {
   const all = useAllGames(searching);
 
   const featuredCount = featured.data?.length ?? 0;
-  // One featured game fills the width; several peek the next card past the edge.
-  const cardWidth = Math.min(featuredCount > 1 || featured.isLoading ? width - GUTTER * 2 - 28 : width - GUTTER * 2, 560);
-  // Rows show two tiles and part of a third, so it is obvious they scroll.
-  const tileWidth = Math.min(Math.floor((width - GUTTER - ROW_GAP * 2) / 2.45), 172);
-  const columns = width >= 600 ? 4 : 3;
-  const gridTile = Math.floor((width - GUTTER * 2 - ROW_GAP * (columns - 1)) / columns);
+  const inner = contentWidth(width, insets);
+  const cardWidth = featuredCardWidth(inner, featured.isLoading ? 2 : featuredCount, wide);
+  const tileWidth = rowTileWidth(width, pad.left, wide);
+  const columns = gridColumns(inner);
+  const gridTile = gridTileWidth(inner, columns);
+  const padStyle = { paddingLeft: pad.left, paddingRight: pad.right };
   const lastPlayed = new Map(recent.data?.map((g) => [g.id, g.last_played_at]));
   const results = searching ? searchGames(all.data ?? [], query) : [];
   const refreshing = featured.isRefetching || newest.isRefetching || recent.isRefetching || favorites.isRefetching;
   const failed = featured.isError && newest.isError;
   const name = profile.data ? profile.data.display_name || profile.data.username : null;
+  const glow = Math.max(width, 360) * 1.4;
 
   const refresh = () => {
     void featured.refetch();
@@ -56,11 +66,6 @@ export default function Dashboard() {
     void recent.refetch();
     void favorites.refetch();
   };
-
-  const renderFeatured = useCallback<ListRenderItem<GameCard>>(
-    ({ item }) => <FeaturedGameCard game={item} width={cardWidth} />,
-    [cardWidth],
-  );
 
   return (
     <ScrollView
@@ -73,43 +78,28 @@ export default function Dashboard() {
         <RefreshControl
           refreshing={refreshing}
           onRefresh={refresh}
+          // The header is hidden and the list starts under the status bar: push the spinner below it. RN 0.88
+          // applies this on both platforms (Android SwipeRefreshLayout offset; iOS shifts the UIRefreshControl).
+          progressViewOffset={insets.top}
+          // iOS: draw the spinner above the content rather than behind it (layer zPosition).
+          style={REFRESH_ABOVE_CONTENT}
           tintColor={palette.foreground}
           colors={[palette.foreground]}
           progressBackgroundColor={palette.card}
         />
       }
     >
-      <Glow size={width * 1.4} style={{ top: -width * 0.85, left: -width * 0.45 }} />
+      <Glow size={glow} style={{ top: -glow * 0.6, left: -glow * 0.32 }} />
 
-      <View className="gap-5 px-4">
-        <View className="flex-row items-center justify-between gap-4">
-          <View className="shrink gap-1">
-            <View className="flex-row items-center gap-1.5">
-              <LogoMark size={20} />
-              {profile.isLoading ? (
-                <Skeleton className="h-3.5 w-24 rounded-full" />
-              ) : (
-                <Text className="text-muted-foreground shrink text-[13px] font-semibold" numberOfLines={1}>
-                  {name ? `Hey, ${name}` : 'Welcome back'}
-                </Text>
-              )}
-            </View>
-            <Text className="text-[28px] font-extrabold leading-[34px] tracking-tight">Let&apos;s play</Text>
-          </View>
-          <Link href="/profile" asChild>
-            <Pressable accessibilityRole="button" accessibilityLabel="Profile" hitSlop={8} className="active:opacity-70">
-              <ProfileAvatar profile={profile.data} size="md" ring />
-            </Pressable>
-          </Link>
-        </View>
-
+      <View className="gap-5" style={padStyle}>
+        <Greeting name={name} loading={profile.isLoading} inline={wide} avatar={profile.data} />
         <SearchPill value={query} onChangeText={setQuery} />
       </View>
 
       {searching ? (
         <View className="gap-3">
-          <SectionHeader title="Results" detail={all.isLoading ? undefined : String(results.length)} />
-          <View className="px-4">
+          <SectionHeader title="Results" detail={all.isLoading ? undefined : String(results.length)} style={padStyle} />
+          <View style={padStyle}>
             {all.isLoading ? (
               <View className="flex-row flex-wrap" style={{ gap: ROW_GAP }}>
                 {Array.from({ length: columns }, (_, i) => (
@@ -132,7 +122,7 @@ export default function Dashboard() {
           </View>
         </View>
       ) : failed ? (
-        <View className="px-4">
+        <View style={padStyle}>
           <EmptyState
             icon={WifiOffIcon}
             title="Couldn't load games"
@@ -146,33 +136,28 @@ export default function Dashboard() {
         </View>
       ) : (
         <>
-          {(featured.isLoading || featuredCount > 0) &&
-            (featured.isLoading ? (
-              <View className="flex-row overflow-hidden px-4" style={{ gap: ROW_GAP }}>
-                <FeaturedGameSkeleton width={cardWidth} />
-                <FeaturedGameSkeleton width={cardWidth} />
-              </View>
-            ) : (
-              <FlatList
-                horizontal
-                data={featured.data}
-                keyExtractor={(g) => g.id}
-                renderItem={renderFeatured}
-                showsHorizontalScrollIndicator={false}
-                contentContainerClassName="px-4"
-                ItemSeparatorComponent={RowSeparator}
-                snapToInterval={cardWidth + ROW_GAP}
-                snapToAlignment="start"
-                decelerationRate="fast"
-                initialNumToRender={2}
-              />
-            ))}
+          {featured.isLoading ? (
+            <View className="flex-row overflow-hidden" style={[padStyle, { gap: ROW_GAP }]}>
+              <FeaturedGameSkeleton width={cardWidth} banner={wide} />
+              <FeaturedGameSkeleton width={cardWidth} banner={wide} />
+            </View>
+          ) : featured.data && featuredCount > 0 ? (
+            // Keyed on the geometry: rotating remounts the carousel at page 0 with fresh snap offsets.
+            <FeaturedCarousel
+              key={`${cardWidth}:${pad.left}:${pad.right}:${wide}`}
+              games={featured.data}
+              cardWidth={cardWidth}
+              banner={wide}
+              pad={pad}
+            />
+          ) : null}
 
           <GameRow
             title="Continue playing"
             games={recent.data}
             loading={recent.isLoading}
             tileWidth={tileWidth}
+            pad={pad}
             subtitleFor={(g) => timeAgo(lastPlayed.get(g.id))}
           />
           <GameRow
@@ -180,6 +165,7 @@ export default function Dashboard() {
             games={newest.data}
             loading={newest.isLoading}
             tileWidth={tileWidth}
+            pad={pad}
             empty={
               <EmptyState icon={SparklesIcon} title="No games yet" body="New games land here as soon as they're published." />
             }
@@ -189,11 +175,106 @@ export default function Dashboard() {
             games={favorites.data}
             loading={favorites.isLoading}
             tileWidth={tileWidth}
+            pad={pad}
             empty={<EmptyState compact icon={HeartIcon} title="No favorites yet" body="Tap the heart on any game to keep it here." />}
           />
         </>
       )}
     </ScrollView>
+  );
+}
+
+const REFRESH_ABOVE_CONTENT = { zIndex: 10 } as const;
+
+/** "Hey, <name>" as the page heading with the mark, "Let's play" under it (beside it in wide windows), avatar right. */
+function Greeting({
+  name,
+  loading,
+  inline,
+  avatar,
+}: {
+  name: string | null;
+  loading: boolean;
+  inline: boolean;
+  avatar: Profile | null | undefined;
+}) {
+  return (
+    <View className="flex-row items-center justify-between gap-4">
+      <View className={cn('shrink', inline ? 'flex-row items-baseline gap-3' : 'gap-1')}>
+        <View className="shrink flex-row items-center gap-2">
+          <LogoMark size={30} style={{ marginLeft: -5 }} />
+          {loading ? (
+            <Skeleton className="h-7 w-40 rounded-lg" />
+          ) : (
+            <Text className="shrink text-[30px] font-semibold leading-9 tracking-tight" role="heading" numberOfLines={1}>
+              {name ? `Hey, ${name}` : 'Welcome back'}
+            </Text>
+          )}
+        </View>
+        <Text className="text-muted-foreground text-[15px] font-medium" numberOfLines={1}>
+          Let&apos;s play
+        </Text>
+      </View>
+      <Link href="/profile" asChild>
+        <Pressable accessibilityRole="button" accessibilityLabel="Profile" hitSlop={8} className="active:opacity-70">
+          <ProfileAvatar profile={avatar} size="md" ring />
+        </Pressable>
+      </Link>
+    </View>
+  );
+}
+
+/**
+ * Featured games, snapping card by card. Narrow: cards with the next one peeking. Wide: full-width 16:7 banners with
+ * page dots. The parent keys it on its geometry, so the page index and snap offsets never outlive a rotation.
+ */
+function FeaturedCarousel({
+  games,
+  cardWidth,
+  banner,
+  pad,
+}: {
+  games: GameCard[];
+  cardWidth: number;
+  banner: boolean;
+  pad: { left: number; right: number };
+}) {
+  const [page, setPage] = useState(0);
+  const interval = snapInterval(cardWidth);
+  const renderItem = useCallback<ListRenderItem<GameCard>>(
+    ({ item }) => <FeaturedGameCard game={item} width={cardWidth} banner={banner} />,
+    [cardWidth, banner],
+  );
+  const getItemLayout = useCallback(
+    (_: ArrayLike<GameCard> | null | undefined, index: number) => ({ length: cardWidth, offset: pad.left + interval * index, index }),
+    [cardWidth, interval, pad.left],
+  );
+  const dots = banner && games.length > 1;
+  return (
+    <View className="gap-3">
+      <FlatList
+        horizontal
+        data={games}
+        keyExtractor={(g) => g.id}
+        renderItem={renderItem}
+        getItemLayout={getItemLayout}
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ paddingLeft: pad.left, paddingRight: pad.right }}
+        ItemSeparatorComponent={RowSeparator}
+        snapToInterval={interval}
+        snapToAlignment="start"
+        decelerationRate="fast"
+        initialNumToRender={2}
+        onMomentumScrollEnd={dots ? (e) => setPage(pageIndex(e.nativeEvent.contentOffset.x, interval, games.length)) : undefined}
+      />
+      {dots && (
+        <View className="flex-row justify-center gap-1.5" pointerEvents="none" importantForAccessibility="no-hide-descendants">
+          {games.map((g, i) => (
+            <View key={g.id} className={cn('h-1.5 rounded-full', i === page ? 'bg-foreground w-5' : 'bg-muted-foreground w-1.5')} />
+          ))}
+        </View>
+      )}
+    </View>
   );
 }
 

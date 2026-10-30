@@ -26,11 +26,15 @@ import { config } from '@/config';
 import { describeAuthError } from '@/lib/auth/errors';
 import { signOut } from '@/lib/auth/providers';
 import { useProfile } from '@/lib/profile';
+import { useColumnPadding } from '@/lib/use-layout';
 import { cn } from '@/lib/utils';
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
+  // Landscape / tablet: a centred column (≤ 600 pt) inside the safe area instead of edge-to-edge rows.
+  const column = useColumnPadding();
+  const glow = Math.min(width, 700) * 1.1;
   const profile = useProfile();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
@@ -58,10 +62,11 @@ export default function ProfileScreen() {
   return (
     <ScrollView
       className="bg-background flex-1"
-      contentContainerClassName="gap-6 px-4 pt-6"
-      contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
+      contentContainerClassName="gap-6 pt-6"
+      contentContainerStyle={[column, { paddingBottom: insets.bottom + 32 }]}
     >
-      <Glow size={width * 1.1} style={{ top: -width * 0.55, left: -width * 0.05 }} />
+      {/* Centred on the window from its live width (absolute: measured from the container's edge, not its padding). */}
+      <Glow size={glow} style={{ top: -glow / 2, left: width / 2 - glow / 2 }} />
 
       <View className="items-center gap-4">
         <ProfileAvatar profile={p} size="xl" ring />

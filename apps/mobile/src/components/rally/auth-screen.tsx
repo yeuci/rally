@@ -1,21 +1,26 @@
 import type { ReactNode } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@/components/ui/text';
+import { columnPadding } from '@/lib/layout';
 import { LogoMark } from './logo';
 
 /**
  * Shared shell for the signed-out screens: keyboard-aware scroll, safe areas, the mark, title + lede. The header
- * above is transparent (back button only), so content starts below a 44 pt header row.
+ * above is transparent (back button only), so content starts below its row (44 pt; 32 pt in landscape on a phone).
+ * Landscape / tablet: a centred column of at most 560 pt inside the safe area, so forms never run edge to edge.
  */
 export function AuthScreen({ title, lede, children, footer }: { title?: string; lede?: string; children: ReactNode; footer?: ReactNode }) {
   const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
+  const column = columnPadding(width, insets, 560, 24);
+  const header = width > height ? 44 : 60;
   return (
     <KeyboardAvoidingView className="bg-background flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView
         className="flex-1"
-        contentContainerClassName="grow gap-7 px-6"
-        contentContainerStyle={{ paddingTop: insets.top + 60, paddingBottom: insets.bottom + 24 }}
+        contentContainerClassName="grow gap-7"
+        contentContainerStyle={[column, { paddingTop: insets.top + header, paddingBottom: insets.bottom + 24 }]}
         keyboardShouldPersistTaps="handled"
       >
         {(title || lede) && (

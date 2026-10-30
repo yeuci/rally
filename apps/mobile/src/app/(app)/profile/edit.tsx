@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,6 +13,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { describeAuthError } from '@/lib/auth/errors';
 import { useUsernameAvailability } from '@/lib/auth/use-username-availability';
 import { useProfile, useUpdateProfile, type Profile, type ProfileUpdate } from '@/lib/profile';
+import { useColumnPadding } from '@/lib/use-layout';
 import { usePalette } from '@/lib/use-palette';
 
 const DISPLAY_NAME_MAX = 32; // profiles_display_name_len
@@ -32,6 +34,9 @@ export default function EditProfileScreen() {
 
 function EditProfileForm({ profile }: { profile: Profile }) {
   const insets = useSafeAreaInsets();
+  const column = useColumnPadding();
+  // The opaque stack header sits above this view; KeyboardAvoidingView measures from its own frame, so tell it.
+  const headerHeight = useHeaderHeight();
   const update = useUpdateProfile();
   const [username, setUsername] = useState(profile.username);
   const [displayName, setDisplayName] = useState(profile.display_name ?? '');
@@ -58,10 +63,14 @@ function EditProfileForm({ profile }: { profile: Profile }) {
   }
 
   return (
-    <KeyboardAvoidingView className="bg-background flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView
+      className="bg-background flex-1"
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={headerHeight}
+    >
       <ScrollView
-        contentContainerClassName="gap-5 px-4 pt-6"
-        contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+        contentContainerClassName="gap-5 pt-6"
+        contentContainerStyle={[column, { paddingBottom: insets.bottom + 24 }]}
         keyboardShouldPersistTaps="handled"
       >
         <View className="items-center">

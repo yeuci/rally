@@ -26,7 +26,8 @@ export const Glow = memo(function Glow({
   const r = size / 2;
   return (
     <View pointerEvents="none" className={cn('absolute', className)} style={[{ width: size, height: size }, style]}>
-      <Svg width={size} height={size}>
+      {/* Keyed on size: a resized glow (rotation) is redrawn, never stretched from its old bitmap. */}
+      <Svg key={size} width={size} height={size}>
         <Defs>
           <RadialGradient id={id} gradientUnits="userSpaceOnUse" cx={r} cy={r} r={r}>
             <Stop offset={0} stopColor={color} stopOpacity={opacity} />

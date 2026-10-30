@@ -3,7 +3,6 @@ import { router } from 'expo-router';
 import { MailIcon, WrenchIcon } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUniwind } from 'uniwind';
 import { ErrorText } from '@/components/rally/form-field';
 import { Wordmark } from '@/components/rally/logo';
@@ -15,14 +14,19 @@ import { Text } from '@/components/ui/text';
 import { config } from '@/config';
 import { describeAuthError } from '@/lib/auth/errors';
 import { isAppleSignInAvailable, signInWithProvider, type OAuthProvider } from '@/lib/auth/providers';
+import { columnPadding } from '@/lib/layout';
+import { useLayout } from '@/lib/use-layout';
+import { cn } from '@/lib/utils';
 
 /**
  * Entry point when signed out. Apple / Google first try to sign into an existing account; a first-time identity
- * creates nothing and is sent through the age gate (see lib/auth/providers.ts).
+ * creates nothing and is sent through the age gate (see lib/auth/providers.ts). Landscape: brand on the left, buttons
+ * on the right, so everything fits a phone's ≈390 pt height without scrolling.
  */
 export default function Welcome() {
-  const insets = useSafeAreaInsets();
+  const { width, insets, landscape } = useLayout();
   const { theme } = useUniwind();
+  const column = columnPadding(width, insets, landscape ? 840 : 560, 24);
   const [appleAvailable, setAppleAvailable] = useState(false);
   const [busy, setBusy] = useState<OAuthProvider | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -51,18 +55,21 @@ export default function Welcome() {
   }
 
   return (
-    <View className="bg-background flex-1 px-6" style={{ paddingTop: insets.top + 24, paddingBottom: insets.bottom + 16 }}>
-      <View className="flex-1 items-center justify-center gap-6">
-        <View className="items-center justify-center" style={{ width: 300, height: 140 }}>
-          <PulseGlow size={340} />
-          <Wordmark size={60} />
+    <View
+      className={cn('bg-background flex-1', landscape && 'flex-row items-center gap-10')}
+      style={[column, { paddingTop: insets.top + (landscape ? 16 : 24), paddingBottom: insets.bottom + 16 }]}
+    >
+      <View className={cn('flex-1 items-center justify-center', landscape ? 'gap-4' : 'gap-6')}>
+        <View className="items-center justify-center" style={{ width: 300, height: landscape ? 120 : 140 }}>
+          <PulseGlow size={landscape ? 300 : 340} />
+          <Wordmark size={landscape ? 52 : 60} />
         </View>
         <Text className="text-muted-foreground max-w-xs text-center text-[17px] leading-6">
           Quick games with your friends, all in one app.
         </Text>
       </View>
 
-      <View className="gap-3">
+      <View className={cn('gap-3', landscape && 'flex-1 justify-center')}>
         {!config.supabaseConfigured && (
           <Card className="border-subtle-line bg-subtle py-4">
             <CardContent className="px-4">

@@ -14,6 +14,7 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Text } from '@/components/ui/text';
 import { launchStore, useLaunchStore } from '@/launch-store';
+import { useColumnPadding } from '@/lib/use-layout';
 
 /**
  * Developer launcher (the M0 spike path): direct bundle URL + Colyseus URL, last-run metrics. Works without a
@@ -22,6 +23,7 @@ import { launchStore, useLaunchStore } from '@/launch-store';
 export default function DeveloperLauncher() {
   const { settings, lastRun } = useLaunchStore();
   const insets = useSafeAreaInsets();
+  const column = useColumnPadding(640);
   const { theme } = useUniwind();
   const [error, setError] = useState<string | null>(null);
 
@@ -40,8 +42,8 @@ export default function DeveloperLauncher() {
   return (
     <ScrollView
       className="bg-background flex-1"
-      contentContainerClassName="gap-4 p-4"
-      contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+      contentContainerClassName="gap-4 pt-4"
+      contentContainerStyle={[column, { paddingBottom: insets.bottom + 24 }]}
       keyboardShouldPersistTaps="handled"
     >
       <View className="flex-row items-center justify-between">

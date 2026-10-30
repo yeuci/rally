@@ -7,14 +7,23 @@ import { Icon } from '@/components/ui/icon';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Text } from '@/components/ui/text';
 import { playersLabel, type GameCard as GameCardData } from '@/lib/catalog';
+import { featuredCardHeight } from '@/lib/layout';
 import { cn } from '@/lib/utils';
 import { GameCover } from './game-cover';
 
-/** Featured card height for a given width (shared with its skeleton). */
-export const featuredHeight = (width: number) => Math.round(width * 0.7);
-
-/** Hero card for the featured carousel: full-bleed cover, big title, age chip, Play pill (opens the game page). */
-export const FeaturedGameCard = memo(function FeaturedGameCard({ game, width }: { game: GameCardData; width: number }) {
+/**
+ * Hero card for the featured carousel: full-bleed cover, big title, age chip, Play pill (opens the game page).
+ * `banner` (wide windows): a 16:7 banner with the title, meta and Play pill over its left third.
+ */
+export const FeaturedGameCard = memo(function FeaturedGameCard({
+  game,
+  width,
+  banner = false,
+}: {
+  game: GameCardData;
+  width: number;
+  banner?: boolean;
+}) {
   const meta = [game.genres[0] && capitalize(game.genres[0]), playersLabel(game)].filter(Boolean).join(' · ');
   return (
     <Link href={{ pathname: '/game/[id]', params: { id: game.id } }} asChild>
@@ -31,21 +40,21 @@ export const FeaturedGameCard = memo(function FeaturedGameCard({ game, width }: 
           uri={game.screenshots[0]}
           variant="feature"
           showTitle={false}
-          scrim="dark"
+          scrim={banner ? 'side' : 'dark'}
           className="border-border rounded-3xl border"
-          style={{ height: featuredHeight(width) }}
+          style={{ height: featuredCardHeight(width, banner) }}
         >
-          <View className="absolute left-4 top-4 flex-row gap-2">
+          <View className={cn('absolute flex-row gap-2', banner ? 'left-5 top-5' : 'left-4 top-4')}>
             <Badge variant="overlay">
               <Text>Featured</Text>
             </Badge>
           </View>
-          <View className="absolute bottom-0 left-0 right-0 gap-3 p-4">
-            <Text className="text-[28px] font-extrabold leading-[32px] tracking-tight text-white" numberOfLines={2}>
-              {game.title}
-            </Text>
-            <View className="flex-row items-center justify-between gap-3">
-              <View className="shrink flex-row items-center gap-2">
+          {banner ? (
+            <View className="absolute bottom-0 left-0 gap-3 p-5" style={{ width: Math.max(Math.round(width * 0.4), 280) }}>
+              <Text className="text-[32px] font-extrabold leading-[36px] tracking-tight text-white" numberOfLines={2}>
+                {game.title}
+              </Text>
+              <View className="flex-row items-center gap-2">
                 <Badge variant="overlay">
                   <Text>{game.age_rating}</Text>
                 </Badge>
@@ -53,9 +62,28 @@ export const FeaturedGameCard = memo(function FeaturedGameCard({ game, width }: 
                   {meta}
                 </Text>
               </View>
-              <PlayPill />
+              <View className="flex-row">
+                <PlayPill />
+              </View>
             </View>
-          </View>
+          ) : (
+            <View className="absolute bottom-0 left-0 right-0 gap-3 p-4">
+              <Text className="text-[28px] font-extrabold leading-[32px] tracking-tight text-white" numberOfLines={2}>
+                {game.title}
+              </Text>
+              <View className="flex-row items-center justify-between gap-3">
+                <View className="shrink flex-row items-center gap-2">
+                  <Badge variant="overlay">
+                    <Text>{game.age_rating}</Text>
+                  </Badge>
+                  <Text className="shrink text-[13px] font-medium text-white/80" numberOfLines={1}>
+                    {meta}
+                  </Text>
+                </View>
+                <PlayPill />
+              </View>
+            </View>
+          )}
         </GameCover>
       </Pressable>
     </Link>
@@ -120,9 +148,9 @@ export function GameTileSkeleton({ width, className }: { width: number; classNam
   );
 }
 
-export function FeaturedGameSkeleton({ width }: { width: number }) {
+export function FeaturedGameSkeleton({ width, banner = false }: { width: number; banner?: boolean }) {
   return (
-    <View className="bg-muted overflow-hidden rounded-3xl" style={{ width, height: featuredHeight(width) }}>
+    <View className="bg-muted overflow-hidden rounded-3xl" style={{ width, height: featuredCardHeight(width, banner) }}>
       <Skeleton className="absolute left-4 top-4 h-6 w-20 rounded-full" />
       <View className="absolute bottom-0 left-0 right-0 gap-3 p-4">
         <Skeleton className="h-7 w-48 rounded-lg" />
