@@ -9,8 +9,8 @@ import { DEFAULTS, parsePrefs, type Prefs } from './prefs-parse';
  * tokens and the native `Appearance` follow); until the stored value is read the app follows the system, behind the
  * cold-start intro overlay.
  */
-export type { Appearance, Prefs } from './prefs-parse';
-export { APPEARANCES, parsePrefs } from './prefs-parse';
+export type { Appearance, FriendAlertStyle, Prefs } from './prefs-parse';
+export { APPEARANCES, FRIEND_ALERT_STYLES, parsePrefs } from './prefs-parse';
 
 const KEY = 'rally.prefs';
 

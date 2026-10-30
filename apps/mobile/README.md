@@ -14,7 +14,7 @@ pnpm dev:mobile:go                    # Metro for Expo Go (email sign-in + Devel
 
 pnpm --filter @rally/mobile typecheck # app + tests
 pnpm --filter @rally/mobile lint      # expo lint (React Compiler rules), zero warnings
-pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects/anonymous plan, bridge + nav gate, handlers (saves, leaderboards, achievements, join limits, token policy), join targets + rejoin journal (target → matchmaking calls, sticky / resume-once, reportReconnection room check, journal expiry, minVersion refusal, room lookups), controller (play sessions, playtime across reloads, diagnostics), session journal, storage reset, progress formatting, cover art, social (friendship buttons, people ranking, privacy incl. presence, requests), social realtime (broadcast event → show / toast / dismiss / refresh, request keys, seen-keys store, catch-up pick, request queue), presence (heartbeat scheduler: AppState, interval, grace, ok:false, sign-out; presence row model, Join targets, live counts), dashboard (hero / category geometry, genre rows, hero auto-advance rules, the 7-day visits range), browse (route params, genre chip order, Popular (visits, then live players) / New / A–Z comparators, grid columns per window), visit counts (`formatCount` 950 / 12.4K / 3.1M, `visitsLabel`), drawer (width, swipe routes, edge width, items), press guard (drawer swipe / drag vs tap), preferences (FPS, appearance, haptics), join UI (code input normalisation and lookup copy, room rows, rejoin countdown and offer rules, room code share text), gradients (page fades from the page colour at alpha 0, no visible colour blends), theme tokens (PALETTE ↔ global.css), recent searches, the friends filter, podium tints, game share copy
+pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects/anonymous plan, bridge + nav gate, handlers (saves, leaderboards, achievements, join limits, token policy), join targets + rejoin journal (target → matchmaking calls, sticky / resume-once, reportReconnection room check, journal expiry, minVersion refusal, room lookups), controller (play sessions, playtime across reloads, diagnostics), session journal, storage reset, progress formatting, cover art, social (friendship buttons, people ranking, privacy incl. presence, requests), social realtime (broadcast event → show / toast / dismiss / refresh, request keys, seen-keys store, catch-up pick, request queue), friend alerts (Pop-up / Banner / Off resolved in and out of games, presentation, accepted-toast rule, banner countdown + queue with a fake clock, swipe thresholds), presence (heartbeat scheduler: AppState, interval, grace, ok:false, sign-out; presence row model, Join targets, live counts), dashboard (hero / category geometry, genre rows, hero auto-advance rules, the 7-day visits range), browse (route params, genre chip order, Popular (visits, then live players) / New / A–Z comparators, grid columns per window), visit counts (`formatCount` 950 / 12.4K / 3.1M, `visitsLabel`), drawer (width, swipe routes, edge width, items), press guard (drawer swipe / drag vs tap), preferences (FPS, appearance, haptics, friend alerts), join UI (code input normalisation and lookup copy, room rows, rejoin countdown and offer rules, room code share text), gradients (page fades from the page colour at alpha 0, no visible colour blends), theme tokens (PALETTE ↔ global.css), recent searches, the friends filter, podium tints, game share copy
 node scripts/generate-brand-assets.cjs  # (from apps/mobile) app icon, adaptive icon layers, splash, favicon from src/lib/brand.ts; needs Playwright
 ```
 
@@ -107,7 +107,7 @@ when they do surface (profile edits go through PostgREST, which passes them on).
 | `/game/:id/rooms` | `src/app/(app)/game/[id]/rooms.tsx` | server browser for multiplayer games with the `browser` mode (see Multiplayer below) |
 | `/game/:id/play` | `src/app/(app)/game/[id]/play.tsx` | full-screen `GameHost` for the published version; multiplayer games take `?join=quick\|create\|room\|friend\|resume` (see Multiplayer below) |
 | `/profile`, `/profile/edit` | `src/app/(app)/profile/…` | profile (long-press the avatar to copy "@username", also on `/u/:username`; "Member since Oct 2026"; stats strip, Friends row with request badge, games played, Settings row), edit (display name, username, bio, Privacy: games played / friends list / online status → Everyone / Friends / Only me, read with `my_privacy`; `?section=privacy` scrolls to it), sign out, delete-account request |
-| `/settings` | `src/app/(app)/settings.tsx` | Appearance (System / Dark / Light: `prefs.appearance` → `Uniwind.setTheme`), Haptics (`prefs.haptics`, read by `lib/haptics.ts`), Reduce motion (the OS setting, shown live, no toggle), Show FPS in games, Profile privacy (summary → Edit profile's Privacy section), Help & support, Sign out, app version |
+| `/settings` | `src/app/(app)/settings.tsx` | Appearance (System / Dark / Light: `prefs.appearance` → `Uniwind.setTheme`), Haptics (`prefs.haptics`, read by `lib/haptics.ts`), Reduce motion (the OS setting, shown live, no toggle), Notifications (Friend requests / While playing → Pop-up / Banner / Off: `prefs.friendAlerts`, `prefs.friendAlertsInGame`), Show FPS in games, Profile privacy (summary → Edit profile's Privacy section), Help & support, Sign out, app version |
 | `/u/:username` | `src/app/(app)/u/[username].tsx` | public profile: avatar, names, bio, member since, status line (`public_presence`: "Online" / "Playing Sumo"), friendship button (`friendship_with`), games played · achievements · friends (`public_profile_stats`), games played (`public_profile_games`), friends row (`public_friends`), unlocked achievements; Block / Unblock in the ⋯ menu; your own username redirects to `/profile` |
 | `/dev`, `/dev/play` | `src/app/dev/…` | Developer launcher (M0 spike path: direct bundle + Colyseus URL, room type `hello` / `sumo`, join mode quick / create / code / room id, last-run metrics) |
 
@@ -173,7 +173,8 @@ over a running game too.
 - **Channel.** `useSocialRealtime()` in `(app)/_layout.tsx` keeps one private channel `user:<uid>`
   (`{ config: { private: true } }`) per linked, signed-in account and listens to the broadcast event `social`:
   `{ type, from, to, at }`, sent by the database (`packages/db` README, "Realtime") only to the recipient's topic.
-  `friend_request` → the sheet; `friend_accepted` → toast "sloth accepted your friend request";
+  `friend_request` → the sheet or banner (below); `friend_accepted` → toast "sloth accepted your friend request"
+  (not when the setting that applies is Off);
   `friend_request_cancelled` / `friend_removed` → the sender's sheet closes; every event invalidates
   `['social', uid]` (requests, friendship, friends, badges). Events that name neither side as the user are ignored.
   supabase-js hands the session JWT to Realtime on sign-in and refresh; `setAuth()` runs again before each subscribe.
@@ -182,17 +183,32 @@ over a running game too.
 - **Catch-up.** Broadcasts are not stored, so on launch, on each (re)subscribe and on returning to the foreground
   the app reads `my_friend_requests` and shows the newest incoming request not seen yet. Seen keys
   (`<requester>:<created_at ms>`) live in AsyncStorage `rally.friend-requests.seen.<uid>` (≤ 200; answered ones are
-  pruned once per launch). A request becomes seen when its sheet shows; older unseen ones are only counted on the
-  Friends badge. Queued requests that are no longer pending are dropped.
+  pruned once per launch). A request becomes seen when its sheet or banner shows (or Off consumes it); older unseen ones are only counted on the
+  Friends badge. Queued requests that are no longer pending are dropped. Catch-up queues like a broadcast does, so it
+  follows the setting too (Banner: a banner; Off: nothing on screen).
+- **Settings → Notifications** (`lib/friend-alerts.ts`, rules in `lib/friend-alerts-model.ts`, tested). Two device
+  preferences, each Pop-up / Banner / Off: `friendAlerts` (default Pop-up) outside games and `friendAlertsInGame`
+  (default Banner) while a game screen is open, so a request never blocks a running game. The host on screen
+  resolves the one for its placement; the Realtime router asks `currentAlertStyle()` (the play route's host marks
+  "a game screen is open"). Off consumes the request silently (marked seen, no haptic, no accepted toast): the
+  Friends badge and the Requests tab still update, nothing is lost.
 - **Sheet** (`components/rally/friend-request-sheet.tsx`). The avatar, name and @username (`profiles` by id, public
   columns), with Accept, Decline and Later (Later, the backdrop and back keep the request in Friends). Accept and
   Decline go through `useFriendshipAction`. A light haptic plays on appear (Settings → Haptics). Several requests
   queue (≤ 10) and show one after another.
+- **Banner** (`components/rally/friend-request-banner.tsx`). A strip under the safe area at the top of the screen,
+  dark glass with white type (like PageDots, so it reads on any game, both themes): avatar, "sloth wants to be your
+  friend" and an inline Accept. A tap anywhere else expands it into the sheet (per request). It shows once the name
+  is known (a generic line if the profile cannot be read), plays the light haptic, is announced to screen readers,
+  and leaves after 5 s (`bannerCountdown` in `lib/social-realtime.ts`; a hairline shows the time left; a finger on
+  it holds the countdown) or on a swipe up; the request then stays pending in Friends and the next queued one shows.
+  It uses the same queue as the sheet. Reduced motion: no slide, no hairline, a swipe dismisses at once. It is a plain
+  view, not a Modal: touches around it pass through to the game.
 - **Over the game.** On iOS a React Native `Modal` presents from the nearest view controller, not from the top-most
   one, and the play route is a native `fullScreenModal`. A sheet mounted in the shell (or the root layout) cannot
   rise over it, so `FriendRequestPrompt` is mounted twice: `placement="shell"` in `(app)/_layout.tsx` while no game
-  is open, and `placement="game"` inside the play route. Each waits 700 ms after the game screen opens or closes, so
-  it never presents mid-transition. The shell host also waits while another `BottomSheet` is open (rejoin, join
+  is open, and `placement="game"` inside the play route (which also overlays the banner at the top of the game
+  screen). Each waits 700 ms after the game screen opens or closes, so it never presents mid-transition. The shell host also waits while another `BottomSheet` is open (rejoin, join
   code; `lib/open-sheets.ts`), because one view controller presents one Modal at a time. The sheet allows every orientation (games lock landscape, and React Native's
   default is portrait only). The play route also mounts a `ToastHost`, so the accepted toast shows in a game too.
 

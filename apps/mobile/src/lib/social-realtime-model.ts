@@ -271,6 +271,11 @@ export interface RequestQueueStore {
   subscribe(fn: () => void): () => void;
   enqueue(req: IncomingRequest, now?: number): void;
   drop(userId: string): void;
+  /**
+   * Drop request `key` only (a banner that timed out or was swiped away): a request the same player re-sent meanwhile
+   * has another key and stays.
+   */
+  dismiss(key: string): void;
   reconcile(pendingKeys: ReadonlySet<string>, fetchStartedAt: number): void;
   clear(): void;
   /** True the first time `key` is put on screen in this run (haptic + "seen" once, whichever host shows it). */
@@ -296,6 +301,7 @@ export function createRequestQueueStore(): RequestQueueStore {
     },
     enqueue: (req, now = Date.now()) => set(enqueueRequest(queue, { ...req, queuedAt: now })),
     drop: (userId) => set(dropRequest(queue, userId)),
+    dismiss: (key) => set(queue.some((q) => q.key === key) ? queue.filter((q) => q.key !== key) : queue),
     reconcile: (pending, at) => set(reconcileQueue(queue, pending, at)),
     clear() {
       shown.clear();

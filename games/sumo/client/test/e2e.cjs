@@ -22,6 +22,11 @@
 //      `connected` < `players` in the room listing); a new tab with ?resume=<roomId>:<token> reconnects into the same
 //      seat (same session id).
 //   8. A refresh without ?hold leaves with consent: the old seat is freed at once (no ghost player).
+// Every page runs the client's dev-only ?lowfx=1 mode (≤ 15 fps, DPR 1, no MSAA/shadows/hit effects): up to four
+// pages render WebGL in software (swiftshader) at once, and on a 2-vCPU CI runner full quality starves a reloading
+// page until it cannot boot and join in time. Pages that are screenshotted or checked for layout (Alice, Bob, Cleo)
+// have the full 1100×620 viewport until their last screenshot, then a small one like everyone else; pages are closed
+// as soon as no step needs them.
 // Env: SUMO_URL, COLYSEUS_URL (another port: the game server is started there and pages get ?colyseus=),
 // E2E_SCREENSHOT=<png path prefix> (default <tmp>/sumo).
 'use strict';
@@ -39,6 +44,12 @@ const COLYSEUS_PORT = new URL(COLYSEUS_URL).port || '80';
 /** Pages talk to the harness' default server unless COLYSEUS_URL names another one. */
 const COLYSEUS_PARAM = COLYSEUS_URL === 'http://localhost:2567' ? '' : `&colyseus=${encodeURIComponent(COLYSEUS_URL)}`;
 const SHOT = process.env.E2E_SCREENSHOT || path.join(os.tmpdir(), 'sumo');
+/** Screenshots and the long-name / joystick checks (shrunk to SMALL once a page's screenshots are taken). */
+const FULL = { width: 1100, height: 620 };
+/** Everyone else: a quarter of the pixels to render (the harness panel, 300 px wide, still fits). */
+const SMALL = { width: 480, height: 480 };
+/** Page boot + matchmaking + socket join; generous because a software-rendering 2-vCPU runner is slow to boot. */
+const JOIN_TIMEOUT_MS = 60_000;
 
 const started = [];
 
@@ -87,11 +98,35 @@ function stopServers() {
   }
 }
 
+const t0 = Date.now();
+let lap = t0;
+/** Log a line with the time since the previous timed line (the CI runner's budget is what these steps take). */
+function timed(line) {
+  const now = Date.now();
+  console.log(`${line}  [${((now - lap) / 1000).toFixed(1)} s]`);
+  lap = now;
+}
+const passed = (msg) => timed(`✓ ${msg}`);
+
 const sumo = (page, expr) => page.evaluate(`window.__sumo && window.__sumo.${expr}`);
 const chipNames = (page) => page.$$eval('#scores .chip', (els) => els.map((e) => e.dataset.name).sort());
 
-async function open(browser, query, errors, { waitForJoin = true, beforeGoto } = {}) {
-  const context = await browser.newContext({ viewport: { width: 1100, height: 620 } });
+/** Wait for the game to hold a seat (window.__sumo.joined), with a message that says who and what. */
+async function waitJoined(page, who) {
+  try {
+    await page.waitForFunction(() => window.__sumo && window.__sumo.joined, null, { timeout: JOIN_TIMEOUT_MS });
+  } catch (err) {
+    throw new Error(
+      `${who}: not joined within ${JOIN_TIMEOUT_MS / 1000} s (window.__sumo.joined stayed false: page boot, ` +
+        `matchmaking and the socket join did not all finish; a CPU-starved runner is the usual cause)`,
+      { cause: err },
+    );
+  }
+  assert.equal(await sumo(page, 'lowfx'), true, `${who}: ?lowfx=1 in effect`);
+}
+
+async function open(browser, query, errors, { waitForJoin = true, beforeGoto, viewport = SMALL } = {}) {
+  const context = await browser.newContext({ viewport });
   const page = await context.newPage();
   page.on('pageerror', (e) => errors.push(`${query}: ${e.message}`));
   page.on('console', (m) => {
@@ -100,10 +135,8 @@ async function open(browser, query, errors, { waitForJoin = true, beforeGoto } =
   if (beforeGoto) await beforeGoto(page);
   // Every page renders WebGL in software (swiftshader); `load` can take a while on a busy machine, and the
   // game's own __sumo probe is what we wait for anyway.
-  await page.goto(`${SUMO_URL}?${query}${COLYSEUS_PARAM}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-  if (waitForJoin) {
-    await page.waitForFunction(() => window.__sumo && window.__sumo.joined, null, { timeout: 30_000 });
-  }
+  await page.goto(`${SUMO_URL}?${query}&lowfx=1${COLYSEUS_PARAM}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  if (waitForJoin) await waitJoined(page, `?${query}`);
   return page;
 }
 
@@ -146,11 +179,12 @@ async function main() {
     await new Promise((r) => setTimeout(r, 3000));
   }
 
+  timed('· servers ready, no leftover rooms');
   const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const errors = [];
   try {
     // 1. Two players, one room, each sees both in the HUD.
-    const alice = await open(browser, 'name=Alice', errors);
+    const alice = await open(browser, 'name=Alice', errors, { viewport: FULL });
     await alice.waitForFunction(
       () =>
         window.__sumo.phase === 'waiting' &&
@@ -159,7 +193,7 @@ async function main() {
       { timeout: 10_000 },
     );
     // Bob holds his seat when his tab goes away (?hold), for the ?resume check in 7; everyone else leaves with consent.
-    const bob = await open(browser, 'name=Bob&hold', errors);
+    const bob = await open(browser, 'name=Bob&hold', errors, { viewport: FULL });
     for (const page of [alice, bob]) {
       await page.waitForFunction(() => window.__sumo.names().join() === 'guest-Alice,guest-Bob', null, {
         timeout: 10_000,
@@ -174,7 +208,7 @@ async function main() {
     assert.equal(await bob.textContent('#scores .chip.me .name'), 'guest-Bob');
     const panel = await alice.textContent('#rally-dev-harness >> [data-role="log"]');
     assert.ok(panel.includes(`matchmade sumo via ${COLYSEUS_URL} (quick, as "Alice")`), panel);
-    console.log('✓ Alice and Bob matchmade through the harness into one room; both HUDs list both players');
+    passed('Alice and Bob matchmade through the harness into one room; both HUDs list both players');
 
     // 2. A round starts; keyboard input moves Alice's puck on the server.
     await alice.waitForFunction(() => window.__sumo.phase === 'countdown', null, { timeout: 10_000 });
@@ -183,7 +217,7 @@ async function main() {
       [alice, bob].map((p) => p.waitForFunction(() => window.__sumo.phase === 'playing', null, { timeout: 10_000 })),
     );
     assert.equal(await sumo(alice, 'round'), 1);
-    console.log('✓ countdown 3-2-1 → round 1 playing on both clients');
+    passed('countdown 3-2-1 → round 1 playing on both clients');
     const before = await bob.evaluate(() => window.__sumo.position('guest-Alice'));
     await alice.bringToFront();
     await alice.keyboard.down('ArrowLeft');
@@ -193,15 +227,17 @@ async function main() {
       timeout: 5_000,
     });
     const after = await bob.evaluate(() => window.__sumo.position('guest-Alice'));
-    console.log(
-      `✓ ArrowLeft on Alice's tab moved her puck on the server (x ${before.x.toFixed(2)} → ${after.x.toFixed(2)}, seen by Bob)`,
+    passed(
+      `ArrowLeft on Alice's tab moved her puck on the server (x ${before.x.toFixed(2)} → ${after.x.toFixed(2)}, seen by Bob)`,
     );
     const rtt = await sumo(alice, 'rtt');
     assert.ok(typeof rtt === 'number', 'ping measured');
     assert.match(await alice.textContent('#ping'), /ping \d+ ms/);
     await alice.screenshot({ path: `${SHOT}-alice.png` });
     await bob.screenshot({ path: `${SHOT}-bob.png` });
-    console.log(`  screenshots: ${SHOT}-alice.png, ${SHOT}-bob.png`);
+    // Screenshotted: from here on Alice renders small (Bob after the result shot, Cleo after hers).
+    await alice.setViewportSize(SMALL);
+    timed(`  screenshots: ${SHOT}-alice.png, ${SHOT}-bob.png`);
 
     // 2b. Bob drives off the edge, away from Alice, until she has won the match (first to 3 rounds).
     await bob.bringToFront();
@@ -235,15 +271,16 @@ async function main() {
     assert.equal(await alice.textContent('#banner-title'), 'You win!');
     assert.equal(await bob.textContent('#banner-title'), 'guest-Alice wins the match');
     await bob.screenshot({ path: `${SHOT}-result.png` });
+    await bob.setViewportSize(SMALL);
     // ...and it is gone once the room resets for the next match.
     await alice.waitForFunction(() => window.__sumo.phase !== 'matchOver', null, { timeout: 10_000 });
     await alice.waitForFunction(() => window.__sumo.resultLine === null, null, { timeout: 2_000 });
-    console.log(
-      `✓ Alice won the match: both match-over banners say "Guest: sign in to keep your wins" (${SHOT}-result.png)`,
+    passed(
+      `Alice won the match: both match-over banners say "Guest: sign in to keep your wins" (${SHOT}-result.png)`,
     );
 
     // 3. Private room by code. Cleo has a long name (guest-Cleopatra_VI).
-    const cleo = await open(browser, 'name=Cleopatra_VII&private', errors);
+    const cleo = await open(browser, 'name=Cleopatra_VII&private', errors, { viewport: FULL });
     await cleo.waitForFunction(() => /^[A-Z2-9]{6}$/.test(window.__sumo.code), null, { timeout: 10_000 });
     const code = await sumo(cleo, 'code');
     await cleo.waitForFunction(
@@ -253,8 +290,14 @@ async function main() {
       code,
       { timeout: 5_000 },
     );
-    // The name is ellipsized, the "(you)" tag next to it is not clipped.
+    // The name is ellipsized, the "(you)" tag next to it is not clipped. Guests join as guest-<random tag> (matchmaking
+    // carries no name) and are renamed by the `profile` message: measure once the long name is on the chip.
     await cleo.waitForSelector('#scores .chip.me .tag', { timeout: 5_000 });
+    await cleo.waitForFunction(
+      () => document.querySelector('#scores .chip.me .name')?.textContent === 'guest-Cleopatra_VI',
+      null,
+      { timeout: 5_000 },
+    );
     const chip = await cleo.evaluate(() => {
       const c = document.querySelector('#scores .chip.me');
       const name = c.querySelector('.name');
@@ -277,7 +320,7 @@ async function main() {
     assert.equal((await sumo(cleo, 'stick')).x, 1, 'still dragging after the second finger lifted');
     await touch(cleo, 'pointerup', 1, 60);
     assert.deepEqual(await sumo(cleo, 'stick'), { x: 0, y: 0 }, 'released by its own finger');
-    console.log('✓ long name ellipsized with "(you)" visible; a second finger does not release the joystick');
+    passed('long name ellipsized with "(you)" visible; a second finger does not release the joystick');
 
     const dan = await open(browser, `name=Dan&code=${code.toLowerCase()}`, errors);
     for (const page of [cleo, dan]) {
@@ -297,6 +340,7 @@ async function main() {
     );
     assert.ok(!listing.rooms.some((r) => r.metadata.code === code), 'private room not listed');
     await cleo.screenshot({ path: `${SHOT}-private.png` });
+    await cleo.setViewportSize(SMALL);
     // The room id alone does not get anyone in: joinById into a private room needs the code.
     const bare = await fetch(`${COLYSEUS_URL}/matchmake/joinById/${await sumo(cleo, 'roomId')}`, {
       method: 'POST',
@@ -304,27 +348,27 @@ async function main() {
       body: JSON.stringify({ username: 'Snoop' }),
     });
     assert.ok(!bare.ok, 'joinById without the code is refused');
-    console.log(`✓ private room ${code}: Cleo waits with the code, Dan joins by code; the listing hides it`);
+    passed(`private room ${code}: Cleo waits with the code, Dan joins by code; the listing hides it`);
 
     // 4. Rename from the harness panel.
     await dan.fill('#rally-dev-harness >> [data-role="name"]', 'Danny');
     await dan.click('#rally-dev-harness >> [data-role="name-form"] button');
     await dan.waitForURL(/name=Danny/, { waitUntil: 'commit', timeout: 30_000 });
-    await dan.waitForFunction(() => window.__sumo && window.__sumo.joined, null, { timeout: 30_000 });
+    await waitJoined(dan, 'Danny, after the harness rename reload');
     // ?code= survives the reload, so Danny lands in Cleo's room again; "Dan" left with consent on the reload (no
     // ?hold), so no offline seat stays behind.
     await cleo.waitForFunction(() => window.__sumo.names().includes('guest-Danny'), null, { timeout: 15_000 });
     assert.ok(!(await cleo.evaluate(() => window.__sumo.names())).includes('guest-Dan'), 'no ghost seat for Dan');
-    console.log('✓ harness panel "set name" → reload as Danny, back in the same private room (old seat freed)');
+    passed('harness panel "set name" → reload as Danny, back in the same private room (old seat freed)');
+    // Pages that are done: fewer software-rendered WebGL contexts for the rest.
+    await Promise.all([cleo, dan].map((p) => p.context().close()));
 
     // 5. exitRequested → the game leaves its room (consented) → Bob sees Alice gone.
     await alice.click('#rally-dev-harness >> button[data-action="exitRequested"]');
     await alice.waitForSelector('#rally-dev-harness >> [data-role="exit-overlay"]', { timeout: 10_000 });
     await bob.waitForFunction(() => window.__sumo.names().join() === 'guest-Bob', null, { timeout: 5_000 });
-    console.log('✓ exitRequested → Alice left the room at once (no reconnection grace) → exit overlay');
-
-    // Pages that are done: fewer software-rendered WebGL contexts for the rest.
-    await Promise.all([alice, cleo, dan].map((p) => p.context().close()));
+    passed('exitRequested → Alice left the room at once (no reconnection grace) → exit overlay');
+    await alice.context().close();
 
     // 6. Exit while the socket join is in flight: hold Eve's WebSocket to the game server until after the click.
     let release;
@@ -350,7 +394,8 @@ async function main() {
     await bob.waitForTimeout(1000);
     assert.deepEqual(await bob.evaluate(() => window.__sumo.names()), ['guest-Bob'], 'no ghost seat for Eve');
     assert.equal(await sumo(eve, 'joined'), false);
-    console.log('✓ exitRequested during the join → Eve left as soon as her socket landed (no ghost seat)');
+    passed('exitRequested during the join → Eve left as soon as her socket landed (no ghost seat)');
+    await eve.context().close();
 
     // 7. A closed tab reconnects within the grace: Bob's tab goes away without leaving (no consent), Fay sees him
     //    offline with his seat held; a new tab with ?resume=<roomId>:<token> takes the same seat back.
@@ -359,7 +404,6 @@ async function main() {
     const bobSeat = { roomId: await sumo(bob, 'roomId'), sessionId: await sumo(bob, 'sessionId') };
     const token = await sumo(bob, 'reconnectionToken');
     assert.ok(token.startsWith(`${bobSeat.roomId}:`), `reconnection token ${token}`);
-    await eve.context().close();
     const closedAt = Date.now();
     await bob.context().close();
     await fay.waitForFunction(() => window.__sumo.connectedOf('guest-Bob') === false, null, { timeout: 10_000 });
@@ -378,14 +422,14 @@ async function main() {
     assert.ok(log.includes(`reconnected to sumo via ${COLYSEUS_URL} (resume`), log);
     await fay.waitForFunction(() => window.__sumo.connectedOf('guest-Bob') === true, null, { timeout: 10_000 });
     assert.deepEqual(await fay.evaluate(() => window.__sumo.names()), ['guest-Bob', 'guest-Fay']);
-    console.log(
-      `✓ Bob closed his tab: seat held (offline), then ?resume reconnected him to the same seat after ${((Date.now() - closedAt) / 1000).toFixed(1)} s`,
+    passed(
+      `Bob closed his tab: seat held (offline), then ?resume reconnected him to the same seat after ${((Date.now() - closedAt) / 1000).toFixed(1)} s`,
     );
 
     // 8. A refresh without ?hold leaves with consent (the harness asks the game to exit on pagehide): no ghost seat.
     const faySession = await sumo(fay, 'sessionId');
     await fay.reload({ waitUntil: 'domcontentloaded' });
-    await fay.waitForFunction(() => window.__sumo && window.__sumo.joined, null, { timeout: 30_000 });
+    await waitJoined(fay, 'Fay, after a refresh');
     assert.notEqual(await sumo(fay, 'sessionId'), faySession, 'a new seat');
     assert.equal(await sumo(fay, 'roomId'), bobSeat.roomId, 'quick play put her back in the same room');
     await fay.waitForFunction(() => window.__sumo.names().join() === 'guest-Bob,guest-Fay', null, { timeout: 10_000 });
@@ -396,7 +440,7 @@ async function main() {
       { clients: afterReload?.clients, players: afterReload?.metadata.players, connected: afterReload?.metadata.connected },
       { clients: 2, players: 2, connected: 2 },
     );
-    console.log('✓ Fay refreshed her tab: the old seat was freed at once (2 players, none reconnecting)');
+    passed('Fay refreshed her tab: the old seat was freed at once (2 players, none reconnecting)');
 
     // Leave with consent, so a rerun does not wait for these seats' grace.
     for (const page of [bob2, fay]) {
@@ -406,7 +450,7 @@ async function main() {
 
     const unexpected = errors.filter((e) => !/WebGPU|GPU stall|favicon|Automatic fallback to software WebGL/i.test(e));
     assert.deepEqual(unexpected, [], 'no page errors');
-    console.log('\nPASS sumo e2e');
+    console.log(`\nPASS sumo e2e in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   } finally {
     await browser.close();
   }

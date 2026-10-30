@@ -14,6 +14,7 @@ import { rally } from '@rally/sdk';
 import { ClientMessage, DT, PATCH_MS, type FxEvent } from '@rally/game-sumo-server';
 import { createControls } from './controls.ts';
 import { createHud } from './hud.ts';
+import { applyLowFx } from './lowfx.ts';
 import { connect, type Net } from './net.ts';
 import { Predictor, shouldPredict } from './predict.ts';
 import { MatchResultView } from './result.ts';
@@ -38,6 +39,12 @@ const params = new URLSearchParams(location.search);
 const PREDICT = params.get('predict') !== '0';
 /** Dev only: `?art=icon|cover|countdown|match|result` stages a frozen scene for the store art (src/art.ts). */
 const ART = import.meta.env.DEV ? params.get('art') : null;
+/**
+ * Dev only: `?lowfx=1` draws at most 15 fps at DPR 1, without clustered lighting, MSAA, shadows or hit effects
+ * (src/lowfx.ts). The Playwright e2e opens every page with it: several software-rendered WebGL pages share a 2-vCPU
+ * CI runner.
+ */
+const LOWFX = import.meta.env.DEV && !ART && params.has('lowfx') && params.get('lowfx') !== '0';
 
 function loading(progress: number) {
   ui.loadingBar.style.width = `${Math.round(progress * 100)}%`;
@@ -49,8 +56,13 @@ loading(0.05);
 
 // --- engine, scene, HUD, input -----------------------------------------------------------------------
 // The art capture renders at up to 3× device pixels (store screenshots); the game itself keeps the cap of 2.
-const { app, onResize } = createApp({ canvas: ui.canvas, ...(ART ? { maxPixelRatio: 3 } : {}) });
-const scene = createSumoScene(app, (fn) => onResize(fn));
+const { app, onResize } = createApp({
+  canvas: ui.canvas,
+  ...(ART ? { maxPixelRatio: 3 } : {}),
+  ...(LOWFX ? { maxPixelRatio: 1, antialias: false } : {}),
+});
+if (LOWFX) applyLowFx(app);
+const scene = createSumoScene(app, (fn) => onResize(fn), LOWFX ? { shadows: false, effects: false } : {});
 const hud = createHud();
 const controls = createControls(ui.canvas, ui.stick);
 const audio = createAudio();
@@ -378,6 +390,10 @@ if (import.meta.env.DEV) {
   (window as unknown as { __sumo: unknown }).__sumo = {
     get joined() {
       return net !== null;
+    },
+    /** `?lowfx=1` is in effect (capped, plain rendering). */
+    get lowfx() {
+      return LOWFX;
     },
     get me() {
       return me;

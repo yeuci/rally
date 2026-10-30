@@ -2,12 +2,14 @@ import { useQuery } from '@tanstack/react-query';
 import { usePathname } from 'expo-router';
 import { CheckIcon } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
-import { View, type ModalProps } from 'react-native';
+import { AccessibilityInfo, View, type ModalProps } from 'react-native';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { Skeleton, SkeletonText } from '@/components/ui/skeleton';
 import { Text } from '@/components/ui/text';
 import { useSession } from '@/lib/auth/session';
+import { useAlertStyle, useGameScreenMarker } from '@/lib/friend-alerts';
+import { alertPresentation } from '@/lib/friend-alerts-model';
 import { socialKeys, useFriendshipAction } from '@/lib/friends';
 import { tapHaptic } from '@/lib/haptics';
 import { useOtherSheetOpen } from '@/lib/open-sheets';
@@ -15,6 +17,7 @@ import { isGameScreen } from '@/lib/rejoin';
 import { fetchRequestProfile, friendRequestQueue, markRequestSeen, useFriendRequestQueue } from '@/lib/social-realtime';
 import { requestLine, type QueuedRequest, type RequestProfile } from '@/lib/social-realtime-model';
 import { BottomSheet } from './bottom-sheet';
+import { FriendRequestBanner } from './friend-request-banner';
 import { ProfileAvatar } from './profile-avatar';
 
 /** Every orientation: the sheet can rise over a landscape-locked game (iOS would otherwise force portrait). */
@@ -138,8 +141,11 @@ function useSettled(value: boolean, settledAtMount: boolean): boolean {
 }
 
 /**
- * The head of the incoming-request queue (lib/social-realtime.ts) as a sheet. Mounted twice, and exactly one of
- * them presents at any time:
+ * The head of the incoming-request queue (lib/social-realtime.ts), presented per Settings → Notifications
+ * (lib/friend-alerts.ts: `friendAlertsInGame` in the play route, `friendAlerts` elsewhere): as this sheet, as a
+ * banner at the top of the screen (FriendRequestBanner; a tap on it expands it into the sheet), or not at all (Off:
+ * consumed silently, still pending in Friends and on the badge). Mounted twice, and exactly one of them is active at
+ * any time:
  *
  * - `shell` in `(app)/_layout.tsx`, while no game is open;
  * - `game` in the play route, over the running game.
@@ -148,26 +154,45 @@ function useSettled(value: boolean, settledAtMount: boolean): boolean {
  * (`[reactViewController presentViewController:]`), not from the top-most one. The play route is a native
  * `fullScreenModal`, so a Modal mounted in the shell (or in the root layout, whose controller is just as low) would
  * be asked to present from a controller that is already presenting the game, which UIKit refuses. Mounted inside
- * the play screen, its controller is the top-most one. Each host waits SETTLE_MS after the game opens or closes so
- * it never presents during the game screen's own transition; the shell host also waits for the shell's other sheets
- * (rejoin, join code: lib/open-sheets.ts), since one controller presents one Modal at a time. On Android a Modal is a dialog window over the whole
- * activity; the same rule (one host at a time) keeps it single there.
+ * the play screen, its controller is the top-most one (and the banner, a plain view, is simply overlaid on the
+ * game). Each host waits SETTLE_MS after the game opens or closes so it never presents during the game screen's own
+ * transition; the shell host also waits for the shell's other sheets (rejoin, join code: lib/open-sheets.ts), since
+ * one controller presents one Modal at a time (and a banner would sit under them). On Android a Modal is a dialog
+ * window over the whole activity; the same rule (one host at a time) keeps it single there.
  *
- * Shown → a light haptic (Settings → Haptics) and the request is marked seen (no catch-up repeats it). Accept /
- * Decline go through `useFriendshipAction` (optimistic; its own alert on failure); Later and the backdrop keep the
- * request pending in Friends. A cancelled request leaves the queue (and the sheet) as its event arrives.
+ * Shown (sheet, or banner once its profile is known) → a light haptic (Settings → Haptics) and the request is marked
+ * seen (no catch-up repeats it). Accept / Decline go through `useFriendshipAction` (optimistic; its own alert on
+ * failure); Later, the backdrop, a banner's timeout or swipe keep the request pending in Friends. A cancelled request
+ * leaves the queue (and the sheet or banner) as its event arrives.
  */
 export function FriendRequestPrompt({ placement }: { placement: 'shell' | 'game' }) {
+  const inGame = placement === 'game';
+  // "A game screen is open" for the Realtime router (the accepted toast follows the in-game choice).
+  useGameScreenMarker(inGame);
   const { userId } = useSession();
   const queue = useFriendRequestQueue();
+  const style = useAlertStyle(inGame);
   const gameOpen = isGameScreen(usePathname());
   // The shell's other sheets (rejoin, join code) present from the same controller: wait for them to close.
   const otherSheet = useOtherSheetOpen();
   const shellReady = useSettled(!gameOpen && !otherSheet, true);
   const gameReady = useSettled(true, false);
-  const active = placement === 'game' ? gameReady : shellReady;
-  const request = active ? (queue[0] ?? null) : null;
+  const active = inGame ? gameReady : shellReady;
+  const head = active ? (queue[0] ?? null) : null;
+  // A banner the user tapped becomes the sheet (per request: the next one is a banner again).
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const presentation = head ? alertPresentation(style, expandedKey === head.key) : null;
+  const request = presentation && presentation !== 'silent' ? head : null;
   const action = useFriendshipAction();
+
+  // Off: nothing on screen. Marked seen (catch-up does not bring it back) and out of the queue; Friends keeps it.
+  const silentKey = presentation === 'silent' && head ? head.key : null;
+  useEffect(() => {
+    if (!silentKey) return;
+    friendRequestQueue.markShown(silentKey);
+    markRequestSeen(silentKey);
+    friendRequestQueue.dismiss(silentKey);
+  }, [silentKey]);
 
   const needsProfile = !!request && !request.profile;
   const fetched = useQuery({
@@ -185,12 +210,18 @@ export function FriendRequestPrompt({ placement }: { placement: 'shell' | 'game'
     if (goneId) friendRequestQueue.drop(goneId);
   }, [goneId]);
 
-  const shownKey = request && !gone ? request.key : null;
+  const sheetRequest = request && !gone && presentation === 'sheet' ? request : null;
+  // The banner waits for the name (no skeleton strip over a game); if the profile cannot be read, a generic line.
+  const bannerRequest = request && !gone && presentation === 'banner' && (profile || fetched.isError) ? request : null;
+  const shownKey = (sheetRequest ?? bannerRequest)?.key ?? null;
+  const spoken = bannerRequest ? (profile ? requestLine(profile.username) : 'Someone wants to be your friend') : null;
   useEffect(() => {
     if (!shownKey || !friendRequestQueue.markShown(shownKey)) return;
     tapHaptic();
     markRequestSeen(shownKey);
-  }, [shownKey]);
+    // The sheet is announced as a modal; the banner is not focused, so it is read out.
+    if (spoken) AccessibilityInfo.announceForAccessibility(`Friend request. ${spoken}`);
+  }, [shownKey, spoken]);
 
   const answer = (intent: 'accept' | 'decline') => {
     if (!request) return;
@@ -199,12 +230,20 @@ export function FriendRequestPrompt({ placement }: { placement: 'shell' | 'game'
   };
 
   return (
-    <FriendRequestSheet
-      request={gone ? null : request}
-      profile={profile}
-      onAccept={() => answer('accept')}
-      onDecline={() => answer('decline')}
-      onLater={() => request && friendRequestQueue.drop(request.userId)}
-    />
+    <>
+      <FriendRequestBanner
+        request={bannerRequest}
+        profile={profile}
+        onAccept={() => answer('accept')}
+        onOpen={() => bannerRequest && setExpandedKey(bannerRequest.key)}
+      />
+      <FriendRequestSheet
+        request={sheetRequest}
+        profile={profile}
+        onAccept={() => answer('accept')}
+        onDecline={() => answer('decline')}
+        onLater={() => request && friendRequestQueue.drop(request.userId)}
+      />
+    </>
   );
 }

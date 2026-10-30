@@ -76,7 +76,18 @@ interface Puck {
   visible: boolean;
 }
 
-export function createSumoScene(app: Application, onResize: (fn: (w: number, h: number) => void) => void): SumoScene {
+export interface SumoSceneOptions {
+  /** The sun casts shadows (a 1024² PCF shadow map, drawn every frame). Default true. */
+  shadows?: boolean;
+  /** Hit flashes and camera shake. Default true. */
+  effects?: boolean;
+}
+
+export function createSumoScene(
+  app: Application,
+  onResize: (fn: (w: number, h: number) => void) => void,
+  { shadows = true, effects = true }: SumoSceneOptions = {},
+): SumoScene {
   app.scene.ambientLight = new Color(0.42, 0.44, 0.52);
 
   const camera = new Entity('camera');
@@ -106,7 +117,7 @@ export function createSumoScene(app: Application, onResize: (fn: (w: number, h: 
     type: 'directional',
     color: new Color(1, 0.97, 0.92),
     intensity: 0.95,
-    castShadows: true,
+    castShadows: shadows,
     shadowType: SHADOW_PCF3_32F,
     shadowBias: 0.25,
     normalOffsetBias: 0.05,
@@ -131,12 +142,12 @@ export function createSumoScene(app: Application, onResize: (fn: (w: number, h: 
   // The dohyo: clay top with a straw-coloured band (the tawara) around the edge, both scaled with the radius.
   // The platform is the biggest thing on screen: a smooth 72-sided cylinder instead of the 20-sided primitive.
   const disc = Mesh.fromGeometry(app.graphicsDevice, new CylinderGeometry({ radius: 0.5, height: 1, capSegments: 72 }));
-  const smooth = (name: string, color: Color, gloss: number, shadows: boolean) => {
+  const smooth = (name: string, color: Color, gloss: number, receive: boolean) => {
     const e = new Entity(name);
     e.addComponent('render', {
       meshInstances: [new MeshInstance(disc, material(color, { gloss }))],
       castShadows: false,
-      receiveShadows: shadows,
+      receiveShadows: receive,
     });
     app.root.addChild(e);
     return e;
@@ -249,6 +260,7 @@ export function createSumoScene(app: Application, onResize: (fn: (w: number, h: 
       pucks.delete(id);
     },
     flash(x, y, strength) {
+      if (!effects) return;
       if (flashes.length >= MAX_FLASHES) {
         const old = flashes.shift()!;
         old.e.destroy();
@@ -264,6 +276,7 @@ export function createSumoScene(app: Application, onResize: (fn: (w: number, h: 
       flashes.push({ e, mat, age: 0, size: 1 + Math.min(strength, 14) * 0.18 });
     },
     shake(amount) {
+      if (!effects) return;
       shakeAmp = Math.min(0.9, Math.max(shakeAmp, amount));
     },
     labelAnchor(id, out) {

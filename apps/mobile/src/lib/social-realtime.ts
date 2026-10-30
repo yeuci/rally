@@ -4,6 +4,8 @@ import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useEffect, useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
 import { useSession } from '@/lib/auth/session';
+import { currentAlertStyle } from '@/lib/friend-alerts';
+import { createBannerCountdown, showsAcceptedToast } from '@/lib/friend-alerts-model';
 import { fetchFriendRequests, invalidateSocial, socialKeys } from '@/lib/friends';
 import type { FriendRequest } from '@/lib/social';
 import {
@@ -29,8 +31,9 @@ import { showToast } from '@/lib/toast';
  * signed-in, linked account:
  *
  * - every event invalidates the social queries (`invalidateSocial`: requests, friendship, friends, badges);
- * - `friend_request` queues the requester for the FriendRequestSheet; `friend_request_cancelled` (or a removal)
- *   drops them; `friend_accepted` shows "sloth accepted your friend request";
+ * - `friend_request` queues the requester for the FriendRequestPrompt (sheet or banner, or consumed silently, per
+ *   Settings → Notifications: lib/friend-alerts.ts); `friend_request_cancelled` (or a removal) drops them;
+ *   `friend_accepted` shows "sloth accepted your friend request" (not when the setting that applies is Off);
  * - catch-up (`my_friend_requests` vs the seen keys in AsyncStorage) runs at launch, on every (re)subscribe and when
  *   the app returns to the foreground: broadcasts are not stored, so anything sent while the app was closed, in the
  *   background or offline is found there;
@@ -47,6 +50,15 @@ export const friendRequestQueue = createRequestQueueStore();
 export function useFriendRequestQueue() {
   return useSyncExternalStore(friendRequestQueue.subscribe, friendRequestQueue.get, friendRequestQueue.get);
 }
+
+/**
+ * The banner's 5 s auto-dismiss (one banner on screen at a time, whichever host shows it): on expiry that request
+ * leaves the queue (it stays pending in Friends) and the next one shows.
+ */
+export const bannerCountdown = createBannerCountdown(
+  { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (h) => clearTimeout(h as ReturnType<typeof setTimeout>), now: Date.now },
+  (key) => friendRequestQueue.dismiss(key),
+);
 
 /** A requester's public card: one primary-key read of `profiles` (public columns; `search_profiles` needs a name). */
 export async function fetchRequestProfile(userId: string): Promise<RequestProfile | null> {
@@ -120,6 +132,8 @@ function route(topic: string, payload: unknown) {
 }
 
 function announceAccepted(s: LiveSession, userId: string) {
+  // Settings → Notifications: Off (in a game, the in-game choice) shows no toast; Friends still refreshes.
+  if (!showsAcceptedToast(currentAlertStyle())) return;
   // The outgoing list usually has the name already (read before the invalidation refetches it).
   const cached = s.qc
     .getQueryData<{ outgoing: FriendRequest[] }>(socialKeys.requests(s.uid))
@@ -203,6 +217,7 @@ function catchUp(s: LiveSession): Promise<void> {
       return;
     }
     if (s.stopped) return;
+    // The host on screen presents what is queued here per Settings → Notifications (Off: consumed silently).
     const pending = new Set(incoming.map((r) => r.key));
     friendRequestQueue.reconcile(pending, startedAt);
     const seen = await s.seen.load();
@@ -244,6 +259,7 @@ function start(qc: QueryClient, uid: string): () => void {
     sub.remove();
     if (live === s) live = null;
     friendRequestQueue.clear();
+    bannerCountdown.stop();
     const ch = s.channel;
     s.channel = null;
     if (ch) void supabase.removeChannel(ch).catch(() => 'error');
