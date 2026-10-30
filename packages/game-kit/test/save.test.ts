@@ -159,28 +159,33 @@ test('a non-retryable error is reported once and not retried until the next upda
   }
 });
 
-test('TIMEOUT / INTERNAL retry with a doubling backoff', async () => {
+test('TIMEOUT / INTERNAL retry with a doubling backoff', async (t) => {
   const h = fakeRally();
   const errors: unknown[] = [];
-  const at: number[] = [];
-  h.rally.save.put = async () => {
-    at.push(Date.now());
-    throw new FakeError(at.length % 2 ? 'TIMEOUT' : 'INTERNAL');
-  };
   const save = createSave(h.rally, 'progress', DEFAULTS, {
     debounceMs: 10,
     minIntervalMs: 0,
     onError: (e) => errors.push(e),
   });
   await save.load();
+  // Fake clock: the assertion is about the backoff schedule, not the machine's timer jitter (on a loaded CI runner a
+  // 10 ms timer firing 5 ms late made a correct schedule look like it was not growing).
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const at: number[] = [];
+  h.rally.save.put = async () => {
+    at.push(Date.now());
+    throw new FakeError(at.length % 2 ? 'TIMEOUT' : 'INTERNAL');
+  };
   save.update((d) => {
     d.best = 1;
   });
-  await tick(200); // writes at ~10, +10, +20, +40, +80 → 5 by 160 ms (no backoff would be ~20)
+  for (let ms = 0; ms < 200; ms++) {
+    t.mock.timers.tick(1);
+    await new Promise((r) => setImmediate(r)); // let the rejected put settle and the next retry be scheduled
+  }
   save.destroy();
-  assert.ok(at.length >= 3 && at.length <= 6, `${at.length} attempts`);
-  const gaps = at.slice(1).map((t, i) => t - at[i]!);
-  for (let i = 1; i < gaps.length; i++) assert.ok(gaps[i]! >= gaps[i - 1]! * 1.5, `gaps grow: ${gaps.join(', ')}`);
+  const gaps = at.slice(1).map((v, i) => v - at[i]!);
+  assert.deepEqual(gaps, [10, 20, 40, 80], `retry gaps double from the debounce (writes at ${at.join(', ')})`);
   assert.equal(errors.length, 0, 'retryable: not reported');
 });
 
