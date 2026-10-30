@@ -2,6 +2,7 @@ import { GameManifestSchema, type GameManifest } from '@rally/protocol';
 import type { Tables } from '@rally/db';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { config } from '@/config';
+import { expectedEntryHash } from '@/game-host/entry';
 import { isAnonymousForbidden } from '@/lib/auth/errors';
 import { useSession } from '@/lib/auth/session';
 import { supabase } from '@/lib/supabase';
@@ -17,8 +18,8 @@ export type LaunchPlan =
       game: Tables<'games'>;
       version: string;
       entryUrl: string;
-      /** Hex sha256 of the entry document, checked by the shell before it is handed to the WebView. */
-      entrySha256: string;
+      /** Hex sha256 the shell checks the entry document against; null for http dev servers (see expectedEntryHash). */
+      entrySha256: string | null;
       manifest: GameManifest;
       orientation: 'portrait' | 'landscape' | 'any';
       /** Colyseus room from `manifest.server.room`; null for solo-only games. */
@@ -66,7 +67,7 @@ export async function fetchLaunchPlan(gameId: string): Promise<LaunchPlan> {
     game,
     version: version.version,
     entryUrl: version.entry_url,
-    entrySha256: version.sha256,
+    entrySha256: expectedEntryHash(version.entry_url, version.sha256),
     manifest,
     orientation: manifest.orientation,
     room: manifest.server?.room ?? null,

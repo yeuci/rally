@@ -28,6 +28,17 @@ export interface FetchEntryOptions {
   signal?: AbortSignal;
 }
 
+/**
+ * The hash to verify an entry document against: `game_versions.sha256` for https (every published bundle), none
+ * for plain http. An http entry is a LAN dev server (`vite dev` on the PC, hand-inserted catalog row for the spike),
+ * whose HTML changes on every edit and whose row carries a placeholder hash; production bundles never use http
+ * (App Transport Security would refuse them anyway).
+ */
+export function expectedEntryHash(entryUrl: string, sha256: string | null | undefined): string | null {
+  if (!sha256 || /^http:\/\//i.test(entryUrl)) return null;
+  return sha256;
+}
+
 export async function fetchEntryDocument(url: string, opts: FetchEntryOptions = {}): Promise<EntryDocument> {
   const doFetch = opts.fetchImpl ?? fetch;
   let res: Response;

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { test } from 'node:test';
-import { fetchEntryDocument } from '../src/game-host/entry';
+import { expectedEntryHash, fetchEntryDocument } from '../src/game-host/entry';
 
 const URL = 'https://cdn.example.com/storage/v1/object/public/games/stack/0.1.0/index.html';
 const HTML = '<!doctype html>\n<html><head><meta charset="UTF-8" /></head><body>Leaderboard …</body></html>\n';
@@ -34,4 +34,10 @@ test('HTTP errors, network errors and non-HTML bodies are reported by name', asy
 test('without an expected hash (Developer launcher) no digest is needed', async () => {
   const doc = await fetchEntryDocument('http://10.0.0.201:5181/index.html', { fetchImpl: serve(HTML) });
   assert.equal(doc.baseUrl, 'http://10.0.0.201:5181/');
+});
+
+test('https entries are verified against the catalog hash; http dev servers are not', () => {
+  assert.equal(expectedEntryHash(URL, 'abc'), 'abc');
+  assert.equal(expectedEntryHash('http://10.0.0.201:5180/index.html', '0000000000000000000000000000000000000000000000000000000000000000'), null);
+  assert.equal(expectedEntryHash(URL, null), null);
 });
