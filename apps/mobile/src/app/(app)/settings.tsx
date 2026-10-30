@@ -1,12 +1,15 @@
 import { router } from 'expo-router';
 import {
+  Gamepad2Icon,
   GaugeIcon,
   LifeBuoyIcon,
   LogOutIcon,
   ShieldIcon,
   SparklesIcon,
   SunMoonIcon,
+  UserPlusIcon,
   VibrateIcon,
+  type LucideIcon,
 } from 'lucide-react-native';
 import { ScrollView, View } from 'react-native';
 import { RetryButton } from '@/components/rally/empty-state';
@@ -19,7 +22,7 @@ import { Separator } from '@/components/ui/separator';
 import { Text } from '@/components/ui/text';
 import { config } from '@/config';
 import { tapHaptic } from '@/lib/haptics';
-import { prefs, usePrefs, type Appearance } from '@/lib/prefs';
+import { prefs, usePrefs, type Appearance, type FriendAlertStyle } from '@/lib/prefs';
 import { usePrivacy } from '@/lib/privacy';
 import { useProfile } from '@/lib/profile';
 import { visibilityLabel } from '@/lib/social';
@@ -34,9 +37,50 @@ const APPEARANCE_OPTIONS: readonly { value: Appearance; label: string }[] = [
   { value: 'light', label: 'Light' },
 ];
 
+const ALERT_OPTIONS: readonly { value: FriendAlertStyle; label: string }[] = [
+  { value: 'sheet', label: 'Pop-up' },
+  { value: 'banner', label: 'Banner' },
+  { value: 'off', label: 'Off' },
+];
+
+/** Icon, label and a segmented choice on one row (wraps under the label in a narrow column). */
+function ChoiceRow<T extends string>({
+  icon,
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  icon: LucideIcon;
+  label: string;
+  options: readonly { value: T; label: string }[];
+  value: T;
+  onChange: (next: T) => void;
+}) {
+  return (
+    <View className="flex-row flex-wrap items-center gap-x-3.5 gap-y-2 px-4 py-3">
+      <View className="bg-muted size-9 items-center justify-center rounded-xl">
+        <Icon as={icon} className="text-secondary-foreground size-[18px]" />
+      </View>
+      <Text className="flex-1 text-[15px] font-medium">{label}</Text>
+      <Segmented
+        options={options}
+        value={value}
+        onChange={(next) => {
+          if (next === value) return;
+          tapHaptic();
+          onChange(next);
+        }}
+        accessibilityLabel={label}
+      />
+    </View>
+  );
+}
+
 /**
  * Settings (`/settings`, the drawer's Settings item and Profile's Settings row): Appearance (System / Dark / Light,
- * lib/prefs.ts → `Uniwind.setTheme`), Feedback & motion (Haptics, `prefs.haptics` → lib/haptics.ts; Reduce motion is
+ * lib/prefs.ts → `Uniwind.setTheme`), Notifications (friend requests outside and inside games: Pop-up / Banner / Off,
+ * lib/friend-alerts.ts), Feedback & motion (Haptics, `prefs.haptics` → lib/haptics.ts; Reduce motion is
  * the OS setting, shown, not owned), Games (Show FPS in games), Privacy (a summary, opens Edit profile scrolled to its
  * Privacy section), Help & support, Sign out, and the app version. Device preferences live in lib/prefs.ts; privacy
  * is account data (`my_privacy`), edited on Edit profile.
@@ -44,7 +88,7 @@ const APPEARANCE_OPTIONS: readonly { value: Appearance; label: string }[] = [
 export default function SettingsScreen() {
   const { insets } = useLayout();
   const column = useColumnPadding();
-  const { showFps, appearance, haptics } = usePrefs();
+  const { showFps, appearance, haptics, friendAlerts, friendAlertsInGame } = usePrefs();
   const reduceMotion = useReduceMotionSetting();
   const profile = useProfile();
   const privacy = usePrivacy();
@@ -63,22 +107,34 @@ export default function SettingsScreen() {
       contentContainerStyle={[column, { paddingBottom: insets.bottom + 32 }]}
     >
       <SettingsGroup title="Appearance" footer="System follows your device's light or dark setting.">
-        <View className="flex-row flex-wrap items-center gap-x-3.5 gap-y-2 px-4 py-3">
-          <View className="bg-muted size-9 items-center justify-center rounded-xl">
-            <Icon as={SunMoonIcon} className="text-secondary-foreground size-[18px]" />
-          </View>
-          <Text className="flex-1 text-[15px] font-medium">Theme</Text>
-          <Segmented
-            options={APPEARANCE_OPTIONS}
-            value={appearance}
-            onChange={(next) => {
-              if (next === appearance) return;
-              tapHaptic();
-              prefs.update({ appearance: next });
-            }}
-            accessibilityLabel="Theme"
-          />
-        </View>
+        <ChoiceRow
+          icon={SunMoonIcon}
+          label="Theme"
+          options={APPEARANCE_OPTIONS}
+          value={appearance}
+          onChange={(next) => prefs.update({ appearance: next })}
+        />
+      </SettingsGroup>
+
+      <SettingsGroup
+        title="Notifications"
+        footer="A banner shows at the top for 5 seconds. With Off, requests still wait in Friends."
+      >
+        <ChoiceRow
+          icon={UserPlusIcon}
+          label="Friend requests"
+          options={ALERT_OPTIONS}
+          value={friendAlerts}
+          onChange={(next) => prefs.update({ friendAlerts: next })}
+        />
+        <Separator className="ml-16" />
+        <ChoiceRow
+          icon={Gamepad2Icon}
+          label="While playing"
+          options={ALERT_OPTIONS}
+          value={friendAlertsInGame}
+          onChange={(next) => prefs.update({ friendAlertsInGame: next })}
+        />
       </SettingsGroup>
 
       <SettingsGroup

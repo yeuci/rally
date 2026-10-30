@@ -198,8 +198,9 @@ export default function PlayScreen() {
       />
       {roomCode ? <RoomCodePill key={roomCode} code={roomCode} gameTitle={p.game.title} /> : null}
       {/* This screen is a native full-screen modal: the shell's toast and sheets sit underneath it. On iOS a Modal
-          presents from the nearest view controller, so the friend-request sheet must be mounted here to rise over
-          the game (components/rally/friend-request-sheet.tsx). */}
+          presents from the nearest view controller, so the friend-request host must be mounted here to rise over
+          the game (components/rally/friend-request-sheet.tsx). It follows Settings → Notifications → While playing:
+          a banner overlaid at the top of the game by default (a plain view, no Modal), the sheet, or nothing. */}
       <ToastHost />
       <FriendRequestPrompt placement="game" />
     </View>
