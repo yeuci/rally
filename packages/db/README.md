@@ -247,7 +247,7 @@ signal; the test `signup without birth_date metadata is refused` pins that behav
   // Rows {rank, user_id, username, avatar_url, score, is_me}; anon key OK for 'global'
   await supabase.rpc('leaderboard_top', { p_game_id: 'stack', p_board_key: 'height', p_scope: 'global', p_limit: 25 });
   await supabase.rpc('my_leaderboard_rank', { p_game_id: 'stack', p_board_key: 'height' }); // {score, rank} | null
-  await supabase.rpc('public_profile_stats', { p_user_id: someone }); // {achievements, games_played}
+  await supabase.rpc('public_profile_stats', { p_user_id: someone }); // {achievements, games_played, friends} (M4)
   ```
 
   `submit_solo_score` raises only for bad input or auth (unknown/unpublished game or board, not a solo game,
@@ -259,9 +259,48 @@ signal; the test `signup without birth_date metadata is refused` pins that behav
   caller's entry for the current period (null without one); `rank` is 1 + the number of strictly better scores.
 
   `leaderboard_top` lists the current period best first per the board's sort; ties share a rank (1, 1, 3) and the
-  earlier score is listed first; `p_limit` is clamped to 1..100. `p_scope = 'friends'` returns only the caller's
-  own row (rank 1) until friendships exist (M4), and nothing for a signed-out caller. `end_play_session` clamps
+  earlier score is listed first; `p_limit` is clamped to 1..100. `p_scope = 'friends'` ranks the caller and their
+  accepted friends among themselves (since M4; see below), and returns nothing for a signed-out caller. `end_play_session` clamps
   playtime to the wall-clock time since the session started (and 24 h) and is idempotent.
+- `20261030000300_m4_social.sql` (M4 part 1, social graph; architecture §4 and §8):
+
+  | Object | Who reads | Who writes |
+  |---|---|---|
+  | `friendships` (`user_id` = requester, `friend_id`, `status` `friendship_status` pending/accepted, `created_at`, `accepted_at`) | authenticated: rows they are on (either column) | the RPCs below only |
+  | `blocks` (`blocker_id`, `blocked_id`, `created_at`) | authenticated: blocks they made (the blocked user never sees it) | `block_user` / `unblock_user` |
+  | `profiles.privacy` keys `games`, `friends`: `public` (default when absent) / `friends` / `private` | owner via `my_privacy()` only (column grant) | owner (`update profiles set privacy`); trigger `profiles_validate_privacy` raises `INVALID` for other values or a non-object |
+  | schema `private`: `is_blocked(a, b)`, `is_friend(a, b)`, `can_view(owner, viewer, key)`, `viewer()`, `require_member()`, `require_profile(id)` | nobody (no usage grant; not exposed by the Data API) | helpers called by the security definer RPCs |
+
+  A pair of users has at most one `friendships` row, in one direction (a unique index on the unordered pair backs
+  it up); `status = 'accepted'` exactly when `accepted_at` is set. Errors as in M2, plus `BLOCKED` (SQLSTATE 42501,
+  same message whoever blocked whom). Every `p_user_id` must be an existing profile (`NOT_FOUND` otherwise).
+
+  ```ts
+  // 'self' | 'friends' | 'outgoing' | 'incoming' | 'blocked' (caller blocked them) | 'none' (also: they blocked the
+  // caller, and every signed-out / anonymous caller). Anon key OK.
+  await supabase.rpc('friendship_with', { p_user_id });
+  // Linked accounts only. 1..32 chars after trim, limit 1..50. Username prefix matches first, then display-name
+  // substring matches; LIKE wildcards are literal. Excludes the caller, anonymous accounts and blocks either way.
+  await supabase.rpc('search_profiles', { p_query: 'sam', p_limit: 20 }); // {user_id, username, display_name, avatar_url, friendship}[]
+  await supabase.rpc('send_friend_request', { p_user_id });   // 'outgoing' | 'friends' (accepts their pending request); 30 calls/h
+  await supabase.rpc('respond_friend_request', { p_user_id, p_accept: true }); // 'friends' | 'none'; NOT_FOUND unless they asked
+  await supabase.rpc('remove_friend', { p_user_id });         // unfriend (either side) or cancel own request; no-op otherwise
+  await supabase.rpc('block_user', { p_user_id });            // also deletes any friendship/request between the two
+  await supabase.rpc('unblock_user', { p_user_id });
+  await supabase.rpc('my_friends', { p_limit: 200 });         // {user_id, username, display_name, avatar_url, since}[], newest first
+  await supabase.rpc('my_friend_requests');                   // {..., direction: 'incoming' | 'outgoing', created_at}[], newest first
+  await supabase.rpc('my_privacy');                           // {games, friends, ...} with defaults; for the settings screen
+  // Public profile sections; anon key OK (signed-out and anonymous callers are strangers). Empty when privacy or a
+  // block (either way) hides them; public_friends also leaves out friends who have a block with the caller.
+  await supabase.rpc('public_friends', { p_user_id, p_limit: 50 });
+  await supabase.rpc('public_profile_games', { p_user_id, p_limit: 20 }); // published games, last played first
+  ```
+
+  `public_profile_stats` gains `friends` (accepted friendships, always shown) and returns `games_played: null` when
+  `privacy.games` hides the owner's games from the caller. `leaderboard_top(..., 'friends')` is the caller plus
+  accepted friends. Clients cannot read `profiles.privacy` (not even their own); the settings screen reads it with
+  `my_privacy()`: the caller's stored object with `games` and `friends` always present (`'public'` when absent),
+  callable by any signed-in session including anonymous ones, `UNAUTHENTICATED` when signed out.
 - The word filter matches whole words, case-insensitively; see the header of `seed.sql` for what that
   does and does not catch.
 

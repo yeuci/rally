@@ -24,6 +24,8 @@ test('migrations apply from scratch', async () => {
     'achievements',
     'user_achievements',
     'play_sessions',
+    'friendships',
+    'blocks',
   ]) {
     assert.ok(names.includes(t), `missing table ${t}`);
   }

@@ -831,7 +831,7 @@ describe('leaderboard_top and my_leaderboard_rank', () => {
     });
   });
 
-  test("friends scope is the caller's own row until friendships exist (M4)", async () => {
+  test("friends scope without friendships is the caller's own row (see social.test.ts for friends)", async () => {
     await asUser(db, users.dan!, async () => {
       const rows = await topRows(db, 'stack', 'height', 'friends');
       assert.deepEqual(
@@ -987,9 +987,13 @@ describe('achievements and public profile stats', () => {
         async () =>
           (await db.query<{ r: unknown }>(`select public.public_profile_stats($1) as r`, [target])).rows[0]!.r,
       );
-    assert.deepEqual(await stats(bob, alice), { achievements: 2, games_played: 2 });
-    assert.deepEqual(await stats(alice, bob), { achievements: 1, games_played: 0 });
-    assert.deepEqual(await stats(alice, '00000000-0000-0000-0000-000000000000'), { achievements: 0, games_played: 0 });
+    assert.deepEqual(await stats(bob, alice), { achievements: 2, games_played: 2, friends: 0 });
+    assert.deepEqual(await stats(alice, bob), { achievements: 1, games_played: 0, friends: 0 });
+    assert.deepEqual(await stats(alice, '00000000-0000-0000-0000-000000000000'), {
+      achievements: 0,
+      games_played: 0,
+      friends: 0,
+    });
     await asAnonymousUser(db, ghost, async () => {
       await assert.rejects(db.query(`select public.public_profile_stats($1)`, [alice]), anonymousForbidden);
     });

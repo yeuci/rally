@@ -8,6 +8,8 @@ import {
   PROFILE_COLUMNS,
   type Database,
   type Enums,
+  type FriendshipState,
+  type ProfilePrivacy,
   type Json,
   type Tables,
   type TablesInsert,
@@ -60,6 +62,21 @@ test('Database type drives supabase-js inference', async () => {
   type EntryRow = NonNullable<Awaited<typeof _entries>['data']>[number];
   assertType<Equal<EntryRow['board'], { key: string; sort: string }>>();
   assertType<Equal<Tables<'achievements'>['icon'], string | null>>();
+
+  // M4 social RPCs.
+  const _search = client.rpc('search_profiles', { p_query: 'sam' });
+  type SearchRow = NonNullable<Awaited<typeof _search>['data']>[number];
+  assertType<Equal<keyof SearchRow, 'user_id' | 'username' | 'display_name' | 'avatar_url' | 'friendship'>>();
+  const _send = client.rpc('send_friend_request', { p_user_id: '00000000-0000-0000-0000-000000000000' });
+  assertType<Equal<NonNullable<Awaited<typeof _send>['data']>, string>>();
+  const _games = client.rpc('public_profile_games', { p_user_id: '00000000-0000-0000-0000-000000000000' });
+  type GameRow = NonNullable<Awaited<typeof _games>['data']>[number];
+  assertType<Equal<GameRow['plays'], number>>();
+  assertType<Equal<Tables<'friendships'>['status'], Enums<'friendship_status'>>>();
+  const state: FriendshipState = 'incoming';
+  const privacy: ProfilePrivacy = { games: 'friends', friends: 'private', online: false };
+  assert.equal(state, 'incoming');
+  assert.equal(privacy.games, 'friends');
 
   // The selectable profile columns parse into a typed row.
   const _profile = client.from('profiles').select(PROFILE_COLUMNS);

@@ -1,4 +1,4 @@
-// Hand-written to match `supabase gen types typescript` output for supabase/migrations (M1 + M2).
+// Hand-written to match `supabase gen types typescript` output for supabase/migrations (M1 + M2 + M4 social).
 // Regenerate against a real project with `pnpm --filter @rally/db gen:types` once one is linked;
 // keep this file in that exact shape so the swap is a no-op for consumers.
 export type Json =
@@ -707,6 +707,7 @@ export type Database = {
         Args: { p_board_key: string; p_game_id: string }
         Returns: Json
       }
+      my_privacy: { Args: never; Returns: Json }
       period_key: { Args: { at?: string; period: string }; Returns: string }
       public_friends: {
         Args: { p_limit?: number; p_user_id: string }
