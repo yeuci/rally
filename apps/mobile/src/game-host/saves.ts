@@ -27,9 +27,13 @@ export function createMemorySaveStore(): SaveStore {
   };
 }
 
-/** `save_put` errors → bridge codes: CONFLICT (SQLSTATE 40001) stays CONFLICT, check violations are the game's fault. */
+/**
+ * `save_put` errors → bridge codes: CONFLICT (SQLSTATE 40001) stays CONFLICT, RATE_LIMITED (10 writes per minute
+ * server-side) stays RATE_LIMITED, check violations and INVALID (e.g. the 8-slot cap) are the game's fault.
+ */
 export function mapSaveError(error: { message: string; code?: string }): HostError {
   if (error.code === '40001' || error.message.startsWith('CONFLICT')) return new HostError('CONFLICT', error.message);
+  if (/^RATE_LIMITED\b/.test(error.message)) return new HostError('RATE_LIMITED', error.message);
   if (error.code === '23514' || error.message.startsWith('INVALID')) return new HostError('INVALID_PARAMS', error.message);
   return new HostError('INTERNAL', error.message);
 }

@@ -9,9 +9,11 @@ import {
   mapSubmitResult,
   mapTopRows,
   mapUnlockResult,
+  unlockNeedsSession,
   type ProgressStore,
 } from '../src/game-host/progress';
 import { TokenBucket } from '../src/game-host/rate-limit';
+import { recordPlayRefusal } from '../src/game-host/play-session';
 import { createMemorySaveStore, mapSaveError } from '../src/game-host/saves';
 import { BUNDLE, NONCE, Outbox, clock, launchContext, req } from './helpers';
 
@@ -206,6 +208,8 @@ test('mapSaveError maps save_put errors to bridge codes', () => {
   assert.equal(mapSaveError({ message: 'CONFLICT: slot is at version 3', code: '40001' }).code, 'CONFLICT');
   assert.equal(mapSaveError({ message: 'INVALID: data must be JSON', code: '23514' }).code, 'INVALID_PARAMS');
   assert.equal(mapSaveError({ message: 'UNAUTHENTICATED', code: '42501' }).code, 'INTERNAL');
+  assert.equal(mapSaveError({ message: 'RATE_LIMITED: save_put', code: 'P0001' }).code, 'RATE_LIMITED');
+  assert.equal(mapSaveError({ message: 'INVALID: at most 8 save slots per game', code: '22023' }).code, 'INVALID_PARAMS');
 });
 
 test('resetHandshake lets a reloaded page call ready() again', async () => {
@@ -228,7 +232,7 @@ test('resetHandshake lets a reloaded page call ready() again', async () => {
 
 /** Records what the handlers pass to the store; answers like the RPCs would. */
 function recordingStore(submit: (boardId: string, score: number) => { accepted: boolean; best: number | null } = (_b, score) => ({ accepted: true, best: score })) {
-  const seen = { submit: [] as [string, number, string | null][], top: [] as [string, string, number][], unlock: [] as string[] };
+  const seen = { submit: [] as [string, number, string | null][], top: [] as [string, string, number][], unlock: [] as [string, string | null][] };
   const store: ProgressStore = {
     async submitScore(boardId, score, sessionId) {
       seen.submit.push([boardId, score, sessionId]);
@@ -238,8 +242,8 @@ function recordingStore(submit: (boardId: string, score: number) => { accepted: 
       seen.top.push([boardId, scope, limit]);
       return { entries: [{ rank: 1, userId: 'u1', username: 'tester', score: 42 }] };
     },
-    async unlockAchievement(key) {
-      seen.unlock.push(key);
+    async unlockAchievement(key, sessionId) {
+      seen.unlock.push([key, sessionId]);
       return { unlocked: true, alreadyHad: false };
     },
   };
@@ -292,7 +296,7 @@ test('leaderboard.top defaults scope/limit and maps entries; achievement.unlock 
     ['high', 'friends', 5],
   ]);
   await call('achievement.unlock', { key: 'first-win' });
-  assert.deepEqual(seen.unlock, ['first-win']);
+  assert.deepEqual(seen.unlock, [['first-win', 'session-1']]);
 });
 
 test('progress methods are rate limited per method (submit 30, top 60, unlock 60 per minute)', async () => {
@@ -360,12 +364,13 @@ test('RPC result mapping: submit (accepted=false keeps best, null best), top row
   assert.deepEqual(mapUnlockResult({}), { unlocked: false, alreadyHad: false });
 });
 
-test('mapProgressError: RATE_LIMITED, ANONYMOUS_FORBIDDEN → NOT_SUPPORTED, everything else INTERNAL', () => {
+test('mapProgressError: RATE_LIMITED, INVALID → INVALID_PARAMS, ANONYMOUS_FORBIDDEN → NOT_SUPPORTED, everything else INTERNAL', () => {
   assert.equal(mapProgressError({ message: 'RATE_LIMITED: slow down' }).code, 'RATE_LIMITED');
   const anon = mapProgressError({ message: 'ANONYMOUS_FORBIDDEN: link an account first', code: '42501' });
   assert.equal(anon.code, 'NOT_SUPPORTED');
   assert.equal(anon.message, 'ANONYMOUS_FORBIDDEN: link an account first');
-  assert.equal(mapProgressError({ message: 'INVALID: score must be a finite number >= 0', code: '22023' }).code, 'INTERNAL');
+  assert.equal(mapProgressError({ message: 'INVALID: score must be a finite number >= 0', code: '22023' }).code, 'INVALID_PARAMS');
+  assert.equal(mapProgressError({ message: 'NOT_FOUND: no play session', code: 'P0002' }).code, 'INTERNAL');
   assert.equal(mapProgressError({ message: 'UNAUTHENTICATED', code: '42501' }).code, 'INTERNAL');
 });
 
@@ -375,6 +380,40 @@ test('memory progress store (Developer launcher) keeps the best score and unlock
   assert.deepEqual(await store.submitScore('b', 10, null), { accepted: true, best: 10 });
   assert.deepEqual(await store.submitScore('b', 5, null), { accepted: false, best: 10 });
   assert.deepEqual(await store.top('b', 'global', 10), { entries: [{ rank: 1, userId: 'dev-user', username: 'dev-user', score: 10 }] });
-  assert.deepEqual(await store.unlockAchievement('k'), { unlocked: true, alreadyHad: false });
-  assert.deepEqual(await store.unlockAchievement('k'), { unlocked: true, alreadyHad: true });
+  assert.deepEqual(await store.unlockAchievement('k', null), { unlocked: true, alreadyHad: false });
+  assert.deepEqual(await store.unlockAchievement('k', null), { unlocked: true, alreadyHad: true });
+});
+
+test('achievement.unlock waits for the play session start and passes its id; without one the store says NOT_SUPPORTED', async () => {
+  const { store, seen } = recordingStore();
+  let resolveSession!: (id: string | null) => void;
+  const session = new Promise<string | null>((r) => (resolveSession = r));
+  const { call } = setup({ progress: store, getPlaySessionId: () => session });
+  const pending = call('achievement.unlock', { key: 'first-win' });
+  await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual(seen.unlock, [], 'waits for the session');
+  resolveSession('sess-7');
+  assert.deepEqual((await pending).params, { unlocked: true, alreadyHad: false });
+  assert.deepEqual(seen.unlock, [['first-win', 'sess-7']]);
+
+  // The Supabase store's answer when the session could not be started.
+  const noSession: ProgressStore = {
+    ...store,
+    unlockAchievement: async (_key, sessionId) => {
+      if (!sessionId) throw unlockNeedsSession();
+      return { unlocked: true, alreadyHad: false };
+    },
+  };
+  const offline = setup({ progress: noSession, getPlaySessionId: async () => null });
+  const res = await offline.call('achievement.unlock', { key: 'k' });
+  assert.equal(res.error?.code, 'NOT_SUPPORTED');
+  assert.match(res.error?.message ?? '', /no play session/);
+});
+
+test('recordPlayRefusal: the refusals record_play answers by design', () => {
+  assert.equal(recordPlayRefusal('CONFLICT: a play session is open for this game, end it with end_play_session'), 'conflict');
+  assert.equal(recordPlayRefusal('RATE_LIMITED: too many plays recorded for this game, try again later'), 'rate-limited');
+  assert.equal(recordPlayRefusal('NOT_FOUND: game'), 'not-found');
+  assert.equal(recordPlayRefusal('Network request failed'), null);
+  assert.equal(recordPlayRefusal('the CONFLICT word later'), null);
 });

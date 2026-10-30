@@ -14,7 +14,16 @@ export interface ProgressStore {
    */
   submitScore(boardId: string, score: number, sessionId: string | null): Promise<RequestResult<'leaderboard.submit'>>;
   top(boardId: string, scope: 'global' | 'friends', limit: number): Promise<RequestResult<'leaderboard.top'>>;
-  unlockAchievement(key: string): Promise<RequestResult<'achievement.unlock'>>;
+  /**
+   * `sessionId` as for `submitScore`: the server only grants a new unlock while the game's play session exists, so
+   * the Supabase store answers NOT_SUPPORTED without one (`unlockNeedsSession`).
+   */
+  unlockAchievement(key: string, sessionId: string | null): Promise<RequestResult<'achievement.unlock'>>;
+}
+
+/** What `achievement.unlock` answers when the play session could not be started (offline at launch). */
+export function unlockNeedsSession(): HostError {
+  return new HostError('NOT_SUPPORTED', 'no play session (it could not be started); achievements cannot be unlocked');
 }
 
 /** `submit_solo_score` jsonb → bridge result: `best` is null when the player has no score on the board yet. */
@@ -45,11 +54,13 @@ export function mapUnlockResult(raw: unknown): RequestResult<'achievement.unlock
 }
 
 /**
- * Leaderboard / achievement RPC errors → bridge codes. `RATE_LIMITED` stays RATE_LIMITED; `ANONYMOUS_FORBIDDEN`
- * (a guest session can't hold scores) is NOT_SUPPORTED with the server's message; everything else is INTERNAL.
+ * Leaderboard / achievement RPC errors → bridge codes. `RATE_LIMITED` stays RATE_LIMITED; `INVALID` (bad input,
+ * e.g. a score of 0 on an ascending board) is INVALID_PARAMS; `ANONYMOUS_FORBIDDEN` (a guest session can't hold
+ * scores) is NOT_SUPPORTED with the server's message; everything else is INTERNAL.
  */
 export function mapProgressError(error: { message: string; code?: string }): HostError {
   if (/^RATE_LIMITED\b/.test(error.message)) return new HostError('RATE_LIMITED', error.message);
+  if (/^INVALID\b/.test(error.message)) return new HostError('INVALID_PARAMS', error.message);
   if (/^ANONYMOUS_FORBIDDEN\b/.test(error.message)) return new HostError('NOT_SUPPORTED', error.message);
   return new HostError('INTERNAL', error.message);
 }

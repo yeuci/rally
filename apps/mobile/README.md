@@ -154,7 +154,9 @@ one `onExit`: the game's `exit()`, the close button / back, or `finish('unmount'
    written by the room (architecture §8). They can still read boards and unlock achievements.
 3. **Reads and unlocks.** `leaderboard.top(boardId, { scope, limit })` → `leaderboard_top` mapped to the protocol's
    `{ entries: [{ rank, userId, username, score }] }` ('friends' = the player and their friends);
-   `achievement.unlock(key)` → `unlock_achievement` → `{ unlocked, alreadyHad }`.
+   `achievement.unlock(key)` → `unlock_achievement` → `{ unlocked, alreadyHad }`; like a submit it waits for the
+   session start, and without a session (the server only grants new unlocks while one exists) it answers
+   `NOT_SUPPORTED`. Server `INVALID` → `INVALID_PARAMS`; a `save_put` `RATE_LIMITED` stays `RATE_LIMITED`.
 4. **Host rate limits** (per launch, token buckets, before any RPC): `save.put` 10/min, `save.get` 60/min,
    `leaderboard.submit` 30/min, `leaderboard.top` 60/min, `achievement.unlock` 60/min, and `session.join` 6/min with
    one call in flight at a time (each one matchmakes with the user's JWT and reserves a seat; the matchmaking
@@ -163,15 +165,16 @@ one `onExit`: the game's `exit()`, the close button / back, or `finish('unmount'
    only if the game called `ready()` (in any attempt): `end_play_session(session_id, playtime_s)` (foreground
    seconds the game was playable, summed over in-page reloads, crashes and overlay reloads of the same session; it
    also records the play for "Continue playing", like `record_play` did), or `record_play(game_id, playtime_s)` when
-   no session could be started. A launch that never became ready records nothing: its session is left open (no RPC
-   closes a session without counting a play). Then `onPlayRecorded` (`invalidateAfterPlay`) refreshes the game
+   no session could be started. A launch that never became ready records nothing: `abandon_play_session` closes its
+   session without counting a play. `record_play`'s designed refusals (CONFLICT: a session is open for the game;
+   RATE_LIMITED: 1 a minute, 12 an hour per game; NOT_FOUND: unpublished) are not retried and only logged in dev. Then `onPlayRecorded` (`invalidateAfterPlay`) refreshes the game
    page's leaderboards / achievements, "Continue playing" and the player's own stats, games played and unlocked
    achievements (the game page is also refreshed on exit, since the scores are already stored).
 6. **Killed in the background.** No JS runs when iOS jettisons or the user swipes away a backgrounded app, so the
    play route journals the open session in AsyncStorage (`game-host/session-journal.ts`, one record per user):
    checkpoints at `ready()`, on every move to the background and at a reload / crash, cleared after
-   `end_play_session`. On the next launch `(app)/_layout.tsx` calls `recoverPlaySession`, which closes a played
-   session left behind with its last checkpointed playtime (best effort; a session still running in this JS context
+   `end_play_session`. On the next launch `(app)/_layout.tsx` calls `recoverPlaySession`, which ends a played
+   session left behind with its last checkpointed playtime (an unplayed one is abandoned) (best effort; a session still running in this JS context
    is skipped).
 
 The Developer launcher passes in-memory stand-ins (`createMemorySaveStore`, `createMemoryProgressStore`: best score

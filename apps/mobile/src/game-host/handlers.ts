@@ -30,7 +30,7 @@ export interface HostHandlerDeps {
    * results are written by the room (architecture §8), so client-reported scores are refused.
    */
   soloScores: boolean;
-  /** The host's play session id; awaited by `leaderboard.submit` if it is still starting. Null if there is none. */
+  /** The host's play session id; awaited by `leaderboard.submit` / `achievement.unlock` if it is still starting. Null if there is none. */
   getPlaySessionId: () => Promise<string | null>;
   matchmaking: MatchmakingTarget | null;
   onReady: () => void;
@@ -155,7 +155,8 @@ export function createHostHandlers(deps: HostHandlerDeps): HostHandlers {
     'achievement.unlock': async ({ key }) => {
       if (!isKey(key)) throw new HostError('INVALID_PARAMS', `key must be 1–${MAX_KEY_LENGTH} characters`);
       limit(unlockBucket, 'achievement.unlock', PROGRESS_LIMITS_PER_MINUTE.unlock);
-      return deps.progress.unlockAchievement(key);
+      const sessionId = await deps.getPlaySessionId();
+      return deps.progress.unlockAchievement(key, sessionId);
     },
 
     'ui.loading': ({ progress }) => {

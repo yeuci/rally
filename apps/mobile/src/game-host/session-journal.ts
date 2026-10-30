@@ -51,11 +51,15 @@ export interface PlaySessionJournal {
   /** The session was closed (or abandoned): drop its record, unless the slot already holds another session. */
   clear(id: string): Promise<void>;
   /**
-   * Next launch: close a session left open by an earlier run with `end` (only if it was played; otherwise just drop
-   * it) and return it, or null when there was nothing to close. Skips sessions this context still runs. The record
-   * is dropped either way: `end_play_session` is idempotent, but a failing one must not repeat on every launch.
+   * Next launch: close a session left open by an earlier run, with `end` if it was played (returned, so the caller
+   * can refresh what a play changes) or `abandon` if it never became ready (returns null). Null as well when there
+   * was nothing to close. Skips sessions this context still runs. The record is dropped either way: both RPCs are
+   * idempotent, but a failing one must not repeat on every launch.
    */
-  recover(end: (rec: OpenPlaySession) => Promise<void>): Promise<OpenPlaySession | null>;
+  recover(close: {
+    end: (rec: OpenPlaySession) => Promise<void>;
+    abandon?: (rec: OpenPlaySession) => Promise<void>;
+  }): Promise<OpenPlaySession | null>;
 }
 
 export function createPlaySessionJournal(storage: KeyValueStorage, userId: string): PlaySessionJournal {
@@ -80,7 +84,7 @@ export function createPlaySessionJournal(storage: KeyValueStorage, userId: strin
           if (!current || current.id === id) await storage.removeItem(key);
         });
       }),
-    recover: (end) =>
+    recover: ({ end, abandon }) =>
       serial(async () => {
         let rec: OpenPlaySession | null;
         try {
@@ -95,24 +99,24 @@ export function createPlaySessionJournal(storage: KeyValueStorage, userId: strin
         }
         if (live.has(rec.id)) return null;
         await swallow(() => storage.removeItem(key));
-        if (!rec.played) return null;
+        const played = rec.played;
         try {
-          await end(rec);
+          await (played ? end(rec) : abandon?.(rec));
         } catch {
-          /* the next play refreshes stats anyway */
+          /* the next play refreshes stats anyway; the server purges never-ended sessions after a day */
         }
-        return rec;
+        return played ? rec : null;
       }),
   };
 }
 
 /**
  * Wraps the RPC-level service so every session it starts is journaled: `checkpoint` stores the latest playtime,
- * `end` / `abandon` drop the record (after the RPC, so a kill in between still recovers; ending twice is a no-op
- * server-side).
+ * `end` / `abandon` drop the record (after the RPC, so a kill in between still recovers; both RPCs are no-ops on a
+ * session that already ended).
  */
 export function withJournal(
-  svc: Omit<PlaySessionService, 'checkpoint' | 'abandon'>,
+  svc: Omit<PlaySessionService, 'checkpoint' | 'abandon'> & { abandon: (sessionId: string) => Promise<void> },
   journal: PlaySessionJournal,
 ): PlaySessionService {
   const games = new Map<string, string>();
@@ -135,6 +139,12 @@ export function withJournal(
       const gameId = games.get(id);
       if (gameId) void journal.save({ id, gameId, playtimeS, played });
     },
-    abandon: (id) => journal.clear(id),
+    abandon: async (id) => {
+      try {
+        await svc.abandon(id);
+      } finally {
+        await journal.clear(id);
+      }
+    },
   };
 }

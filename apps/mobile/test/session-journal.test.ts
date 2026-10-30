@@ -25,7 +25,7 @@ function memoryStorage(fail = false): KeyValueStorage & { map: Map<string, strin
 function rpcs() {
   const calls: string[] = [];
   let n = 0;
-  const svc: Omit<PlaySessionService, 'checkpoint' | 'abandon'> = {
+  const svc: Omit<PlaySessionService, 'checkpoint' | 'abandon'> & { abandon: (id: string) => Promise<void> } = {
     start: async (game) => {
       n += 1;
       calls.push(`start ${game.id}`);
@@ -36,6 +36,9 @@ function rpcs() {
     },
     recordPlay: async (gameId, playtimeS) => {
       calls.push(`record ${gameId} ${playtimeS}`);
+    },
+    abandon: async (id) => {
+      calls.push(`abandon ${id}`);
     },
   };
   return { svc, calls };
@@ -55,48 +58,57 @@ test('checkpoints keep the latest playtime; a session still running in this cont
   // The app layout mounting while this game still runs (a deep link) must not close it: s1 is live here. After a
   // kill the new JS context has no live sessions, which the next test covers with a pre-existing record.
   const ended: string[] = [];
-  const live = await createPlaySessionJournal(storage, 'u1').recover(async (r) => {
-    ended.push(`end ${r.id} ${r.playtimeS}`);
+  const live = await createPlaySessionJournal(storage, 'u1').recover({
+    end: async (r) => {
+      ended.push(`end ${r.id} ${r.playtimeS}`);
+    },
   });
   assert.equal(live, null, 'a session this context still runs is never recovered from under the game');
   assert.deepEqual(ended, []);
   assert.ok(storage.map.has(journalKey('u1')));
 });
 
-test('recover closes a played session left by an earlier run, drops an unplayed or unreadable one', async () => {
+test('recover ends a played session left by an earlier run, abandons an unplayed one, drops an unreadable one', async () => {
   const storage = memoryStorage();
   const key = journalKey('u2');
   storage.map.set(key, JSON.stringify({ id: 'old-1', gameId: 'stack', playtimeS: 61.5, played: true }));
-  const ended: string[] = [];
-  const end = async (r: { id: string; playtimeS: number }) => {
-    ended.push(`end ${r.id} ${r.playtimeS}`);
+  const calls: string[] = [];
+  const close = {
+    end: async (r: { id: string; playtimeS: number }) => {
+      calls.push(`end ${r.id} ${r.playtimeS}`);
+    },
+    abandon: async (r: { id: string }) => {
+      calls.push(`abandon ${r.id}`);
+    },
   };
-  const rec = await createPlaySessionJournal(storage, 'u2').recover(end);
+  const rec = await createPlaySessionJournal(storage, 'u2').recover(close);
   assert.deepEqual(rec, { id: 'old-1', gameId: 'stack', playtimeS: 61.5, played: true });
-  assert.deepEqual(ended, ['end old-1 61.5']);
+  assert.deepEqual(calls, ['end old-1 61.5']);
   assert.equal(storage.map.has(key), false);
-  assert.equal(await createPlaySessionJournal(storage, 'u2').recover(end), null, 'nothing left');
+  assert.equal(await createPlaySessionJournal(storage, 'u2').recover(close), null, 'nothing left');
 
   storage.map.set(key, JSON.stringify({ id: 'old-2', gameId: 'stack', playtimeS: 0, played: false }));
-  assert.equal(await createPlaySessionJournal(storage, 'u2').recover(end), null);
-  assert.deepEqual(ended, ['end old-1 61.5'], 'never ready: no play is recorded');
+  assert.equal(await createPlaySessionJournal(storage, 'u2').recover(close), null, 'nothing to refresh');
+  assert.deepEqual(calls, ['end old-1 61.5', 'abandon old-2'], 'never ready: closed without a play');
   assert.equal(storage.map.has(key), false);
 
   storage.map.set(key, '{not json');
-  assert.equal(await createPlaySessionJournal(storage, 'u2').recover(end), null);
+  assert.equal(await createPlaySessionJournal(storage, 'u2').recover(close), null);
   assert.equal(storage.map.has(key), false);
 
   // A failing end still drops the record (it must not repeat on every launch).
   storage.map.set(key, JSON.stringify({ id: 'old-3', gameId: 'stack', playtimeS: 5, played: true }));
-  const rec3 = await createPlaySessionJournal(storage, 'u2').recover(async () => {
-    throw new Error('offline');
+  const rec3 = await createPlaySessionJournal(storage, 'u2').recover({
+    end: async () => {
+      throw new Error('offline');
+    },
   });
   assert.equal(rec3?.id, 'old-3');
   assert.equal(storage.map.has(key), false);
 
   // Records are per user.
   storage.map.set(journalKey('someone-else'), JSON.stringify({ id: 'x', gameId: 'stack', playtimeS: 5, played: true }));
-  assert.equal(await createPlaySessionJournal(storage, 'u2').recover(end), null);
+  assert.equal(await createPlaySessionJournal(storage, 'u2').recover(close), null);
   assert.ok(storage.map.has(journalKey('someone-else')));
 });
 
@@ -115,6 +127,7 @@ test('end and abandon drop the record; a stale clear never drops a newer session
   svc.checkpoint?.(b, 0, false);
   await svc.abandon?.(b);
   assert.equal(storage.map.size, 0);
+  assert.equal(r.calls.at(-1), `abandon ${b}`, 'abandon_play_session closes it server-side');
 
   const c = await svc.start({ id: 'stack', version: '1' });
   svc.checkpoint?.(c, 3, true);
@@ -129,6 +142,6 @@ test('storage failures are swallowed (best effort)', async () => {
   const id = await svc.start({ id: 'stack', version: '1' });
   svc.checkpoint?.(id, 1, true);
   await svc.end(id, 1);
-  assert.equal(await createPlaySessionJournal(storage, 'u4').recover(async () => {}), null);
+  assert.equal(await createPlaySessionJournal(storage, 'u4').recover({ end: async () => {} }), null);
   assert.deepEqual(r.calls, ['start stack', 'end s1 1']);
 });

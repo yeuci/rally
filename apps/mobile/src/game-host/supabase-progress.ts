@@ -1,7 +1,7 @@
 import { withAnonymousRetry } from '@/lib/launch';
 import { supabase } from '@/lib/supabase';
 import { HostError } from './bridge';
-import { mapProgressError, mapSubmitResult, mapTopRows, mapUnlockResult, type ProgressStore } from './progress';
+import { mapProgressError, mapSubmitResult, mapTopRows, mapUnlockResult, unlockNeedsSession, type ProgressStore } from './progress';
 
 /**
  * Leaderboards and achievements through Supabase as the signed-in user: `submit_solo_score` (bounded by the play
@@ -36,7 +36,9 @@ export function createSupabaseProgressStore(gameId: string): ProgressStore {
       return mapTopRows(data);
     },
 
-    async unlockAchievement(key) {
+    async unlockAchievement(key, sessionId) {
+      // The server refuses a new unlock (NOT_FOUND) unless this game's play session exists.
+      if (!sessionId) throw unlockNeedsSession();
       const { data, error } = await withAnonymousRetry(() =>
         supabase.rpc('unlock_achievement', { p_game_id: gameId, p_key: key }),
       );

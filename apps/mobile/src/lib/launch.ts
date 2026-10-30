@@ -4,7 +4,7 @@ import type { Tables } from '@rally/db';
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { config } from '@/config';
 import { expectedEntryHash } from '@/game-host/entry';
-import type { PlaySessionService } from '@/game-host/play-session';
+import { recordPlayRefusal, type PlaySessionService } from '@/game-host/play-session';
 import { createPlaySessionJournal, withJournal } from '@/game-host/session-journal';
 import { isAnonymousForbidden } from '@/lib/auth/errors';
 import { useSession } from '@/lib/auth/session';
@@ -166,7 +166,13 @@ const playtimeArg = (playtimeS: number) => Math.max(0, Math.round(playtimeS));
  */
 export async function recordPlay(gameId: string, playtimeS: number): Promise<void> {
   const { error } = await withAnonymousRetry(() => supabase.rpc('record_play', { p_game_id: gameId, p_playtime_s: playtimeArg(playtimeS) }));
-  if (error) console.warn('[record_play]', error.message);
+  if (!error) return;
+  // CONFLICT / RATE_LIMITED / NOT_FOUND are the server's rules, not failures: never retried, never shown.
+  if (recordPlayRefusal(error.message)) {
+    if (__DEV__) console.log('[record_play] refused:', error.message);
+    return;
+  }
+  console.warn('[record_play]', error.message);
 }
 
 /** `start_play_session`: the server-side start time `submit_solo_score` bounds scores against. Throws on failure. */
@@ -175,6 +181,12 @@ export async function startPlaySession(gameId: string, version: string): Promise
   if (error) throw new Error(error.message);
   if (!data) throw new Error('start_play_session returned no id');
   return data;
+}
+
+/** `abandon_play_session`: closes a session whose game never became ready, without counting a play. Idempotent. */
+export async function abandonPlaySession(sessionId: string): Promise<void> {
+  const { error } = await withAnonymousRetry(() => supabase.rpc('abandon_play_session', { p_session_id: sessionId }));
+  if (error) console.warn('[abandon_play_session]', error.message);
 }
 
 /** `end_play_session`: closes the session and records the play (stats, "Continue playing"), like `record_play` did. */
@@ -191,7 +203,7 @@ export async function endPlaySession(sessionId: string, playtimeS: number): Prom
  */
 export function createPlaySessionService(userId: string): PlaySessionService {
   return withJournal(
-    { start: (game) => startPlaySession(game.id, game.version), end: endPlaySession, recordPlay },
+    { start: (game) => startPlaySession(game.id, game.version), end: endPlaySession, recordPlay, abandon: abandonPlaySession },
     createPlaySessionJournal(AsyncStorage, userId),
   );
 }
@@ -201,7 +213,10 @@ export function createPlaySessionService(userId: string): PlaySessionService {
  * in the background) with the last checkpointed playtime, then refresh what a play changes. Best effort.
  */
 export async function recoverPlaySession(qc: QueryClient, userId: string): Promise<void> {
-  const rec = await createPlaySessionJournal(AsyncStorage, userId).recover((r) => endPlaySession(r.id, r.playtimeS));
+  const rec = await createPlaySessionJournal(AsyncStorage, userId).recover({
+    end: (r) => endPlaySession(r.id, r.playtimeS),
+    abandon: (r) => abandonPlaySession(r.id),
+  });
   if (rec) invalidateAfterPlay(qc, userId, rec.gameId);
 }
 

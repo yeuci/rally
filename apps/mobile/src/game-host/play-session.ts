@@ -19,6 +19,21 @@ export interface PlaySessionService {
    * closed on the next launch. Best effort, never awaited.
    */
   checkpoint?(sessionId: string, playtimeS: number, played: boolean): void;
-  /** The game never became ready: nothing is recorded; forget what `checkpoint` kept. */
+  /**
+   * The game never became ready: `abandon_play_session` closes the session without counting a play (an open one
+   * would make a later `record_play` fallback refuse with CONFLICT), and what `checkpoint` kept is forgotten.
+   */
   abandon?(sessionId: string): Promise<void>;
+}
+
+/**
+ * The refusals `record_play` answers by design (hardening migration), which are not failures to report: CONFLICT
+ * (a session is still open for the game: it gets ended or abandoned instead; do not retry), RATE_LIMITED (one play a
+ * minute, 12 an hour per game) and NOT_FOUND (the game is not published). Null for anything else.
+ */
+export function recordPlayRefusal(message: string): 'conflict' | 'rate-limited' | 'not-found' | null {
+  if (/^CONFLICT\b/.test(message)) return 'conflict';
+  if (/^RATE_LIMITED\b/.test(message)) return 'rate-limited';
+  if (/^NOT_FOUND\b/.test(message)) return 'not-found';
+  return null;
 }
