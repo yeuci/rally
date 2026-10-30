@@ -1,5 +1,5 @@
 import { Redirect, router, Stack, useLocalSearchParams } from 'expo-router';
-import { BanIcon, EllipsisIcon, SearchXIcon, TrophyIcon } from 'lucide-react-native';
+import { BanIcon, EllipsisIcon, RotateCwIcon, SearchXIcon, TrophyIcon } from 'lucide-react-native';
 import { useState } from 'react';
 import { ActionSheetIOS, Alert, Platform, Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import { AchievementBadge } from '@/components/rally/achievements';
@@ -20,7 +20,7 @@ import { usePublicProfile, usePublicStats, useUserAchievements, type UnlockedAch
 import { GUTTER } from '@/lib/layout';
 import { useProfile } from '@/lib/profile';
 import { formatScore, sameUsername } from '@/lib/progress-format';
-import { blockAction, confirmCopy, describeSocialError } from '@/lib/social';
+import { blockAction, confirmCopy } from '@/lib/social';
 import { useColumnPadding, useLayout } from '@/lib/use-layout';
 import { usePalette } from '@/lib/use-palette';
 
@@ -116,12 +116,8 @@ export default function PublicProfileScreen() {
       onConfirm={() => {
         const intent = confirming;
         setConfirming(null);
-        if (intent && status) {
-          action.mutate(
-            { userId: p.id, intent, current: status },
-            { onError: (err) => Alert.alert("Couldn't update", describeSocialError(err)) },
-          );
-        }
+        // A failure is reported by useFriendshipAction itself (one alert).
+        if (intent && status) action.mutate({ userId: p.id, intent, current: status });
       }}
     />
   );
@@ -148,8 +144,20 @@ export default function PublicProfileScreen() {
   const seeAllFriends = () => p && router.push({ pathname: '/friends', params: { username: p.username } });
   const identity = (
     <ProfileHeader profile={p}>
-      {!p || friendship.isLoading ? (
+      {!p || (!status && friendship.isFetching) ? (
         <FriendButtonsSkeleton mode="profile" />
+      ) : !status && friendship.isError ? (
+        // Without the relationship neither the friend button nor the Block menu can be shown: offer a retry.
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-10 w-full max-w-sm rounded-full"
+          accessibilityLabel="Couldn't load your friendship status. Try again"
+          onPress={() => void friendship.refetch()}
+        >
+          <Icon as={RotateCwIcon} className="size-4" />
+          <Text className="text-[15px]">Couldn&apos;t load · Try again</Text>
+        </Button>
       ) : status && !blocked ? (
         <FriendButtons userId={p.id} name={handle} status={status} mode="profile" />
       ) : null}

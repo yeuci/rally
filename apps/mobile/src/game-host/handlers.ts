@@ -1,6 +1,6 @@
 import type { LaunchContext } from '@rally/protocol';
 import { HostError, type RequestHandlers } from './bridge';
-import { matchmake } from './matchmake';
+import { matchmake, mayAttachToken } from './matchmake';
 import type { ProgressStore } from './progress';
 import { TokenBucket } from './rate-limit';
 import type { SaveStore } from './saves';
@@ -10,8 +10,13 @@ export interface MatchmakingTarget {
   httpUrl: string;
   wsUrl: string;
   roomName: string;
-  /** Supabase JWT for the game server (verified via JWKS from M3; ignored by the M0 hello room). */
+  /**
+   * Supabase JWT for the game server (verified via JWKS from M3; ignored by the M0 hello room). Only sent over
+   * https/wss; `session.join` refuses to matchmake rather than send it over plain http (see `mayAttachToken`).
+   */
   getAccessToken?: () => Promise<string | undefined>;
+  /** Dev builds only: also send the token over plain http to a private-network host (LAN game server). */
+  allowPrivateHttp?: boolean;
 }
 
 export interface HostHandlerDeps {
@@ -39,6 +44,11 @@ const MAX_SAVE_BYTES = 65536; // game_saves_size check constraint (pg_column_siz
 const SAVE_PUTS_PER_MINUTE = 10;
 /** Per-method limits for the progress methods (per game session, on top of the server's own limits). */
 export const PROGRESS_LIMITS_PER_MINUTE = { submit: 30, top: 60, unlock: 60 } as const;
+/**
+ * `session.join` matchmakes with the user's JWT and every call reserves a seat, so a game cannot loop it: one call
+ * in flight at a time and at most this many per minute. `save.get` is a Supabase read per call.
+ */
+export const SESSION_LIMITS_PER_MINUTE = { join: 6, saveGet: 60 } as const;
 /** Board ids and achievement keys come from the manifest; the server resolves them, the host only bounds them. */
 const MAX_KEY_LENGTH = 128;
 const isKey = (s: string) => s.length >= 1 && s.length <= MAX_KEY_LENGTH;
@@ -60,6 +70,9 @@ export function createHostHandlers(deps: HostHandlerDeps): HostHandlers {
   const submitBucket = new TokenBucket(PROGRESS_LIMITS_PER_MINUTE.submit, 60_000, deps.now);
   const topBucket = new TokenBucket(PROGRESS_LIMITS_PER_MINUTE.top, 60_000, deps.now);
   const unlockBucket = new TokenBucket(PROGRESS_LIMITS_PER_MINUTE.unlock, 60_000, deps.now);
+  const joinBucket = new TokenBucket(SESSION_LIMITS_PER_MINUTE.join, 60_000, deps.now);
+  const saveGetBucket = new TokenBucket(SESSION_LIMITS_PER_MINUTE.saveGet, 60_000, deps.now);
+  let joinInFlight = false;
   const limit = (bucket: TokenBucket, method: string, perMinute: number) => {
     if (!bucket.tryTake()) throw new HostError('RATE_LIMITED', `${method} is limited to ${perMinute} per minute`);
   };
@@ -89,15 +102,29 @@ export function createHostHandlers(deps: HostHandlerDeps): HostHandlers {
       if (!ready) throw new HostError('NOT_READY', 'call ready() before session.join()');
       const mm = deps.matchmaking;
       if (!mm) throw new HostError('NOT_SUPPORTED', 'this game has no multiplayer server');
-      const token = await mm.getAccessToken?.();
-      const seatReservation = await matchmake(mm.httpUrl, 'joinOrCreate', mm.roomName, {}, token);
-      return { endpoint: mm.wsUrl, seatReservation };
+      if (joinInFlight) throw new HostError('RATE_LIMITED', 'session.join is already in progress');
+      limit(joinBucket, 'session.join', SESSION_LIMITS_PER_MINUTE.join);
+      joinInFlight = true;
+      try {
+        let token: string | undefined;
+        if (mm.getAccessToken) {
+          if (!mayAttachToken(mm.httpUrl, mm.allowPrivateHttp === true)) {
+            throw new HostError('MATCHMAKE_FAILED', 'the game server must use https: refusing to send the sign-in token over plain http');
+          }
+          token = await mm.getAccessToken();
+        }
+        const seatReservation = await matchmake(mm.httpUrl, 'joinOrCreate', mm.roomName, {}, token);
+        return { endpoint: mm.wsUrl, seatReservation };
+      } finally {
+        joinInFlight = false;
+      }
     },
 
     'session.reportReconnection': () => null,
 
     'save.get': async ({ slot }) => {
       checkSlot(slot);
+      limit(saveGetBucket, 'save.get', SESSION_LIMITS_PER_MINUTE.saveGet);
       return deps.saves.get(slot);
     },
 

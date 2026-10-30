@@ -1,10 +1,16 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GameManifestSchema, type GameManifest } from '@rally/protocol';
 import type { Tables } from '@rally/db';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { config } from '@/config';
 import { expectedEntryHash } from '@/game-host/entry';
+import type { PlaySessionService } from '@/game-host/play-session';
+import { createPlaySessionJournal, withJournal } from '@/game-host/session-journal';
 import { isAnonymousForbidden } from '@/lib/auth/errors';
 import { useSession } from '@/lib/auth/session';
+import { catalogKeys } from '@/lib/catalog';
+import { socialKeys } from '@/lib/friends';
+import { progressKeys } from '@/lib/game-progress';
 import { supabase } from '@/lib/supabase';
 import { satisfiesMinVersion } from '@/lib/semver';
 
@@ -177,4 +183,37 @@ export async function endPlaySession(sessionId: string, playtimeS: number): Prom
     supabase.rpc('end_play_session', { p_session_id: sessionId, p_playtime_s: playtimeArg(playtimeS) }),
   );
   if (error) console.warn('[end_play_session]', error.message);
+}
+
+/**
+ * The play route's session service: the RPCs above, journaled on the device (game-host/session-journal.ts) so a
+ * session left open by a killed app is closed on the next launch (`recoverPlaySession`).
+ */
+export function createPlaySessionService(userId: string): PlaySessionService {
+  return withJournal(
+    { start: (game) => startPlaySession(game.id, game.version), end: endPlaySession, recordPlay },
+    createPlaySessionJournal(AsyncStorage, userId),
+  );
+}
+
+/**
+ * Cold start (signed in): close the play session an earlier run left open (killed or jettisoned while a game was
+ * in the background) with the last checkpointed playtime, then refresh what a play changes. Best effort.
+ */
+export async function recoverPlaySession(qc: QueryClient, userId: string): Promise<void> {
+  const rec = await createPlaySessionJournal(AsyncStorage, userId).recover((r) => endPlaySession(r.id, r.playtimeS));
+  if (rec) invalidateAfterPlay(qc, userId, rec.gameId);
+}
+
+/**
+ * Everything a recorded play changes for the player: "Continue playing", the game page's leaderboards and
+ * achievements, and their own profile (stats strip, games played, unlocked achievements).
+ */
+export function invalidateAfterPlay(qc: QueryClient, userId: string | null, gameId: string) {
+  void qc.invalidateQueries({ queryKey: catalogKeys.recent(userId) });
+  void qc.invalidateQueries({ queryKey: progressKeys.game(userId, gameId) });
+  if (!userId) return;
+  void qc.invalidateQueries({ queryKey: progressKeys.userStats(userId) });
+  void qc.invalidateQueries({ queryKey: progressKeys.userAchievements(userId) });
+  void qc.invalidateQueries({ queryKey: socialKeys.publicGames(userId, userId) });
 }

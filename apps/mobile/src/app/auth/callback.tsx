@@ -3,20 +3,38 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { Button } from '@/components/ui/button';
 import { Text } from '@/components/ui/text';
-import { describeAuthError } from '@/lib/auth/errors';
+import { describeAuthError, describeCallbackError, LINK_EXPIRED } from '@/lib/auth/errors';
 import { exchangeCodeOnce } from '@/lib/auth/providers';
 import { supabase } from '@/lib/supabase';
 
 /**
  * `rally://auth/callback?code=…`: email confirmation links (and OAuth redirects that arrive outside an in-app
  * browser flow). Exchanges the PKCE code once with its flow's verifier (`sb_flow_id`), then hands over to the
- * session gate.
+ * session gate. An `error` in the link is shown as our own copy only (anyone can craft such a link; its text is
+ * logged in dev builds).
  */
 export default function AuthCallback() {
-  const params = useLocalSearchParams<{ code?: string; sb_flow_id?: string; error?: string; error_description?: string }>();
+  const params = useLocalSearchParams<{
+    code?: string;
+    sb_flow_id?: string;
+    error?: string;
+    error_code?: string;
+    error_description?: string;
+  }>();
   const code = typeof params.code === 'string' ? params.code : null;
   const flowId = typeof params.sb_flow_id === 'string' ? params.sb_flow_id : null;
-  const [error, setError] = useState<string | null>(params.error_description ?? params.error ?? null);
+  const linkError = typeof params.error === 'string' ? params.error : null;
+  const linkErrorCode = typeof params.error_code === 'string' ? params.error_code : null;
+  const linkErrorDescription = typeof params.error_description === 'string' ? params.error_description : null;
+  const [error, setError] = useState<string | null>(() =>
+    linkError || linkErrorCode || linkErrorDescription ? describeCallbackError({ error: linkError, errorCode: linkErrorCode }) : null,
+  );
+
+  useEffect(() => {
+    if (__DEV__ && (linkError || linkErrorCode || linkErrorDescription)) {
+      console.warn('[auth/callback] link error', { error: linkError, code: linkErrorCode, description: linkErrorDescription });
+    }
+  }, [linkError, linkErrorCode, linkErrorDescription]);
 
   useEffect(() => {
     if (!code) return;
@@ -29,9 +47,7 @@ export default function AuthCallback() {
         if (data.session && !data.session.user.is_anonymous) router.replace('/');
         else if (alive) {
           setError(
-            /code verifier|flow state|invalid/i.test(String((err as Error)?.message))
-              ? 'This link was opened on a different device or has expired. Sign in to continue.'
-              : describeAuthError(err),
+            /code verifier|flow state|invalid/i.test(String((err as Error)?.message)) ? LINK_EXPIRED : describeAuthError(err),
           );
         }
       },

@@ -11,7 +11,7 @@ import {
   type LucideIcon,
 } from 'lucide-react-native';
 import { useState } from 'react';
-import { Linking, Pressable, RefreshControl, ScrollView, View, useWindowDimensions } from 'react-native';
+import { Alert, Linking, Pressable, RefreshControl, ScrollView, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ErrorText } from '@/components/rally/form-field';
 import { Glow } from '@/components/rally/glow';
@@ -89,7 +89,10 @@ export default function ProfileScreen() {
 
   const mail = (subject: string) => {
     const body = p ? `Username: ${p.username}\n\n` : '';
-    void Linking.openURL(`mailto:${config.supportEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`);
+    // Rejects when nothing can handle mailto: (no mail app set up, simulators).
+    Linking.openURL(`mailto:${config.supportEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`).catch(
+      () => Alert.alert('No email app', `Write to ${config.supportEmail} from any email app.`),
+    );
   };
 
   return (

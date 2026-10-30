@@ -36,8 +36,13 @@ export interface GameHostResult {
   entryMs: number | null;
   /** ms from start to the WebView beginning to load the entry; null if it never did. */
   pageMs: number | null;
-  /** Foreground seconds between `ready()` and exit; 0 if never ready. Feeds `end_play_session` / `record_play`. */
+  /**
+   * Foreground seconds the game was playable (from each `ready()` to the next reload / crash / exit, summed over
+   * every reload of this session); 0 if never ready. Feeds `end_play_session` / `record_play`.
+   */
   playtimeS: number;
+  /** The game called `ready()` at least once in this session (any attempt). Only then is a play recorded. */
+  played: boolean;
   metrics: Record<string, number | string | boolean> | null;
   error: string | null;
 }
@@ -88,7 +93,14 @@ export class GameHostController {
   /** `start_play_session`, fired on the first `start()`; resolves to null if it failed. */
   private playSession: Promise<string | null> | null = null;
   private startedAt: number;
+  /** When the current attempt called `ready()` (launch timing); reset by `reload()`. */
   private readyAt: number | null = null;
+  /** Start of the current playable stretch (since the latest `ready()`); null while loading, crashed or failed. */
+  private segmentAt: number | null = null;
+  /** Playtime of earlier stretches of this session (before an in-page reload, a crash or an overlay reload). */
+  private bankedMs = 0;
+  /** `ready()` happened in some attempt: the only case in which the session records a play. */
+  private everReady = false;
   private entryAt: number | null = null;
   private pageAt: number | null = null;
   private fpsOverlay = false;
@@ -183,23 +195,27 @@ export class GameHostController {
 
   // --- WebView callbacks ----------------------------------------------------------------------------------------
 
-  /** Diagnostics for the load-timeout overlay: what the game sent (or didn't) before giving up. */
-  private readonly seenMethods: string[] = [];
+  /** Diagnostics for the load-timeout overlay: what the current attempt sent (or didn't) before giving up. */
+  private seenMethods: string[] = [];
   private droppedCount = 0;
   /** Page-level reports from the injected diagnostics script (CSP violations, failed loads, exceptions). */
-  private readonly diagnostics: PageDiagnostic[] = [];
+  private diagnostics: PageDiagnostic[] = [];
 
   handleMessage = (data: string, sourceUrl: string | undefined): void => {
-    // The page's diagnostics are capped at 400 chars each by the injected script; anything bigger is not ours.
-    if (data.length > 4096 && data.startsWith(DIAG_PREFIX)) return;
-    const diag = parseDiagnostic(data);
-    if (diag) {
+    if (data.startsWith(DIAG_PREFIX)) {
+      // Same gate as bridge traffic minus the nonce (the diagnostics script has none): from the bundle's own
+      // directory, while the session is live. The script caps each report at 400 chars and sends at most 12 per
+      // page; anything bigger is not ours, and only what is kept (12 per attempt) is logged.
+      if (data.length > 4096 || !this.active || this.exited || !sourceUrl || !this.bridge.isInsideBundle(sourceUrl)) return;
+      const diag = parseDiagnostic(data);
+      if (!diag) return;
       if (diag.kind === 'fps') {
         const fps = Number(diag.message);
         if (this.fpsOverlay && Number.isFinite(fps) && fps !== this.view.fps) this.setView({ fps });
         return;
       }
-      if (this.diagnostics.length < 12) this.diagnostics.push(diag);
+      if (this.diagnostics.length >= 12) return;
+      this.diagnostics.push(diag);
       if (diag.kind !== 'boot') this.warn(`[game ${diag.kind}] ${diag.message}`);
       return;
     }
@@ -238,6 +254,8 @@ export class GameHostController {
       return;
     }
     this.pageAt ??= this.now();
+    // An in-page reload: the time played so far counts; the next ready() starts a new stretch.
+    this.bankPlaytime();
     this.handlers.resetHandshake();
     if (this.view.phase === 'ready') {
       this.setView({ phase: 'loading', progress: 0, status: 'Reloading…' });
@@ -258,12 +276,14 @@ export class GameHostController {
   };
 
   onProcessGone = (message: string): void => {
+    this.bankPlaytime();
     this.lastError = message;
     this.clearReadyTimeout();
     this.setView({ phase: 'crashed', error: message });
   };
 
   onLoadError = (message: string): void => {
+    this.bankPlaytime();
     this.lastError = message;
     this.clearReadyTimeout();
     this.setView({ phase: 'failed', error: message });
@@ -278,6 +298,9 @@ export class GameHostController {
     } else {
       this.pausedAt ??= this.now();
       this.bridge.sendEvent('pause', {});
+      // The app may be killed in the background without another callback: leave the playtime where the next
+      // launch can close the session with it.
+      this.checkpoint();
     }
   };
 
@@ -293,8 +316,12 @@ export class GameHostController {
     this.setView({ status: 'Leaving…' });
   };
 
-  /** Crash / failure overlay "Reload": new nonce, new bridge, new WebView (keyed by `attempt`). */
+  /**
+   * Crash / failure overlay "Reload": new nonce, new bridge, new WebView (keyed by `attempt`). Same play session:
+   * the playtime so far is kept; launch timings and load diagnostics start over for the new attempt.
+   */
   reload = (): void => {
+    this.bankPlaytime();
     this.bridge.close();
     const nonce = this.opts.createNonce();
     this.bridge = this.createBridge(nonce);
@@ -306,6 +333,9 @@ export class GameHostController {
     this.pausedMs = 0;
     this.lastError = null;
     this.exitRequestedAt = 0;
+    this.seenMethods = [];
+    this.droppedCount = 0;
+    this.diagnostics = [];
     this.setView({ attempt: this.view.attempt + 1, nonce, phase: 'loading', progress: 0, status: 'Loading…', error: null, fps: null });
     if (this.active) this.armReadyTimeout();
   };
@@ -316,21 +346,49 @@ export class GameHostController {
     this.exited = true;
     this.stop();
     this.bridge.close();
-    const end = this.pausedAt ?? this.now();
-    const playtimeS = this.readyAt === null ? 0 : Math.max(0, (end - this.readyAt - this.pausedMs) / 1000);
+    const playtimeS = this.playtimeMs() / 1000;
     this.onExit({
       reason,
       readyMs: this.readyAt === null ? null : this.readyAt - this.startedAt,
       entryMs: this.entryAt === null ? null : this.entryAt - this.startedAt,
       pageMs: this.pageAt === null ? null : this.pageAt - this.startedAt,
       playtimeS,
+      played: this.everReady,
       metrics: this.metrics,
       error: this.lastError,
     });
-    void this.closePlaySession(playtimeS, this.readyAt !== null);
+    void this.closePlaySession(playtimeS, this.everReady);
   };
 
   // --- internals -------------------------------------------------------------------------------------------------
+
+  /** Banked stretches plus the current one (foreground time since the latest `ready()`). */
+  private playtimeMs(): number {
+    if (this.segmentAt === null) return this.bankedMs;
+    const end = this.pausedAt ?? this.now();
+    return this.bankedMs + Math.max(0, end - this.segmentAt - this.pausedMs);
+  }
+
+  /** Close the current playable stretch (reload, crash, load failure). Idempotent. */
+  private bankPlaytime() {
+    if (this.segmentAt === null) return;
+    this.bankedMs = this.playtimeMs();
+    this.segmentAt = null;
+    this.pausedMs = 0;
+    if (this.pausedAt !== null) this.pausedAt = this.now();
+    this.checkpoint();
+  }
+
+  /** Hand the open session's latest playtime to the service (`checkpoint`), once its id is known. Best effort. */
+  private checkpoint() {
+    const svc = this.opts.playSessions;
+    if (!svc?.checkpoint || !this.playSession || this.exited) return;
+    const playtimeS = this.playtimeMs() / 1000;
+    const played = this.everReady;
+    void this.playSession.then((id) => {
+      if (id && !this.exited) svc.checkpoint?.(id, playtimeS, played);
+    });
+  }
 
   private startPlaySession() {
     const svc = this.opts.playSessions;
@@ -345,17 +403,22 @@ export class GameHostController {
   }
 
   /**
-   * Exactly once per controller (from `finish`): close the session with the playtime, or, if none could be started
-   * (offline at launch), fall back to `record_play` for a game that became ready. Failures are logged, not thrown.
+   * Exactly once per controller (from `finish`). A game that became ready (in any attempt) records a play: close the
+   * session with the playtime, or, if none could be started (offline at launch), fall back to `record_play`. A
+   * launch that never reached `ready()` records nothing: the session is abandoned (`end_play_session` would count a
+   * play). Failures are logged, not thrown.
    */
-  private async closePlaySession(playtimeS: number, wasReady: boolean) {
+  private async closePlaySession(playtimeS: number, played: boolean) {
     const svc = this.opts.playSessions;
     if (!svc) return;
     try {
       const id = await (this.playSession ?? Promise.resolve(null));
+      if (!played) {
+        if (id) await svc.abandon?.(id);
+        return;
+      }
       if (id) await svc.end(id, playtimeS);
-      else if (wasReady) await svc.recordPlay(this.opts.game.id, playtimeS);
-      else return;
+      else await svc.recordPlay(this.opts.game.id, playtimeS);
     } catch (err) {
       this.warn(`[play-session] close failed: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -384,6 +447,13 @@ export class GameHostController {
         now: this.opts.now,
         onReady: () => {
           this.readyAt = this.now();
+          // A new playable stretch (the first one, or after an in-page reload). Pauses before it don't count.
+          this.bankPlaytime();
+          this.segmentAt = this.readyAt;
+          this.pausedMs = 0;
+          if (this.pausedAt !== null) this.pausedAt = this.readyAt;
+          this.everReady = true;
+          this.checkpoint();
           this.clearReadyTimeout();
           this.setView({ phase: 'ready', progress: 1 });
           const ms = (t: number | null) => (t === null ? '—' : `${t - this.startedAt} ms`);

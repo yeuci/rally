@@ -1,8 +1,10 @@
 import { router } from 'expo-router';
+import { UserXIcon } from 'lucide-react-native';
 import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { EmptyState } from '@/components/rally/empty-state';
 import { ErrorText, FormField } from '@/components/rally/form-field';
 import { ProfileAvatar, ProfileAvatarSkeleton } from '@/components/rally/profile-avatar';
 import { Segmented } from '@/components/rally/segmented';
@@ -25,6 +27,25 @@ const BIO_MAX = 280; // profiles_bio_len
 export default function EditProfileScreen() {
   const profile = useProfile();
   const privacy = usePrivacy();
+  const column = useColumnPadding();
+  // No profile after the query settled (an error, or no row): say so instead of a skeleton that never resolves.
+  if (!profile.data && (profile.isError || profile.isSuccess)) {
+    return (
+      <View className="bg-background flex-1 justify-center" style={column}>
+        <EmptyState
+          icon={UserXIcon}
+          title="Couldn't load your profile"
+          body="Check your connection and try again."
+          className="w-full"
+          action={
+            <Button variant="secondary" disabled={profile.isFetching} onPress={() => void profile.refetch()}>
+              <Text>{profile.isFetching ? 'Loading…' : 'Try again'}</Text>
+            </Button>
+          }
+        />
+      </View>
+    );
+  }
   // The form seeds its state once, so it waits for both; a failed privacy read still allows editing the rest.
   if (!profile.data || privacy.isLoading) return <EditProfileSkeleton />;
   return <EditProfileForm profile={profile.data} privacy={privacy.data ?? null} />;

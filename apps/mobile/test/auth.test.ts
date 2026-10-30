@@ -13,6 +13,8 @@ import {
   isNewUserRejected,
   isUsernameRejected,
   isUsernameTaken,
+  describeCallbackError,
+  LINK_EXPIRED,
 } from '../src/lib/auth/errors';
 import { isAuthRedirectPath, parseAuthRedirect } from '../src/lib/auth/redirect';
 import { parseSignupMethod } from '../src/lib/auth/signup-method';
@@ -157,4 +159,12 @@ test('parseSignupMethod defaults to email', () => {
   assert.equal(parseSignupMethod(['google']), 'google');
   assert.equal(parseSignupMethod('facebook'), 'email');
   assert.equal(parseSignupMethod(undefined), 'email');
+});
+
+test('deep-link errors never show the link\'s own text', () => {
+  assert.equal(describeCallbackError({ error: 'access_denied', errorCode: 'otp_expired' }), LINK_EXPIRED);
+  assert.match(describeCallbackError({ error: 'access_denied', errorCode: null }), /cancelled or the link is no longer valid/);
+  const crafted = describeCallbackError({ error: 'Your account is locked. Call +1 555 0100', errorCode: 'Call us' });
+  assert.doesNotMatch(crafted, /555|locked|Call/);
+  assert.match(crafted, /couldn't be used/);
 });

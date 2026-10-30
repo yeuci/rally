@@ -235,9 +235,9 @@ export function useFriendshipAction() {
     onSuccess: (status, { userId }) => writeFriendship(qc, uid, userId, status),
     // Reported here, not in the callers' mutate(): the optimistic update removes a request row before the
     // server answers, and callbacks passed to mutate() never fire once their component has unmounted.
-    onError: (err, _vars, ctx) => {
+    onError: (err, { intent }, ctx) => {
       for (const [key, data] of ctx?.snapshot ?? []) qc.setQueryData(key, data);
-      Alert.alert("Couldn't update", describeSocialError(err));
+      Alert.alert("Couldn't update", describeSocialError(err, intent));
     },
     onSettled: (_data, _err, { userId }) => invalidateSocial(qc, uid, userId),
   });

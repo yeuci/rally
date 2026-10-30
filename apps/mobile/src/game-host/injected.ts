@@ -16,9 +16,53 @@ export function buildInjectedScript(nonce: string, opts: { fps?: boolean } = {})
     recv: function (json) { queue.push(json); }
   };
 })();
+${buildStorageResetScript(nonce)}
 ${DIAGNOSTICS_SCRIPT}
 window.__rallyDiag.fps(${opts.fps ? 'true' : 'false'});
 true;`;
+}
+
+/**
+ * Every game is served from the same origin (the Supabase Storage CDN today, `localhost` in M6), and the WebView's
+ * data store is persistent, so web storage would leak between games (architecture §3: games persist only through
+ * the SDK). Before any game script runs, the first page load of each launch wipes what earlier launches left in
+ * this origin: localStorage, sessionStorage, IndexedDB databases, Cache Storage and the cookies JS can see (every
+ * path prefix of this page, host-only and domain cookies). The marker in sessionStorage (per WebView, keyed by the
+ * launch nonce) keeps an in-page reload of the same launch from wiping the game's own data again. The HTTP cache
+ * is left alone (warm loads). HttpOnly cookies are out of reach (the CDN sets none); see the README.
+ */
+export function buildStorageResetScript(nonce: string): string {
+  return `(function () {
+  var marker = '__rallyLaunch', launch = ${JSON.stringify(nonce)};
+  try { if (window.sessionStorage && sessionStorage.getItem(marker) === launch) return; } catch (e) {}
+  try { if (window.localStorage) localStorage.clear(); } catch (e) {}
+  try { if (window.sessionStorage) { sessionStorage.clear(); sessionStorage.setItem(marker, launch); } } catch (e) {}
+  try {
+    if (window.indexedDB && typeof indexedDB.databases === 'function') {
+      indexedDB.databases().then(function (dbs) {
+        for (var i = 0; i < dbs.length; i++) if (dbs[i] && dbs[i].name) indexedDB.deleteDatabase(dbs[i].name);
+      }, function () {});
+    }
+  } catch (e) {}
+  try {
+    if (window.caches && typeof caches.keys === 'function') {
+      caches.keys().then(function (keys) { for (var i = 0; i < keys.length; i++) caches.delete(keys[i]); }, function () {});
+    }
+  } catch (e) {}
+  try {
+    var names = String(document.cookie || '').split(';');
+    var parts = location.pathname.split('/'), paths = ['/'], acc = '';
+    for (var p = 1; p < parts.length; p++) { acc += '/' + parts[p]; paths.push(acc); if (parts[p]) paths.push(acc + '/'); }
+    for (var n = 0; n < names.length; n++) {
+      var name = names[n].split('=')[0].trim();
+      if (!name) continue;
+      for (var k = 0; k < paths.length; k++) {
+        document.cookie = name + '=; Max-Age=0; path=' + paths[k];
+        document.cookie = name + '=; Max-Age=0; path=' + paths[k] + '; domain=' + location.hostname;
+      }
+    }
+  } catch (e) {}
+})();`;
 }
 
 /** Prefix of a page-diagnostics message (never a bridge envelope); see `DIAGNOSTICS_SCRIPT`. */

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { HostBridge } from '../src/game-host/bridge';
-import { createHostHandlers, PROGRESS_LIMITS_PER_MINUTE, type HostHandlerDeps } from '../src/game-host/handlers';
+import { createHostHandlers, PROGRESS_LIMITS_PER_MINUTE, SESSION_LIMITS_PER_MINUTE, type HostHandlerDeps } from '../src/game-host/handlers';
+import { isPrivateNetworkHost, mayAttachToken } from '../src/game-host/matchmake';
 import {
   createMemoryProgressStore,
   mapProgressError,
@@ -62,12 +63,91 @@ test('session.join: NOT_READY before ready, NOT_SUPPORTED without a server, matc
     return new Response(JSON.stringify({ sessionId: 's1', room: { roomId: 'r1' } }), { status: 200 });
   }) as typeof fetch;
   const multi = setup({
-    matchmaking: { httpUrl: 'http://gs.local:2567', wsUrl: 'ws://gs.local:2567', roomName: 'arena', getAccessToken: async () => 'jwt' },
+    matchmaking: { httpUrl: 'https://gs.example.com', wsUrl: 'wss://gs.example.com', roomName: 'arena', getAccessToken: async () => 'jwt' },
   });
   await multi.call('ready', { sdkVersion: '1' });
   const res = await multi.call('session.join');
-  assert.deepEqual(res.params, { endpoint: 'ws://gs.local:2567', seatReservation: { sessionId: 's1', room: { roomId: 'r1' } } });
-  assert.deepEqual(seen, { url: 'http://gs.local:2567/matchmake/joinOrCreate/arena', auth: 'Bearer jwt' });
+  assert.deepEqual(res.params, { endpoint: 'wss://gs.example.com', seatReservation: { sessionId: 's1', room: { roomId: 'r1' } } });
+  assert.deepEqual(seen, { url: 'https://gs.example.com/matchmake/joinOrCreate/arena', auth: 'Bearer jwt' });
+});
+
+test('session.join never sends the JWT over plain http, except to a private host in dev builds', async () => {
+  const urls: string[] = [];
+  let tokenReads = 0;
+  globalThis.fetch = (async (url: string) => {
+    urls.push(url);
+    return new Response(JSON.stringify({ sessionId: 's1' }), { status: 200 });
+  }) as typeof fetch;
+  const getAccessToken = async () => {
+    tokenReads += 1;
+    return 'jwt';
+  };
+  const target = (httpUrl: string, allowPrivateHttp?: boolean) => ({ httpUrl, wsUrl: 'ws://x', roomName: 'arena', getAccessToken, allowPrivateHttp });
+
+  const prod = setup({ matchmaking: target('http://10.0.0.201:2567') });
+  await prod.call('ready', { sdkVersion: '1' });
+  assert.equal((await prod.call('session.join')).error?.code, 'MATCHMAKE_FAILED');
+  const publicDev = setup({ matchmaking: target('http://gs.example.com:2567', true) });
+  await publicDev.call('ready', { sdkVersion: '1' });
+  assert.equal((await publicDev.call('session.join')).error?.code, 'MATCHMAKE_FAILED');
+  assert.equal(tokenReads, 0, 'the token is not even read');
+  assert.deepEqual(urls, []);
+
+  const lan = setup({ matchmaking: target('http://10.0.0.201:2567', true) });
+  await lan.call('ready', { sdkVersion: '1' });
+  assert.equal((await lan.call('session.join')).error, undefined);
+  assert.deepEqual(urls, ['http://10.0.0.201:2567/matchmake/joinOrCreate/arena']);
+
+  // No token to send (Developer launcher): plain http anywhere is fine.
+  const dev = setup({ matchmaking: { httpUrl: 'http://gs.example.com:2567', wsUrl: 'ws://x', roomName: 'hello' } });
+  await dev.call('ready', { sdkVersion: '1' });
+  assert.equal((await dev.call('session.join')).error, undefined);
+});
+
+test('mayAttachToken / isPrivateNetworkHost', () => {
+  assert.equal(mayAttachToken('https://gs.example.com', false), true);
+  assert.equal(mayAttachToken('wss://gs.example.com:443/x', false), true);
+  assert.equal(mayAttachToken('http://gs.example.com', true), false);
+  assert.equal(mayAttachToken('http://localhost:2567', false), false);
+  for (const ok of ['http://localhost:2567', 'http://127.0.0.1:2567', 'http://10.0.2.2:2567', 'http://192.168.1.20', 'http://172.16.0.1', 'http://172.31.255.255:2567', 'http://[::1]:2567']) {
+    assert.equal(mayAttachToken(ok, true), true, ok);
+  }
+  for (const bad of ['http://172.32.0.1', 'http://192.169.0.1', 'http://11.0.0.1', 'http://10.0.0.256', 'http://10.0.0.1.evil.com', 'http://user@10.0.0.1', 'https://user:pw@gs.example.com', 'ftp://10.0.0.1', '10.0.0.1:2567', '']) {
+    assert.equal(mayAttachToken(bad, true), false, bad);
+  }
+  assert.equal(isPrivateNetworkHost('LOCALHOST'), true);
+  assert.equal(isPrivateNetworkHost('localhost.example.com'), false);
+});
+
+test('session.join is single-flight and limited per minute', async () => {
+  const c = clock();
+  const pending: ((r: Response) => void)[] = [];
+  globalThis.fetch = (() => new Promise<Response>((r) => pending.push(r))) as typeof fetch;
+  const { call } = setup({ now: c.now, matchmaking: { httpUrl: 'https://gs.example.com', wsUrl: 'wss://gs.example.com', roomName: 'arena' } });
+  await call('ready', { sdkVersion: '1' });
+
+  const inFlight = call('session.join');
+  await new Promise((r) => setTimeout(r, 5));
+  const second = await call('session.join');
+  assert.equal(second.error?.code, 'RATE_LIMITED');
+  assert.match(second.error?.message ?? '', /in progress/);
+  assert.equal(pending.length, 1, 'only one matchmaking request went out');
+  pending[0]!(new Response(JSON.stringify({ sessionId: 's1' }), { status: 200 }));
+  assert.equal((await inFlight).error, undefined);
+
+  // Sequential joins: the bucket allows SESSION_LIMITS_PER_MINUTE.join per minute (the first one counted).
+  globalThis.fetch = (async () => new Response(JSON.stringify({ sessionId: 's' }), { status: 200 })) as typeof fetch;
+  for (let i = 1; i < SESSION_LIMITS_PER_MINUTE.join; i++) assert.equal((await call('session.join')).error, undefined);
+  assert.equal((await call('session.join')).error?.code, 'RATE_LIMITED');
+  c.advance(60_000 / SESSION_LIMITS_PER_MINUTE.join);
+  assert.equal((await call('session.join')).error, undefined);
+});
+
+test('save.get is rate limited', async () => {
+  const c = clock();
+  const { call } = setup({ now: c.now });
+  for (let i = 0; i < SESSION_LIMITS_PER_MINUTE.saveGet; i++) assert.equal((await call('save.get', { slot: 'a' })).error, undefined);
+  assert.equal((await call('save.get', { slot: 'a' })).error?.code, 'RATE_LIMITED');
 });
 
 test('save.get / save.put with optimistic concurrency', async () => {

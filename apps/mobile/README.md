@@ -14,7 +14,7 @@ pnpm dev:mobile:go                    # Metro for Expo Go (email sign-in + Devel
 
 pnpm --filter @rally/mobile typecheck # app + tests
 pnpm --filter @rally/mobile lint      # expo lint (React Compiler rules), zero warnings
-pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects/anonymous plan, bridge + nav gate, handlers (saves, leaderboards, achievements), controller (play sessions), progress formatting, cover art, social (friendship buttons, people ranking, privacy, requests)
+pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects/anonymous plan, bridge + nav gate, handlers (saves, leaderboards, achievements, join limits, token policy), controller (play sessions, playtime across reloads, diagnostics), session journal, storage reset, progress formatting, cover art, social (friendship buttons, people ranking, privacy, requests)
 node scripts/generate-brand-assets.cjs  # (from apps/mobile) app icon, adaptive icon layers, splash, favicon from src/lib/brand.ts; needs Playwright
 ```
 
@@ -155,14 +155,24 @@ one `onExit`: the game's `exit()`, the close button / back, or `finish('unmount'
 3. **Reads and unlocks.** `leaderboard.top(boardId, { scope, limit })` → `leaderboard_top` mapped to the protocol's
    `{ entries: [{ rank, userId, username, score }] }` ('friends' = the player and their friends);
    `achievement.unlock(key)` → `unlock_achievement` → `{ unlocked, alreadyHad }`.
-4. **Host rate limits** (per launch, token buckets, before any RPC): `save.put` 10/min, `leaderboard.submit` 30/min,
-   `leaderboard.top` 60/min, `achievement.unlock` 60/min. The server applies its own on top.
-5. **Session end.** `finish` (any reason, including `unmount`) closes the session exactly once:
-   `end_play_session(session_id, playtime_s)` (foreground seconds since `ready()`; it also records the play for
-   "Continue playing", like `record_play` did). Only when no session was started does it fall back to
-   `record_play(game_id, playtime_s)`, and only for a game that became ready. Then `onPlayRecorded` invalidates the
-   game page's leaderboard / achievement queries and "Continue playing" (they are also invalidated on exit, since the
-   scores are already stored).
+4. **Host rate limits** (per launch, token buckets, before any RPC): `save.put` 10/min, `save.get` 60/min,
+   `leaderboard.submit` 30/min, `leaderboard.top` 60/min, `achievement.unlock` 60/min, and `session.join` 6/min with
+   one call in flight at a time (each one matchmakes with the user's JWT and reserves a seat; the matchmaking
+   request times out after 15 s). The server applies its own on top.
+5. **Session end.** `finish` (any reason, including `unmount`) closes the session exactly once, and records a play
+   only if the game called `ready()` (in any attempt): `end_play_session(session_id, playtime_s)` (foreground
+   seconds the game was playable, summed over in-page reloads, crashes and overlay reloads of the same session; it
+   also records the play for "Continue playing", like `record_play` did), or `record_play(game_id, playtime_s)` when
+   no session could be started. A launch that never became ready records nothing: its session is left open (no RPC
+   closes a session without counting a play). Then `onPlayRecorded` (`invalidateAfterPlay`) refreshes the game
+   page's leaderboards / achievements, "Continue playing" and the player's own stats, games played and unlocked
+   achievements (the game page is also refreshed on exit, since the scores are already stored).
+6. **Killed in the background.** No JS runs when iOS jettisons or the user swipes away a backgrounded app, so the
+   play route journals the open session in AsyncStorage (`game-host/session-journal.ts`, one record per user):
+   checkpoints at `ready()`, on every move to the background and at a reload / crash, cleared after
+   `end_play_session`. On the next launch `(app)/_layout.tsx` calls `recoverPlaySession`, which closes a played
+   session left behind with its last checkpointed playtime (best effort; a session still running in this JS context
+   is skipped).
 
 The Developer launcher passes in-memory stand-ins (`createMemorySaveStore`, `createMemoryProgressStore`: best score
 per board, every key unlocks) and no play-session service, so `/dev/play` never reaches Supabase.
@@ -177,6 +187,24 @@ be the first") and error states, and refresh on pull-to-refresh. Portrait stacks
 puts them in the scrolling right column. Solo games show "Best" (the primary board's `my_leaderboard_rank`) in
 Details.
 
+**Matchmaking token.** `session.join` sends the Supabase access token to the Colyseus URL only over https/wss
+(`mayAttachToken` in `matchmake.ts`); dev builds (`__DEV__`) may also use plain http to a private-network host
+(`localhost`, 127/8, 10/8, 172.16/12, 192.168/16) for the LAN game server. Otherwise the join fails with
+`MATCHMAKE_FAILED` before the token is read. iOS release builds already refuse public http (ATS allows only local
+networking); Android release builds allow cleartext everywhere (`expo-build-properties` `usesCleartextTraffic`, a
+static flag kept for internal preview builds that load LAN bundles), so this check is what keeps the token off the
+wire there.
+
+**Web storage between games.** Every game is served from the same origin (the Supabase Storage CDN now, `localhost`
+in M6) and the WebView's data store is persistent, so localStorage / IndexedDB / Cache Storage / cookies would leak
+from one game to the next. The injected script (`buildStorageResetScript` in `injected.ts`) wipes them before any
+game script runs on the first page load of each launch (a sessionStorage marker keyed by the launch nonce keeps an
+in-page reload from wiping the launch's own data; an overlay "Reload" is a new launch). The HTTP cache is kept for
+warm loads. Limits: HttpOnly cookies are out of JS's reach (the CDN sets none), an IndexedDB database a game opens
+before the asynchronous `indexedDB.databases()` answer can delay its own deletion, and a game's data still lives on
+disk until the next launch. Games must persist through `save.*` only (architecture §3); the M6 options remain a
+per-game port or clearing the store natively.
+
 WebView navigation: `originWhitelist` is `['*']` on purpose. react-native-webview hands any URL that fails the
 whitelist to `Linking.openURL` (Safari, `tel:`, the app's own `rally://` routes), so `onShouldStartLoadWithRequest`
 is the only gate: `isUrlInsideBundle` in `bridge.ts` allows `about:blank` and http(s) URLs under the bundle's
@@ -186,7 +214,10 @@ identity, never the real profile.
 ## Code map
 
 - `src/lib/supabase.ts`: the typed client (`Database` from `@rally/db`), session in AsyncStorage (a session is over
-  SecureStore's 2 KB limit), PKCE, auto-refresh only while the app is active.
+  SecureStore's 2 KB limit), PKCE, auto-refresh only while the app is active. The session (refresh token) is
+  plaintext in the app sandbox; `android.allowBackup` is off in `app.json` so it is not copied to Google Drive
+  backups. Moving it to SecureStore needs a chunking adapter (values over 2 KB), a one-time migration from
+  AsyncStorage, and a decision on the iOS keychain surviving reinstalls; not done yet.
 - `src/lib/auth/`: session store (`useSession`), age gate logic (UTC calendar date, like `current_date` on the server) +
   device store, provider flows, anonymous-user decisions (`anonymous.ts`), error copy, username checks.
 - `src/lib/profile.ts`, `catalog.ts`, `launch.ts`: React Query hooks over `profiles` (always `PROFILE_COLUMNS` from
@@ -212,18 +243,20 @@ identity, never the real profile.
 
 Bridge host code (`src/game-host/`):
 
-- `injected.ts`: the script installed before any game code runs (`window.__rally = { nonce, version, recv }`)
+- `injected.ts`: the script installed before any game code runs (`window.__rally = { nonce, version, recv }`, the
+  per-launch web storage reset, page diagnostics)
 - `bridge.ts`: envelope validation, nonce + origin checks, request dispatch, event delivery
-- `handlers.ts`: SDK v1 handlers. `ready`, `ping`, `session.join` (Colyseus matchmaking, Supabase JWT attached),
-  `save.get` / `save.put` (10 puts/min token bucket, slot + 64 KB checks), `leaderboard.submit` / `leaderboard.top` /
+- `handlers.ts`: SDK v1 handlers. `ready`, `ping`, `session.join` (Colyseus matchmaking, Supabase JWT attached over
+  https only; single-flight, 6/min), `save.get` / `save.put` (60 gets / 10 puts per min, slot + 64 KB checks), `leaderboard.submit` / `leaderboard.top` /
   `achievement.unlock` (per-method buckets; submit refused for multiplayer games), `ui.loading`, `party.get`, `exit`.
   `invite.open`, `haptics`, `orientation.lock` answer `NOT_SUPPORTED`.
 - `saves.ts` / `supabase-saves.ts`: in-memory saves (Developer launcher) and `game_saves` + the `save_put` RPC
   (its `CONFLICT` maps to the bridge's `CONFLICT`).
 - `progress.ts` / `supabase-progress.ts`: the `ProgressStore` interface, RPC result / error mapping and the in-memory
   store; the Supabase store over `submit_solo_score`, `leaderboard_top`, `unlock_achievement`.
-- `play-session.ts`: the `PlaySessionService` interface (start / end / `record_play` fallback); the play route backs it
-  with `startPlaySession` / `endPlaySession` / `recordPlay` from `src/lib/launch.ts`.
+- `play-session.ts`: the `PlaySessionService` interface (start / end / `record_play` fallback, checkpoint / abandon);
+  the play route backs it with `createPlaySessionService` from `src/lib/launch.ts` (the RPCs wrapped by
+  `session-journal.ts`).
 - `controller.ts`: one game session's state (bridge, nonce, timers, playtime, play session, metrics) outside React.
 - `GameHost.tsx`: WebView configuration from architecture §2, lifecycle (pause/resume/back/crash) and overlays; renders
   the controller's snapshot through `useSyncExternalStore`, so it passes the React Compiler lint rules.

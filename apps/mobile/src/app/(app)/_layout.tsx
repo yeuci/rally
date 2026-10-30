@@ -1,13 +1,21 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { Redirect, Stack } from 'expo-router';
+import { useEffect } from 'react';
 import { useUniwind } from 'uniwind';
 import { useSession } from '@/lib/auth/session';
+import { recoverPlaySession } from '@/lib/launch';
 import { NAV_THEME } from '@/lib/theme';
 
 export const unstable_settings = { anchor: 'index' };
 
 export default function AppLayout() {
-  const { signedIn } = useSession();
+  const { signedIn, userId } = useSession();
   const { theme } = useUniwind();
+  const qc = useQueryClient();
+  // A play session an earlier run left open (app killed while a game was in the background) is closed now.
+  useEffect(() => {
+    if (signedIn && userId) void recoverPlaySession(qc, userId);
+  }, [signedIn, userId, qc]);
   const nav = NAV_THEME[theme ?? 'dark'];
   // Signed out (or an unlinked anonymous session) never sees the app: back to the welcome screen.
   if (!signedIn) return <Redirect href="/welcome" />;

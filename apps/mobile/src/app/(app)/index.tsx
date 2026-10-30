@@ -41,18 +41,22 @@ export default function Dashboard() {
   const tileWidth = rowTileWidth(width, pad.left, wide);
   const padStyle = { paddingLeft: pad.left, paddingRight: pad.right };
   const lastPlayed = new Map(recent.data?.map((g) => [g.id, g.last_played_at]));
-  const refreshing = featured.isRefetching || newest.isRefetching || recent.isRefetching || favorites.isRefetching;
+  // Only the pull gesture shows the spinner: background refetches (focus, reconnect, a finished play invalidating
+  // "Continue playing") would otherwise pop it up and shift the content.
+  const [refreshing, setRefreshing] = useState(false);
   const failed = featured.isError && newest.isError;
   const name = profile.data ? profile.data.display_name || profile.data.username : null;
   const glow = Math.max(width, 360) * 1.4;
 
-  const refresh = () => {
-    void featured.refetch();
-    void newest.refetch();
-    void recent.refetch();
-    void favorites.refetch();
-    void requests.refetch();
-  };
+  async function refresh() {
+    setRefreshing(true);
+    try {
+      // refetch() resolves, never throws.
+      await Promise.all([featured.refetch(), newest.refetch(), recent.refetch(), favorites.refetch(), requests.refetch()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   return (
     <ScrollView
@@ -64,7 +68,7 @@ export default function Dashboard() {
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
-          onRefresh={refresh}
+          onRefresh={() => void refresh()}
           // The header is hidden and the list starts under the status bar: push the spinner below it. RN 0.88
           // applies this on both platforms (Android SwipeRefreshLayout offset; iOS shifts the UIRefreshControl).
           progressViewOffset={insets.top}

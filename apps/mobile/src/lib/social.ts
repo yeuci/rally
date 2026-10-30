@@ -159,7 +159,12 @@ export function socialErrorKind(err: unknown): SocialErrorKind {
   return 'other';
 }
 
-export function describeSocialError(err: unknown): string {
+/**
+ * User-facing copy for a social RPC error. `intent` is the friendship action that failed, when there is one: a
+ * NOT_FOUND from `respond_friend_request` (accept / decline) means the request is gone (cancelled, or answered on
+ * another device), not that the player is.
+ */
+export function describeSocialError(err: unknown, intent?: FriendIntent): string {
   switch (socialErrorKind(err)) {
     case 'anonymous':
       return 'Finish creating your account first: link Apple, Google or email to add friends.';
@@ -168,7 +173,9 @@ export function describeSocialError(err: unknown): string {
     case 'blocked':
       return "You can't interact with this player.";
     case 'not-found':
-      return 'That player no longer exists.';
+      return intent === 'accept' || intent === 'decline'
+        ? 'That friend request is no longer there. It may have been cancelled.'
+        : 'That player no longer exists.';
     case 'invalid':
       return "That didn't work. Refresh and try again.";
     case 'rate-limited':

@@ -112,6 +112,14 @@ test('social error mapping by message prefix', () => {
   assert.match(describeSocialError({ message: 'ANONYMOUS_FORBIDDEN' }), /link Apple, Google or email/);
 });
 
+test('NOT_FOUND from respond_friend_request means the request is gone, not the player', () => {
+  const gone = { message: 'NOT_FOUND: friend request' };
+  assert.match(describeSocialError(gone, 'accept'), /request is no longer there/);
+  assert.match(describeSocialError(gone, 'decline'), /request is no longer there/);
+  assert.match(describeSocialError({ message: 'NOT_FOUND: user' }, 'send'), /player no longer exists/);
+  assert.match(describeSocialError({ message: 'NOT_FOUND: user' }), /player no longer exists/);
+});
+
 test('peopleQuery / isPeopleOnlyQuery', () => {
   assert.equal(peopleQuery('  @Ann '), 'Ann');
   assert.equal(peopleQuery('@@ann'), 'ann');

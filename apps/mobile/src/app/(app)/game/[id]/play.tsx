@@ -5,13 +5,11 @@ import { ActivityIndicator, View } from 'react-native';
 import { config, toWsUrl } from '@/config';
 import { GameHost, type GameHostResult } from '@/game-host/GameHost';
 import type { MatchmakingTarget } from '@/game-host/handlers';
-import type { PlaySessionService } from '@/game-host/play-session';
 import { createSupabaseProgressStore } from '@/game-host/supabase-progress';
 import { createSupabaseSaveStore } from '@/game-host/supabase-saves';
 import { useSession } from '@/lib/auth/session';
-import { catalogKeys } from '@/lib/catalog';
 import { progressKeys } from '@/lib/game-progress';
-import { endPlaySession, recordPlay, startPlaySession, useGameConsent, usePlaySessionPlan } from '@/lib/launch';
+import { createPlaySessionService, invalidateAfterPlay, useGameConsent, usePlaySessionPlan } from '@/lib/launch';
 import { useProfile, resolveAvatarUrl } from '@/lib/profile';
 import { supabase } from '@/lib/supabase';
 
@@ -23,13 +21,10 @@ import { supabase } from '@/lib/supabase';
  * takes effect on the next launch, never by remounting or redirecting a running game. Leaving any other way
  * (sign-out, a navigation from outside) unmounts GameHost, which still reports `finish('unmount')`, so the
  * server play session (`start_play_session` at mount → `end_play_session`, or `record_play` if it never started)
- * is closed exactly once. Afterwards the game page's leaderboards, achievements and "Continue playing" refresh.
+ * is closed exactly once (a play is recorded only if the game became ready), and journaled on the device so a
+ * kill in the background is closed on the next launch. Afterwards the game page's leaderboards, achievements,
+ * "Continue playing" and the player's own profile refresh.
  */
-const PLAY_SESSIONS: PlaySessionService = {
-  start: (game) => startPlaySession(game.id, game.version),
-  end: endPlaySession,
-  recordPlay,
-};
 
 export default function PlayScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -41,6 +36,7 @@ export default function PlayScreen() {
 
   const saves = useMemo(() => (userId && id ? createSupabaseSaveStore(userId, id) : null), [userId, id]);
   const progress = useMemo(() => (id ? createSupabaseProgressStore(id) : null), [id]);
+  const playSessions = useMemo(() => (userId ? createPlaySessionService(userId) : null), [userId]);
   const room = plan.data?.status === 'ready' ? plan.data.room : null;
   const matchmaking = useMemo<MatchmakingTarget | null>(
     () =>
@@ -50,6 +46,8 @@ export default function PlayScreen() {
             wsUrl: toWsUrl(config.colyseusUrl),
             roomName: room,
             getAccessToken: async () => (await supabase.auth.getSession()).data.session?.access_token,
+            // The JWT only goes over https/wss; dev builds may also use a LAN game server over http.
+            allowPrivateHttp: __DEV__,
           }
         : null,
     [room],
@@ -57,15 +55,13 @@ export default function PlayScreen() {
 
   // The session is closed (or recorded) after onExit: then scores, unlocks and "Continue playing" are current.
   const onPlayRecorded = useCallback(() => {
-    if (!id) return;
-    void qc.invalidateQueries({ queryKey: catalogKeys.recent(userId) });
-    void qc.invalidateQueries({ queryKey: progressKeys.game(userId, id) });
+    if (id) invalidateAfterPlay(qc, userId, id);
   }, [id, qc, userId]);
 
   const onExit = useCallback(
     (result: GameHostResult) => {
       // Scores and unlocks submitted during the game are already stored: refresh the game page underneath now.
-      if (id && result.readyMs !== null) void qc.invalidateQueries({ queryKey: progressKeys.game(userId, id) });
+      if (id && result.played) void qc.invalidateQueries({ queryKey: progressKeys.game(userId, id) });
       // Already leaving: the screen is unmounting (navigation away, sign-out).
       if (result.reason === 'unmount') return;
       if (router.canGoBack()) router.back();
@@ -84,7 +80,7 @@ export default function PlayScreen() {
 
   const p = plan.data;
   const me = profile.data;
-  if (!id || p?.status !== 'ready' || consent.data !== true || !me || !saves || !progress) {
+  if (!id || p?.status !== 'ready' || consent.data !== true || !me || !saves || !progress || !playSessions) {
     return <Redirect href={{ pathname: '/game/[id]', params: { id: id ?? '' } }} />;
   }
 
@@ -101,7 +97,7 @@ export default function PlayScreen() {
       progress={progress}
       // Multiplayer results are written by the room (architecture §8), never client-reported.
       soloScores={!p.manifest.server}
-      playSessions={PLAY_SESSIONS}
+      playSessions={playSessions}
       matchmaking={matchmaking}
       onExit={onExit}
       onPlayRecorded={onPlayRecorded}

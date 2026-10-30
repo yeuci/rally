@@ -81,6 +81,22 @@ export const NEUTRAL_REFUSAL = "We couldn't create an account. Please try again 
 export const EMAIL_ACCOUNT_EXISTS = 'An account with this email already exists — sign in with email instead.';
 export const USERNAME_JUST_TAKEN = 'That username was just taken. Try another one.';
 
+export const LINK_EXPIRED = 'This link was opened on a different device or has expired. Sign in to continue.';
+
+/**
+ * Copy for an error that arrived in a deep link (`rally://auth/callback?error=…&error_code=…&error_description=…`).
+ * Anyone can craft such a link, so its text is never shown: only GoTrue's known `error_code`s pick one of our own
+ * messages, everything else gets a generic one.
+ */
+export function describeCallbackError(params: { error?: string | null; errorCode?: string | null }): string {
+  const code = params.errorCode ?? '';
+  if (code === 'otp_expired' || code === 'flow_state_expired' || code === 'flow_state_not_found' || code === 'bad_code_verifier') {
+    return LINK_EXPIRED;
+  }
+  if (params.error === 'access_denied') return 'Sign-in was cancelled or the link is no longer valid. Sign in to continue.';
+  return "This sign-in link couldn't be used. Sign in to continue.";
+}
+
 export function describeAuthError(err: unknown): string {
   const { message, code } = parts(err);
   if (isAgeGateError(err)) return NEUTRAL_REFUSAL;
