@@ -17,8 +17,8 @@ const TITLE_CLASS: Record<Variant, string> = {
 };
 
 /**
- * Game cover. `screenshots[0]` when there is one (expo-image under a scrim), else generated art from the game id
- * (lib/cover-art.ts): same id, same cover. `showTitle` sets the title in the art like box art; `scrim` darkens the
+ * Game cover. `uri` when there is one (expo-image under a scrim; callers pick it with lib/game-art.ts `coverUriFor`),
+ * else generated art from the game id (lib/cover-art.ts): same id, same cover. `showTitle` sets the title in the art like box art; `scrim` darkens the
  * bottom for overlaid type, or fades into `scrimColor` (the page background) for the game page hero. Memoised:
  * covers sit in lists.
  */

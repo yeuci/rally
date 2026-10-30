@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseEnvelope, GameManifestSchema, RequestSchemas } from '../src/index.ts';
+import {
+  parseEnvelope,
+  GameManifestSchema,
+  RequestSchemas,
+  isLocalArtPath,
+  normalizeLocalArtPath,
+} from '../src/index.ts';
 
 const nonce = 'a'.repeat(32);
 
@@ -76,4 +82,62 @@ test('manifest leaderboards and achievements: optional period, description and i
     GameManifestSchema.safeParse({ ...base, achievements: [{ key: 'a', title: 'A', icon: '' }] }).success,
     false,
   );
+});
+
+test('manifest art: icon, cover and screenshots take absolute URLs or local paths inside the game folder', () => {
+  const base = {
+    id: 'stack',
+    version: '1.0.0',
+    title: 'Stack',
+    engine: 'playcanvas',
+    players: { min: 1, max: 1 },
+    modes: ['solo'],
+    ageRating: '4+',
+  };
+  const m = GameManifestSchema.parse({
+    ...base,
+    icon: 'art/icon.png',
+    cover: './art/cover.JPG',
+    screenshots: ['art/shot-1.webp', 'https://cdn.example.com/s.jpeg', 'shots/2.jpg'],
+  });
+  assert.equal(m.icon, 'art/icon.png');
+  assert.equal(m.cover, './art/cover.JPG');
+  assert.equal(m.screenshots.length, 3);
+  // Optional: absent when not set.
+  const bare = GameManifestSchema.parse(base);
+  assert.equal(bare.icon, undefined);
+  assert.equal(bare.cover, undefined);
+  assert.deepEqual(bare.screenshots, []);
+
+  const bad = (field: 'icon' | 'cover', value: string) =>
+    assert.equal(GameManifestSchema.safeParse({ ...base, [field]: value }).success, false, `${field}: ${value}`);
+  for (const v of [
+    '',
+    '../secret.png',
+    'art/../../x.png',
+    '/etc/icon.png',
+    'art\\icon.png',
+    '.hidden/icon.png',
+    'art/icon.gif',
+    'art/icon',
+    'not a path.png',
+    'javascript:alert(1)',
+    'data:image/png;base64,AAAA',
+    'ftp://cdn.example.com/a.png',
+    'C:/art/icon.png',
+  ]) {
+    bad('icon', v);
+    bad('cover', v);
+  }
+  assert.equal(GameManifestSchema.safeParse({ ...base, screenshots: ['../a.png'] }).success, false);
+  assert.equal(
+    GameManifestSchema.safeParse({ ...base, screenshots: Array.from({ length: 17 }, (_, i) => `art/${i}.png`) }).success,
+    false,
+  );
+
+  assert.equal(isLocalArtPath('art/icon.png'), true);
+  assert.equal(isLocalArtPath('https://cdn.example.com/a.png'), false);
+  assert.equal(isLocalArtPath('javascript:alert(1)'), false);
+  assert.equal(normalizeLocalArtPath('./art/icon.png'), 'art/icon.png');
+  assert.equal(normalizeLocalArtPath('art/icon.png'), 'art/icon.png');
 });

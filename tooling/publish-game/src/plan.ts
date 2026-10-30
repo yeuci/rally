@@ -1,5 +1,13 @@
 import mime from 'mime';
-import { GameManifestSchema, type GameManifest, type LeaderboardPeriod, type ManifestFile } from '@rally/protocol';
+import {
+  GameManifestSchema,
+  isLocalArtPath,
+  normalizeLocalArtPath,
+  type GameManifest,
+  type LeaderboardPeriod,
+  type ManifestFile,
+} from '@rally/protocol';
+import type { PlannedArtUpload } from './art.ts';
 import { cacheControlFor } from './cache.ts';
 
 /** Supabase Storage bucket holding every game bundle (packages/db migration `20261029000000_m1_init.sql`). */
@@ -11,7 +19,11 @@ export interface GamesRow {
   title: string;
   description: string;
   genres: string[];
+  /** CDN URLs (local game.json paths are uploaded and rewritten first). */
   screenshots: string[];
+  /** null clears an icon / cover that was removed from game.json. */
+  icon_url: string | null;
+  cover_url: string | null;
   engine: GameManifest['engine'];
   orientation: GameManifest['orientation'];
   min_players: number;
@@ -77,6 +89,11 @@ export interface PublishPlan {
   /** Overwrite an existing `<slug>/<version>/` (normally refused: a published version is immutable). */
   force: boolean;
   uploads: PlannedUpload[];
+  /**
+   * Local art files from game.json (read from the game folder, not dist/), uploaded content-addressed under
+   * `<slug>/art/` with upsert (skipped when the object already exists). Their URLs replace the paths in `db`.
+   */
+  art: PlannedArtUpload[];
   db: {
     /** Upserted on `id`; a new row gets the column default `status = 'draft'`. */
     games: GamesRow;
@@ -117,6 +134,8 @@ export function gamesRowFromManifest(m: GameManifest): GamesRow {
     description: m.description,
     genres: m.genres,
     screenshots: m.screenshots,
+    icon_url: m.icon ?? null,
+    cover_url: m.cover ?? null,
     engine: m.engine,
     orientation: m.orientation,
     min_players: m.players.min,
@@ -124,6 +143,26 @@ export function gamesRowFromManifest(m: GameManifest): GamesRow {
     modes: m.modes,
     age_rating: m.ageRating,
     min_app_version: m.minAppVersion,
+  };
+}
+
+/**
+ * The manifest with every local art path replaced by the URL of its planned upload. Throws if a local path has no
+ * upload (call {@link planArt} first), so a published manifest never carries a path the app cannot load.
+ */
+export function applyArtUrls(m: GameManifest, uploads: readonly PlannedArtUpload[]): GameManifest {
+  const urls = new Map(uploads.map((u) => [u.source, u.url]));
+  const resolve = (field: string, value: string): string => {
+    if (!isLocalArtPath(value)) return value;
+    const url = urls.get(normalizeLocalArtPath(value));
+    if (!url) throw new Error(`${field}: local art path "${value}" has no planned upload (run planArt first)`);
+    return url;
+  };
+  return {
+    ...m,
+    ...(m.icon !== undefined && { icon: resolve('icon', m.icon) }),
+    ...(m.cover !== undefined && { cover: resolve('cover', m.cover) }),
+    screenshots: m.screenshots.map((s, i) => resolve(`screenshots[${i}]`, s)),
   };
 }
 
@@ -153,11 +192,16 @@ export function buildPlan(input: {
   files: ManifestFile[];
   supabaseUrl: string;
   csp: string;
+  /** From `planArt`; required when game.json has local art paths. */
+  art?: PlannedArtUpload[];
   force?: boolean;
   activate?: boolean;
   publish?: boolean;
 }): PublishPlan {
-  const { manifest, files } = input;
+  const { files } = input;
+  const art = input.art ?? [];
+  // Local art paths → CDN URLs, so the games row and the stored manifest only ever carry URLs.
+  const manifest = applyArtUrls(input.manifest, art);
   const entry = files.find((f) => f.path === manifest.entry);
   if (!entry) throw new Error(`entry document ${manifest.entry} is not in the build output`);
   const prefix = `${manifest.id}/${manifest.version}/`;
@@ -183,8 +227,9 @@ export function buildPlan(input: {
       sha256: f.sha256,
       headers: { 'content-type': contentTypeFor(f.path), 'cache-control': cacheControlFor(f.path, manifest.entry) },
     })),
+    art,
     db: {
-      games: gamesRowFromManifest(manifest),
+      games: gamesRowFromManifest(published),
       gameVersion: {
         game_id: manifest.id,
         version: manifest.version,

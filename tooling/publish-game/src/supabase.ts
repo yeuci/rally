@@ -33,14 +33,16 @@ export function assertServiceRoleKey(key: string): void {
 }
 
 /**
- * Upload the bundle and write the catalog rows. Storage first, so a version row never points at missing files.
- * Then games → game_versions → leaderboards/achievements → pointer flip.
+ * Upload the art and the bundle, then write the catalog rows. Storage first, so neither a version row nor the games
+ * row ever points at missing files. Then games → game_versions → leaderboards/achievements → pointer flip.
+ * `gameDir` (`games/<slug>`) is where local art files are read from; required when `plan.art` is not empty.
  */
 export async function executePublish(
   sb: SupabaseClient,
   plan: PublishPlan,
   distDir: string,
   log: Log = console.log,
+  opts: { gameDir?: string } = {},
 ): Promise<{ versionId: string }> {
   const { slug, version, prefix } = plan;
   const storage = sb.storage.from(BUCKET);
@@ -62,23 +64,46 @@ export async function executePublish(
     );
   }
 
-  // 2. Upload (a few at a time; the PlayCanvas chunk alone is ~2 MB).
-  let done = 0;
-  const queue = [...plan.uploads];
-  const worker = async () => {
-    for (let u = queue.shift(); u; u = queue.shift()) {
-      const body = await readFile(path.join(distDir, u.path));
-      const { error } = await storage.upload(u.objectKey, body, {
-        contentType: u.headers['content-type'],
-        upsert: plan.force,
-        headers: { 'cache-control': u.headers['cache-control'] },
+  // 2a. Art: content-addressed under <slug>/art/, so an object that already exists has these exact bytes (skip it)
+  // and re-uploading is harmless (upsert).
+  if (plan.art.length > 0) {
+    if (!opts.gameDir) throw new Error('executePublish: plan.art is not empty but no gameDir was given');
+    const gameDir = opts.gameDir;
+    const artFolder = `${slug}/art`;
+    const present = await storage.list(artFolder, { limit: 1000 });
+    if (present.error) throw new PublishError(`cannot list ${BUCKET}/${artFolder}: ${present.error.message}`);
+    const existing = new Set(present.data.map((o) => `${artFolder}/${o.name}`));
+    let artDone = 0;
+    await inPool(plan.art, 4, async (a) => {
+      artDone++;
+      if (existing.has(a.objectKey)) {
+        log(`  = ${a.objectKey}  (already uploaded)  [art ${artDone}/${plan.art.length}]`);
+        return;
+      }
+      const body = await readFile(path.join(gameDir, a.source));
+      const { error } = await storage.upload(a.objectKey, body, {
+        contentType: a.headers['content-type'],
+        upsert: true,
+        headers: { 'cache-control': a.headers['cache-control'] },
       });
-      if (error) throw new PublishError(`upload ${BUCKET}/${u.objectKey} failed: ${error.message}`);
-      done++;
-      log(`  ↑ ${u.objectKey}  (${u.size} B, ${u.headers['cache-control']})  [${done}/${plan.uploads.length}]`);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(4, plan.uploads.length) }, worker));
+      if (error) throw new PublishError(`upload ${BUCKET}/${a.objectKey} failed: ${error.message}`);
+      log(`  ↑ ${a.objectKey}  (${a.size} B, ${a.usedBy.join(', ')})  [art ${artDone}/${plan.art.length}]`);
+    });
+  }
+
+  // 2b. Bundle (a few at a time; the PlayCanvas chunk alone is ~2 MB).
+  let done = 0;
+  await inPool(plan.uploads, 4, async (u) => {
+    const body = await readFile(path.join(distDir, u.path));
+    const { error } = await storage.upload(u.objectKey, body, {
+      contentType: u.headers['content-type'],
+      upsert: plan.force,
+      headers: { 'cache-control': u.headers['cache-control'] },
+    });
+    if (error) throw new PublishError(`upload ${BUCKET}/${u.objectKey} failed: ${error.message}`);
+    done++;
+    log(`  ↑ ${u.objectKey}  (${u.size} B, ${u.headers['cache-control']})  [${done}/${plan.uploads.length}]`);
+  });
 
   // 3. Catalog row: upsert only the manifest-owned columns, so status/featured_rank survive.
   const before = await sb.from('games').select('status').eq('id', slug).maybeSingle();
@@ -116,6 +141,15 @@ export async function executePublish(
     );
   }
   return { versionId };
+}
+
+/** Run `fn` over `items` with at most `size` calls in flight; rejects on the first failure. */
+async function inPool<T>(items: readonly T[], size: number, fn: (item: T) => Promise<void>): Promise<void> {
+  const queue = [...items];
+  const worker = async () => {
+    for (let item = queue.shift(); item !== undefined; item = queue.shift()) await fn(item);
+  };
+  await Promise.all(Array.from({ length: Math.min(size, queue.length) }, worker));
 }
 
 /** `--rollback <version>`: point `games.current_version_id` at an existing version. Nothing is uploaded. */

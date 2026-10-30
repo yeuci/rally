@@ -157,6 +157,8 @@ Requests resolve a promise with a 10 s timeout; `evt` is fire-and-forget.
 
 **Catalog:** `games` + `game_versions` in Postgres read with React Query; live counts are aggregated from `game_rooms` (§4).
 
+**Artwork:** game.json `icon` (square, dashboard tiles), `cover` (wide key art: featured card, game page hero without screenshots, tile fallback) and `screenshots` (game page gallery, 0–16) are absolute URLs or files in the game folder (`art/icon.png`; png/jpg/webp, ≤ 2 MB). The publisher uploads local files content-addressed to `games/<slug>/art/<name>-<sha256[0:12]>.<ext>` (immutable cache) and rewrites them to CDN URLs, so `games.icon_url` / `cover_url` / `screenshots` and `game_versions.manifest` only hold URLs. The app picks tile = icon → cover → first screenshot, feature/hero = cover → first screenshot, else generated art.
+
 ---
 
 ## 4. Supabase data model (RLS on every table)
@@ -174,7 +176,7 @@ Requests resolve a promise with a 10 s timeout; `evt` is fire-and-forget.
 | `party_seats` | `launch_id`, `user_id`, `reservation` jsonb | Owner-only read; each member fetches its own seat |
 | `conversations` / `conversation_members` / `messages` | `kind` (dm/party); `last_read_at`, `muted`; `body`, `sender_id`, `was_filtered` | `send_message` RPC applies the word filter and fans out to members' inbox channels |
 | `invites` | `id`, `kind` (party/room), `from_id`, `to_id`, `party_id`, `game_id`, `room_id`, `invite_code`, `status`, `expires_at` | Drives inbox + push |
-| `games` | `id` (slug), `title`, `description`, `genres[]`, `screenshots`, `engine`, `orientation`, `min/max_players`, `modes[]`, `age_rating`, `status`, `featured_rank`, `current_version_id`, `min_app_version` | Public read |
+| `games` | `id` (slug), `title`, `description`, `genres[]`, `icon_url`, `cover_url`, `screenshots`, `engine`, `orientation`, `min/max_players`, `modes[]`, `age_rating`, `status`, `featured_rank`, `current_version_id`, `min_app_version` | Public read |
 | `game_versions` | `id`, `game_id`, `version`, `entry_url`, `manifest` jsonb, `sha256`, `published_at` | Public read |
 | `game_rooms` | `room_id` PK, `game_id`, `mode` (public/private/party), `clients`, `max_clients`, `locked`, `owner_id`, `party_id`, `invite_code`, `metadata` jsonb, `updated_at` | Mirrored by Colyseus (throttled upserts; rows older than 60 s treated dead). Server browser, "friends in game" and live counts read this |
 | `game_consents` | `(user_id, game_id)`, `granted_at` | 4.7.3 |

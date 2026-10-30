@@ -7,13 +7,15 @@ import { Icon } from '@/components/ui/icon';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Text } from '@/components/ui/text';
 import { playersLabel, type GameCard as GameCardData } from '@/lib/catalog';
+import { coverUriFor } from '@/lib/game-art';
 import { featuredCardHeight } from '@/lib/layout';
 import { cn } from '@/lib/utils';
 import { GameCover } from './game-cover';
 
 /**
- * Hero card for the featured carousel: full-bleed cover, big title, age chip, Play pill (opens the game page).
- * `banner` (wide windows): a 16:7 banner with the title, meta and Play pill over its left third.
+ * Hero card for the featured carousel: full-bleed cover (game.json `cover`, else the first screenshot), big title, age
+ * chip, Play pill (opens the game page). `banner` (wide windows): a 16:7 banner with the title, meta and Play pill
+ * over its left third.
  */
 export const FeaturedGameCard = memo(function FeaturedGameCard({
   game,
@@ -37,7 +39,7 @@ export const FeaturedGameCard = memo(function FeaturedGameCard({
         <GameCover
           id={game.id}
           title={game.title}
-          uri={game.screenshots[0]}
+          uri={coverUriFor(game, 'feature')}
           variant="feature"
           showTitle={false}
           scrim={banner ? 'side' : 'dark'}
@@ -100,7 +102,10 @@ function PlayPill() {
   );
 }
 
-/** Compact tile for horizontal rows and the search grid: box-art cover with the title set in, one meta line. */
+/**
+ * Compact tile for horizontal rows and the search grid: box-art cover (game.json `icon`, else `cover`, else the first
+ * screenshot) with the title set in, one meta line.
+ */
 export const GameTile = memo(function GameTile({
   game,
   className,
@@ -124,7 +129,7 @@ export const GameTile = memo(function GameTile({
         <GameCover
           id={game.id}
           title={game.title}
-          uri={game.screenshots[0]}
+          uri={coverUriFor(game, 'tile')}
           className="border-border rounded-2xl border"
           style={{ width, height: width }}
         />

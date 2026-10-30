@@ -23,6 +23,21 @@ pnpm --filter @rally/publish-game publish-game stack --dry-run
 | `client/src/scene.ts` | PlayCanvas rendering: tower, slider, falling debris, perfect flash, follow / overview camera. |
 | `client/src/main.ts`  | Boot, input, HUD, sound and the Rally integration, all through `@rally/game-kit`.             |
 
+## Artwork
+
+`game.json` ships with `"screenshots": []` and no `icon` / `cover`, so the app shows generated art. To add real art,
+drop the files in `games/stack/art/` and list them (paths relative to `games/stack/`), then publish:
+
+```json
+"icon": "art/icon.png",
+"cover": "art/cover.jpg",
+"screenshots": ["art/shot-1.png", "art/shot-2.png", "art/shot-3.png"]
+```
+
+Icon 1024×1024 (dashboard tiles), cover 1920×1080 (featured card, game page hero without screenshots), 3–5 portrait
+screenshots at device resolution (game page gallery); png/jpg/webp, ≤ 2 MB each. Only list files that exist: a
+missing file fails the publish. Details: [tooling/publish-game](../../tooling/publish-game/README.md#artwork-icon-cover-screenshots).
+
 ## Deterministic, elapsed-time simulation
 
 iOS Low Power Mode halves `requestAnimationFrame` to 30 Hz, so nothing in the rules is integrated per frame:

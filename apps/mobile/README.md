@@ -99,7 +99,7 @@ when they do surface (profile edits go through PostgREST, which passes them on).
 | `/forgot-password`, `/check-email` | `src/app/(auth)/…` | reset link request, confirmation notice |
 | `/auth/callback`, `/auth/reset-password` | `src/app/auth/…` | deep-link targets (PKCE code exchange, new password) |
 | `/` | `src/app/(app)/index.tsx` | dashboard: search, featured carousel, continue playing, favorites, new |
-| `/game/:id` | `src/app/(app)/game/[id]/index.tsx` | game page: screenshots, details (+ "Best" for solo games), favorite, Play → consent sheet, leaderboard, achievements |
+| `/game/:id` | `src/app/(app)/game/[id]/index.tsx` | game page: screenshot gallery (else cover art), details (+ "Best" for solo games), favorite, Play → consent sheet, leaderboard, achievements |
 | `/game/:id/play` | `src/app/(app)/game/[id]/play.tsx` | full-screen `GameHost` for the published version |
 | `/profile`, `/profile/edit` | `src/app/(app)/profile/…` | profile, edit (display name, username, bio), sign out, delete-account request |
 | `/u/:username` | `src/app/(app)/u/[username].tsx` | public profile: avatar, names, bio, achievements + games played (`public_profile_stats`), unlocked achievements; your own username redirects to `/profile` |
@@ -180,7 +180,9 @@ identity, never the real profile.
 - `src/lib/brand.ts`: the monochrome palette (shadcn neutral: near-black `#0A0A0A` / white, primary = foreground, no
   accent hue; `destructive` is the only colour), the logo mark's geometry (drawn in the foreground colour) and the
   splash layout (`SPLASH.imageWidth` mirrors `app.json`); `src/lib/cover-art.ts`: generated greyscale covers (grey
-  gradient + shapes from a hash of the game id) for games without screenshots.
+  gradient + shapes from a hash of the game id) for games without art; `src/lib/game-art.ts`: which uploaded art each
+  surface shows (`coverUriFor`: tiles = `icon_url` → `cover_url` → first screenshot; featured card and the game page
+  hero without screenshots = `cover_url` → first screenshot; the hero gallery = `screenshots`).
 - `src/components/rally/`: app components (logo + wordmark, cold-start intro overlay, game cover / cards / rows, faint
   white glows, avatar with ring, empty states, form fields, consent dialog, segmented control, leaderboard and
   achievements sections).

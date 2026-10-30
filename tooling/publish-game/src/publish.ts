@@ -2,13 +2,14 @@ import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createClient } from '@supabase/supabase-js';
+import { planArt } from './art.ts';
 import { runViteBuild } from './build.ts';
 import { buildCsp, colyseusOrigins, originOf } from './csp.ts';
 import { PublishError } from './errors.ts';
 import { hashDirectory } from './hash.ts';
 import { processIndexHtml } from './html.ts';
 import { loadManifest } from './manifest.ts';
-import { buildPlan, type PublishPlan } from './plan.ts';
+import { BUCKET, buildPlan, type PublishPlan } from './plan.ts';
 import { assertServiceRoleKey, executePublish, executeRollback } from './supabase.ts';
 
 /** Repo root, from this file's location (tooling/publish-game/src). */
@@ -58,6 +59,15 @@ export async function publishGame(opts: PublishOptions): Promise<PublishResult> 
   const supabaseUrl = resolveSupabaseUrl(env, Boolean(opts.dryRun), log);
   const serviceKey = opts.dryRun ? undefined : requireServiceKey(env);
 
+  // 1b. Artwork: local icon / cover / screenshots from the game folder (checked before the build, so a missing
+  // file fails fast). Uploaded content-addressed; the plan rewrites the paths to their CDN URLs.
+  const art = await planArt({ manifest, gameDir, supabaseUrl });
+  if (art.uploads.length > 0) {
+    const total = art.uploads.reduce((sum, u) => sum + u.size, 0);
+    log(`• art: ${art.uploads.length} local file(s), ${formatBytes(total)} → ${BUCKET}/${manifest.id}/art/`);
+  }
+  for (const w of art.warnings) log(`  warning: ${w}`);
+
   // 2. Build.
   const clientDir = path.join(gameDir, 'client');
   if (opts.build !== false) await runViteBuild(clientDir, log);
@@ -97,6 +107,7 @@ export async function publishGame(opts: PublishOptions): Promise<PublishResult> 
     files,
     supabaseUrl,
     csp,
+    art: art.uploads,
     force: opts.force,
     activate: opts.activate,
     publish: opts.publish,
@@ -115,7 +126,7 @@ export async function publishGame(opts: PublishOptions): Promise<PublishResult> 
   // 5 + 6. Upload and catalog rows.
   log(`• uploading to ${plan.bucket}/${plan.prefix} on ${originOf(supabaseUrl)}`);
   const sb = createClient(supabaseUrl, serviceKey!, { auth: { persistSession: false, autoRefreshToken: false } });
-  const { versionId } = await executePublish(sb, plan, distDir, log);
+  const { versionId } = await executePublish(sb, plan, distDir, log, { gameDir });
   log(`\nPublished ${plan.slug}@${plan.version}: ${plan.entryUrl}`);
   return { plan, versionId };
 }
@@ -164,6 +175,19 @@ export function printPlan(plan: PublishPlan, log: (l: string) => void): void {
     log(
       `    ${u.path.padEnd(width)}  ${formatBytes(u.size).padStart(9)}  ${u.headers['content-type'].padEnd(32)}  ${u.headers['cache-control']}`,
     );
+  }
+  if (plan.art.length > 0) {
+    log(`  art        ${plan.bucket}/${plan.slug}/art/  (content-addressed, upsert; skipped when already uploaded)`);
+    const srcWidth = Math.max(...plan.art.map((a) => a.source.length));
+    const keyWidth = Math.max(...plan.art.map((a) => a.objectKey.length));
+    for (const a of plan.art) {
+      const dims = a.width !== null && a.height !== null ? `${a.width}×${a.height}` : '?×?';
+      log(
+        `    ${a.source.padEnd(srcWidth)}  → ${a.objectKey.padEnd(keyWidth)}  ${formatBytes(a.size).padStart(9)}  ${a.headers['content-type'].padEnd(10)}  ${dims.padStart(9)}  ${a.usedBy.join(', ')}`,
+      );
+    }
+  } else {
+    log(`  art        none (no local icon / cover / screenshots in game.json)`);
   }
   log(`  games      upsert on id (status/featured_rank untouched; new rows start as draft)`);
   log(indent(JSON.stringify(plan.db.games, null, 2), '    '));

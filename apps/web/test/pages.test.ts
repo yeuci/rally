@@ -68,6 +68,27 @@ test('stack game page: screenshots, portrait strip, solo, single player, large O
   );
 });
 
+test('game page art: the cover is the share image; local art paths from game.json are never rendered', () => {
+  const withCover = renderGamePage(ctxFor(), {
+    ...stackManifest,
+    cover: 'https://cdn.rally.app/games/stack/cover.jpg',
+  });
+  assert.equal(meta(withCover, 'property', 'og:image'), 'https://cdn.rally.app/games/stack/cover.jpg');
+  assert.equal(meta(withCover, 'name', 'twitter:card'), 'summary_large_image');
+  assert.match(withCover, /<ul class="shots shots-portrait">/, 'screenshots still listed');
+
+  // Local catalog (unpublished game.json): paths are relative to games/<slug>/, not to the site.
+  const local = renderGamePage(ctxFor(), {
+    ...stackManifest,
+    icon: 'art/icon.png',
+    cover: 'art/cover.jpg',
+    screenshots: ['art/shot-1.png', 'https://cdn.rally.app/games/stack/shot-2.png'],
+  });
+  assert.doesNotMatch(local, /art\/(icon|cover|shot-1)/);
+  assert.match(local, /<img src="https:\/\/cdn\.rally\.app\/games\/stack\/shot-2\.png" alt="Stack screenshot 1"/);
+  assert.equal(meta(local, 'property', 'og:image'), 'https://cdn.rally.app/games/stack/shot-2.png');
+});
+
 test('index: one card per game, each a Universal Link, plus store links', async () => {
   const spike = (await loadLocalCatalog()).find((g) => g.id === 'spike')!;
   const html = renderIndex(ctxFor(), [stackManifest, spike]);

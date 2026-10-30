@@ -21,6 +21,45 @@ export type GameCapability = z.infer<typeof GameCapability>;
 const semver = z.string().regex(/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/, 'expected semver');
 const slug = z.string().regex(/^[a-z][a-z0-9-]{1,31}$/, 'expected a lowercase slug');
 
+/** File extensions accepted for game artwork (icon, cover, screenshots). */
+export const ART_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp'] as const;
+
+/** Anything that starts with a URL scheme (`https:`, `javascript:`, `data:` …) is treated as a URL, not a path. */
+const URL_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
+/**
+ * A bundle-relative art path: `art/icon.png`, `./art/shot-1.webp`. Segments start with a letter, digit, `_` or `-`
+ * (so no `..`, no hidden files, no absolute paths, no backslashes) and the file has an image extension.
+ */
+const LOCAL_ART_PATH =
+  /^(?:\.\/)?(?:[A-Za-z0-9_-][A-Za-z0-9._-]*\/)*[A-Za-z0-9_-][A-Za-z0-9._-]*\.(?:png|jpe?g|webp)$/i;
+const httpUrl = z.url({ protocol: /^https?$/ });
+
+/**
+ * True when an art value from game.json is a local file (relative to `games/<slug>/`) rather than an absolute URL.
+ * `tooling/publish-game` uploads local files to the CDN and rewrites them to URLs, so a published manifest
+ * (`game_versions.manifest`) and the `games` row only ever carry URLs.
+ */
+export function isLocalArtPath(value: string): boolean {
+  return !URL_SCHEME.test(value);
+}
+
+/** `./art/icon.png` → `art/icon.png`. */
+export function normalizeLocalArtPath(value: string): string {
+  return value.replace(/^\.\//, '');
+}
+
+/**
+ * One piece of game artwork: an absolute http(s) URL (https in production), or a local path inside the game folder
+ * such as `art/cover.jpg` (png, jpg, jpeg or webp; no `..`).
+ */
+export const GameArtRef = z
+  .string()
+  .min(1)
+  .max(2048)
+  .refine((v) => (isLocalArtPath(v) ? LOCAL_ART_PATH.test(v) : httpUrl.safeParse(v).success), {
+    message: `expected an absolute http(s) URL or a relative path inside the game folder ending in .${ART_EXTENSIONS.join(', .')} (e.g. "art/cover.jpg")`,
+  });
+
 export const ManifestFileSchema = z.object({
   path: z.string().min(1),
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
@@ -32,7 +71,11 @@ export type ManifestFile = z.infer<typeof ManifestFileSchema>;
  * `games/<slug>/game.json`. The publish step fills `sizeBytes` and `files`.
  *
  * `title`, `description`, `genres` and `screenshots` are catalog fields: `tooling/publish-game`
- * upserts them into the `games` table (same column names) on every publish.
+ * upserts them into the `games` table (same column names) on every publish; `icon` and `cover` go to
+ * `games.icon_url` / `games.cover_url`.
+ *
+ * Artwork (`icon`, `cover`, `screenshots`) is either an absolute URL or a local file in the game folder
+ * (`art/icon.png`); see {@link GameArtRef}. The publish step uploads local files and stores URLs.
  */
 export const GameManifestSchema = z.object({
   id: slug,
@@ -46,11 +89,12 @@ export const GameManifestSchema = z.object({
     .array(z.string().regex(/^[a-z][a-z0-9-]{0,31}$/, 'expected a lowercase genre tag'))
     .max(8)
     .default([]),
-  /** Absolute http(s) URLs of screenshots (`games.screenshots`); https in production. */
-  screenshots: z
-    .array(z.url({ protocol: /^https?$/ }))
-    .max(16)
-    .default([]),
+  /** Square thumbnail for dashboard tiles (`games.icon_url`). Recommended 1024×1024. */
+  icon: GameArtRef.optional(),
+  /** Wide key art for the featured card and the game page hero (`games.cover_url`). Recommended 1920×1080. */
+  cover: GameArtRef.optional(),
+  /** Screenshots for the game page gallery (`games.screenshots`), in order. At device resolution; 3–5 is plenty. */
+  screenshots: z.array(GameArtRef).max(16).default([]),
   engine: GameEngine,
   entry: z.string().default('index.html'),
   orientation: z.union([Orientation, z.literal('any')]).default('any'),

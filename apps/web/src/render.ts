@@ -1,4 +1,4 @@
-import type { GameManifest, GameMode } from '@rally/protocol';
+import { isLocalArtPath, type GameManifest, type GameMode } from '@rally/protocol';
 import type { SiteConfig } from './config.ts';
 
 export interface RenderContext {
@@ -199,7 +199,11 @@ ${cards}
 export function renderGamePage(ctx: RenderContext, game: GameManifest): string {
   const { config } = ctx;
   const link = gameUniversalLink(config, game.id);
-  const shots = game.screenshots
+  // A local game.json can still hold art paths (`art/shot-1.png`) that only the publisher turns into URLs: skip them.
+  const screenshots = game.screenshots.filter((s) => !isLocalArtPath(s));
+  const cover = game.cover && !isLocalArtPath(game.cover) ? game.cover : undefined;
+  const shareImage = cover ?? screenshots[0];
+  const shots = screenshots
     .map(
       (src, i) =>
         `<li><img src="${escapeHtml(src)}" alt="${escapeHtml(`${game.title} screenshot ${i + 1}`)}" loading="lazy" decoding="async"></li>`,
@@ -239,8 +243,8 @@ ${storeButtons(config)}
     title: `${game.title} on Rally`,
     description: truncate(description, 200),
     canonical: link,
-    ogImage: game.screenshots[0],
-    largeImage: game.screenshots.length > 0,
+    ogImage: shareImage,
+    largeImage: shareImage !== undefined,
     appArgument: link,
     body,
   });

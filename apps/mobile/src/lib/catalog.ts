@@ -10,11 +10,23 @@ import { supabase } from '@/lib/supabase';
  */
 export type Game = Tables<'games'>;
 
-/** Columns a card needs; the game page selects `*`. */
-const CARD = 'id, title, description, genres, screenshots, min_players, max_players, age_rating, featured_rank, created_at' as const;
+/** Columns a card needs (art: lib/game-art.ts); the game page selects `*`. */
+const CARD =
+  'id, title, description, genres, icon_url, cover_url, screenshots, min_players, max_players, age_rating, featured_rank, created_at' as const;
 export type GameCard = Pick<
   Game,
-  'id' | 'title' | 'description' | 'genres' | 'screenshots' | 'min_players' | 'max_players' | 'age_rating' | 'featured_rank' | 'created_at'
+  | 'id'
+  | 'title'
+  | 'description'
+  | 'genres'
+  | 'icon_url'
+  | 'cover_url'
+  | 'screenshots'
+  | 'min_players'
+  | 'max_players'
+  | 'age_rating'
+  | 'featured_rank'
+  | 'created_at'
 >;
 
 export const catalogKeys = {

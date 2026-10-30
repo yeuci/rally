@@ -288,12 +288,14 @@ export type Database = {
       games: {
         Row: {
           age_rating: Database["public"]["Enums"]["age_rating"]
+          cover_url: string | null
           created_at: string
           current_version_id: string | null
           description: string
           engine: Database["public"]["Enums"]["game_engine"]
           featured_rank: number | null
           genres: string[]
+          icon_url: string | null
           id: string
           max_players: number
           min_app_version: string
@@ -307,12 +309,14 @@ export type Database = {
         }
         Insert: {
           age_rating?: Database["public"]["Enums"]["age_rating"]
+          cover_url?: string | null
           created_at?: string
           current_version_id?: string | null
           description?: string
           engine: Database["public"]["Enums"]["game_engine"]
           featured_rank?: number | null
           genres?: string[]
+          icon_url?: string | null
           id: string
           max_players?: number
           min_app_version?: string
@@ -326,12 +330,14 @@ export type Database = {
         }
         Update: {
           age_rating?: Database["public"]["Enums"]["age_rating"]
+          cover_url?: string | null
           created_at?: string
           current_version_id?: string | null
           description?: string
           engine?: Database["public"]["Enums"]["game_engine"]
           featured_rank?: number | null
           genres?: string[]
+          icon_url?: string | null
           id?: string
           max_players?: number
           min_app_version?: string

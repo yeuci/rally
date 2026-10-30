@@ -81,6 +81,24 @@ test('rowToManifest: catalog columns win over the published manifest, result is 
   assert.deepEqual(m.leaderboards, [{ id: 'high-score', sort: 'desc' }], 'non-catalog fields come from the manifest');
 });
 
+test('rowToManifest: icon_url / cover_url become icon / cover (columns win; null clears)', () => {
+  const ICON = 'https://cdn.rally.app/games/stack/art/icon-0123456789ab.png';
+  const COVER = 'https://cdn.rally.app/games/stack/art/cover-0123456789ab.jpg';
+  const m = rowToManifest(SupabaseGameRowSchema.parse({ ...stackRow, icon_url: ICON, cover_url: COVER }));
+  assert.equal(m.icon, ICON);
+  assert.equal(m.cover, COVER);
+  const cleared = rowToManifest(
+    SupabaseGameRowSchema.parse({
+      ...stackRow,
+      icon_url: null,
+      current_version: { version: '0.3.1', manifest: { ...stackManifestInput, icon: ICON } },
+    }),
+  );
+  assert.equal(cleared.icon, undefined);
+  // Rows from before the art columns existed still parse.
+  assert.equal(rowToManifest(SupabaseGameRowSchema.parse(stackRow)).cover, undefined);
+});
+
 test('rowToManifest: a game without a live version still renders from its row', () => {
   const m = rowToManifest(SupabaseGameRowSchema.parse({ ...stackRow, current_version: null }));
   assert.equal(m.version, '0.0.0');

@@ -29,6 +29,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Text } from '@/components/ui/text';
 import { useSession } from '@/lib/auth/session';
 import { playersLabel, useFavorites, useGame, useToggleFavorite, type Game } from '@/lib/catalog';
+import { coverUriFor, heroScreenshots } from '@/lib/game-art';
 import { progressKeys, useGameAchievements, useGameBoards, useMyRank } from '@/lib/game-progress';
 import { fetchConsent, fetchLaunchPlan, launchKeys, useGrantConsent, useLaunchPlan } from '@/lib/launch';
 import { GUTTER, gameCoverColumnWidth, gameHeroHeight, pageIndex } from '@/lib/layout';
@@ -299,7 +300,9 @@ export default function GamePage() {
 const REFRESH_ABOVE_CONTENT = { zIndex: 10 } as const;
 
 /**
- * The hero's media, filling its parent: screenshots in a paged gallery (with dots) or the generated cover. Measures
+ * The hero's media, filling its parent: screenshots in a paged gallery (with dots), else the cover art (game.json
+ * `cover`), else the generated cover (lib/game-art.ts). The cover is not added to the gallery: it is for the
+ * dashboard, the screenshots are what the game page shows. Measures
  * its own box and keys the gallery on it, so after a rotation the pages are re-laid out at the new size and the
  * gallery restarts at page 1 instead of resting on a stale offset.
  */
@@ -315,11 +318,19 @@ function HeroMedia({
   dotsClassName: string;
 }) {
   const box = useBoxSize();
-  const shots = g.screenshots;
+  const shots = heroScreenshots(g);
   return (
     <View className="flex-1" onLayout={box.onLayout}>
       {shots.length === 0 ? (
-        <GameCover id={g.id} title={g.title} variant="hero" scrim={scrim} scrimColor={scrimColor} className="flex-1" />
+        <GameCover
+          id={g.id}
+          title={g.title}
+          uri={coverUriFor(g, 'hero')}
+          variant="hero"
+          scrim={scrim}
+          scrimColor={scrimColor}
+          className="flex-1"
+        />
       ) : box.size ? (
         <Gallery key={box.key} shots={shots} width={box.size.width} height={box.size.height} dotsClassName={dotsClassName} />
       ) : (

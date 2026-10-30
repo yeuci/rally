@@ -5,7 +5,7 @@ The static site on Rally's associated domain (docs/architecture.md §1 and §7):
 - `/.well-known/apple-app-site-association`: iOS Universal Links (`applinks`) and shared credentials (`webcredentials`) for `<APPLE_TEAM_ID>.app.rally.mobile`.
 - `/.well-known/assetlinks.json`: Android App Links for `app.rally.mobile`.
 - `/`: what Rally is, with store links and an index of every published game. Each game links to its Universal Link `https://<domain>/game/<id>`, which covers App Store guideline 4.7.4.
-- `/game/<id>/`: one page per game with title, description, genres, players, age rating (4.7.5), modes, screenshots and Open Graph tags. It has an **Open in Rally** button.
+- `/game/<id>/`: one page per game with title, description, genres, players, age rating (4.7.5), modes, screenshots and Open Graph tags (`og:image` = the game's cover art, else its first screenshot, else the app icon; local `art/…` paths from an unpublished game.json are skipped). It has an **Open in Rally** button.
 - `/open/` and `/404.html`: a fallback page for app-only links (`/join/…`, `/party/…`, `/u/…`, `/dm/…`, and unknown `/game/…`). `static/open.js` reads `location.pathname` to work out which app route the link stands for.
 - `_headers` and `_redirects` for Cloudflare Pages and Netlify, `vercel.json` for Vercel, plus `sitemap.xml` and `robots.txt`.
 
@@ -25,7 +25,7 @@ pnpm --filter @rally/web test         # node:test
 ## Catalog source
 
 1. **Default: `games/*/game.json` from the monorepo.** The build works offline and in CI with no secrets. Every manifest is validated with `GameManifestSchema` from `@rally/protocol`, and an invalid manifest fails the build.
-2. **When both `SUPABASE_URL` and `SUPABASE_ANON_KEY` are set, the build reads the live catalog instead.** It selects `games` rows where `status = 'published'`, which RLS also enforces for the anon role. Each row is joined with its live version through `games.current_version_id → game_versions.manifest`, and rows are ordered by `featured_rank`, then by title. The catalog columns (title, description, genres, screenshots, players, age rating…) take precedence over the published manifest. The merged result is validated with `GameManifestSchema`. A row that does not validate is skipped with a warning. A failed query fails the build, so a misconfigured deploy never silently ships a stale catalog.
+2. **When both `SUPABASE_URL` and `SUPABASE_ANON_KEY` are set, the build reads the live catalog instead.** It selects `games` rows where `status = 'published'`, which RLS also enforces for the anon role. Each row is joined with its live version through `games.current_version_id → game_versions.manifest`, and rows are ordered by `featured_rank`, then by title. The catalog columns (title, description, genres, screenshots, icon_url/cover_url, players, age rating…) take precedence over the published manifest. The merged result is validated with `GameManifestSchema`. A row that does not validate is skipped with a warning. A failed query fails the build, so a misconfigured deploy never silently ships a stale catalog.
 
 Rebuild the site after publishing a game, for example with a deploy hook called from `tooling/publish-game` CI. Pages only change when the catalog changes.
 

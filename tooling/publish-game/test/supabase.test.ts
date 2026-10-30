@@ -1,7 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient } from '@supabase/supabase-js';
-import { parseManifest } from '../src/manifest.ts';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { planArt } from '../src/art.ts';
+import { loadManifest, parseManifest } from '../src/manifest.ts';
 import { hashDirectory } from '../src/hash.ts';
 import { buildPlan } from '../src/plan.ts';
 import { printPlan } from '../src/publish.ts';
@@ -28,6 +31,8 @@ function fakeSupabase(state: {
   gameStatus?: string | null;
   existingBoards?: string[];
   existingAchievements?: string[];
+  /** Object names already in `<slug>/art/`. */
+  existingArt?: string[];
 }) {
   const calls: Call[] = [];
   const fetchImpl = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
@@ -42,8 +47,12 @@ function fakeSupabase(state: {
       new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });
     const p = url.pathname;
 
-    if (p === '/storage/v1/object/list/games')
-      return json((state.existingObjects ?? []).map((name) => ({ name, id: name })));
+    if (p === '/storage/v1/object/list/games') {
+      const names = /\/art$/.test((body as { prefix?: string }).prefix ?? '')
+        ? (state.existingArt ?? [])
+        : (state.existingObjects ?? []);
+      return json(names.map((name) => ({ name, id: name })));
+    }
     if (p.startsWith('/storage/v1/object/games/'))
       return json({ Key: p.slice('/storage/v1/object/'.length), Id: 'obj' });
     if (p === '/rest/v1/game_versions' && req.method === 'GET')
@@ -332,4 +341,74 @@ test('syncProgressCatalog never deletes; rows missing from game.json produce war
     ['GET /rest/v1/leaderboards', 'GET /rest/v1/achievements'],
   );
   assert.ok(elogs.some((l) => /warning: leaderboards .*: height/.test(l)));
+});
+
+test('executePublish uploads local art content-addressed (upsert, immutable), skipping objects already there', async () => {
+  const gameDir = path.join(import.meta.dirname, 'fixtures', 'games', 'arty');
+  const manifest = await loadManifest(gameDir);
+  const art = await planArt({ manifest, gameDir, supabaseUrl: SUPABASE_URL });
+  const dist = await tempDir();
+  await writeTree(dist, { 'index.html': '<!doctype html>' });
+  const plan = buildPlan({
+    manifest,
+    files: await hashDirectory(dist),
+    supabaseUrl: SUPABASE_URL,
+    csp: "default-src 'self'",
+    art: art.uploads,
+  });
+  const iconKey = art.uploads.find((u) => u.source === 'art/icon.png')!.objectKey;
+  const { sb, calls } = fakeSupabase({ existingArt: [path.posix.basename(iconKey), 'old-icon-000000000000.png'] });
+  const logs: string[] = [];
+  await executePublish(sb, plan, dist, (l) => logs.push(l), { gameDir });
+
+  const lists = calls.filter((c) => c.path === '/storage/v1/object/list/games');
+  assert.deepEqual(
+    lists.map((c) => (c.body as { prefix: string }).prefix),
+    ['arty/1.0.0', 'arty/art'],
+  );
+  const uploads = calls.filter((c) => c.path.startsWith('/storage/v1/object/games/'));
+  const artUploads = uploads.filter((c) => c.path.includes('/arty/art/'));
+  // icon already uploaded (same name = same bytes): skipped; cover + 2 screenshots uploaded before the bundle.
+  assert.deepEqual(
+    artUploads.map((c) => c.path.slice('/storage/v1/object/games/'.length)).sort(),
+    art.uploads
+      .filter((u) => u.objectKey !== iconKey)
+      .map((u) => u.objectKey)
+      .sort(),
+  );
+  assert.ok(uploads.indexOf(artUploads.at(-1)!) < uploads.findIndex((c) => c.path.endsWith('/arty/1.0.0/index.html')));
+  for (const c of artUploads) {
+    const a = art.uploads.find((u) => c.path.endsWith(u.objectKey))!;
+    assert.equal(c.headers['x-upsert'], 'true');
+    assert.equal(c.headers['cache-control'], 'public, max-age=31536000, immutable');
+    assert.equal(c.headers['content-type'], a.headers['content-type']);
+    assert.deepEqual(c.body, await readFile(path.join(gameDir, a.source)));
+  }
+  assert.ok(logs.some((l) => l.includes(`= ${iconKey}  (already uploaded)`)));
+
+  const gamesUpsert = calls.find((c) => c.path === '/rest/v1/games' && c.method === 'POST')!;
+  const row = gamesUpsert.body as { icon_url: string; cover_url: string; screenshots: string[] };
+  assert.equal(row.icon_url, `${SUPABASE_URL}/storage/v1/object/public/games/${iconKey}`);
+  assert.match(row.cover_url, /\/games\/arty\/art\/cover-[a-f0-9]{12}\.jpg$/);
+  assert.equal(row.screenshots.length, 3);
+  const version = calls.find((c) => c.path === '/rest/v1/game_versions' && c.method === 'POST')!;
+  assert.equal((version.body as { manifest: { icon: string } }).manifest.icon, row.icon_url);
+
+  // Art in the plan but no gameDir to read it from: a programming error, caught before any upload.
+  const bare = fakeSupabase({});
+  await assert.rejects(
+    executePublish(bare.sb, plan, dist, () => {}),
+    /no gameDir/,
+  );
+  assert.equal(bare.calls.filter((c) => c.path.startsWith('/storage/v1/object/games/')).length, 0);
+});
+
+test('executePublish without art never lists the art folder', async () => {
+  const { dist, plan } = await fixturePlan();
+  const { sb, calls } = fakeSupabase({});
+  await executePublish(sb, plan, dist, () => {});
+  assert.equal(calls.filter((c) => c.path === '/storage/v1/object/list/games').length, 1);
+  const row = calls.find((c) => c.path === '/rest/v1/games' && c.method === 'POST')!.body as Record<string, unknown>;
+  assert.equal(row.icon_url, null);
+  assert.equal(row.cover_url, null);
 });

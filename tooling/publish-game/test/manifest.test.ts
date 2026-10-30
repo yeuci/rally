@@ -44,6 +44,23 @@ test('catalog fields: genres are lowercase tags, screenshots are http(s) URLs', 
   assert.throws(() => parseManifest({ ...validManifest, screenshots: ['javascript:alert(1)'] }), PublishError);
 });
 
+test('art fields: icon, cover and screenshots accept local paths in the game folder (uploaded at publish)', () => {
+  const ok = parseManifest({
+    ...validManifest,
+    icon: 'art/icon.png',
+    cover: './art/cover.jpg',
+    screenshots: ['art/shot-1.png', 'https://cdn.example.com/a.png'],
+  });
+  assert.equal(ok.icon, 'art/icon.png');
+  assert.equal(ok.cover, './art/cover.jpg');
+  assert.throws(
+    () => parseManifest({ ...validManifest, icon: '../other-game/art/icon.png' }),
+    (e: Error) => e instanceof PublishError && /icon/.test(e.message) && /art\/cover\.jpg/.test(e.message),
+  );
+  assert.throws(() => parseManifest({ ...validManifest, cover: 'art/cover.gif' }), PublishError);
+  assert.throws(() => parseManifest({ ...validManifest, screenshots: ['/abs/shot.png'] }), PublishError);
+});
+
 test('invalid manifests fail with every problem listed', () => {
   assert.throws(
     () => parseManifest({ ...validManifest, version: 'one', players: { min: 3, max: 2 } }),
