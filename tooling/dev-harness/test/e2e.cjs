@@ -6,7 +6,8 @@
 // Starts the Colyseus game server (:2567) and the spike's Vite dev server (:5180) unless they are already
 // running, drives Chromium with Playwright and asserts that the spike's hosted path works through the
 // fake host: handshake, bridge RTT, host matchmaking → seat reservation → "in room", host events, save
-// CONFLICT semantics, NOT_SUPPORTED methods, nonce check, ?nohost standalone path and the exit overlay.
+// CONFLICT semantics, NOT_SUPPORTED methods, nonce check, ?nohost standalone path, the exit overlay, the panel's
+// room list, and ?resume: a real reconnection into a seat held after a drop, the rejoin journal and its failure path.
 // Servers it started are killed at the end. Env: SPIKE_URL, COLYSEUS_URL, E2E_SCREENSHOT=<png path>.
 'use strict';
 
@@ -15,6 +16,7 @@ const path = require('node:path');
 const os = require('node:os');
 const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
+const { Client } = require('@colyseus/sdk');
 
 const ROOT = path.resolve(__dirname, '../../..');
 const SPIKE_URL = process.env.SPIKE_URL || 'http://localhost:5180/';
@@ -132,6 +134,12 @@ async function main() {
     assert.match(panelLog, /ready\(\) after \d+ ms/);
     assert.match(panelLog, /matchmade hello via http:\/\/localhost:2567/);
     console.log(`✓ panel: "${panelStatus}"`);
+    // The panel's room list (GET /rooms/hello, polled while open) shows this page's room, marked as current.
+    const joinedRoomId = panelStatus.replace(/^in room /, '');
+    await page.waitForSelector('#rally-dev-harness >> [data-role="rooms"] .room.current', { timeout: 10_000 });
+    const current = await page.getAttribute('#rally-dev-harness >> [data-role="rooms"] .room.current', 'data-room-id');
+    assert.equal(current, joinedRoomId);
+    console.log(`✓ panel room list shows room ${current} (you)`);
 
     // 2. Host events from the panel.
     await page.click('#rally-dev-harness >> button[data-action="pause"]');
@@ -195,6 +203,66 @@ async function main() {
     assert.equal(await standalone.evaluate(() => typeof window.__rally), 'undefined');
     assert.match(await standalone.textContent('#rally-dev-harness >> button[data-action="toggle-host"]'), /host: off/);
     console.log('✓ ?nohost → standalone path ("standalone (no host bridge)"), panel shows host: off');
+
+    // Software-rendered WebGL pages compete for the CPU: close the finished ones before opening more.
+    await standalone.close();
+    await page.close();
+
+    // 6. ?resume=<roomId>:<token>: a player (a Node SDK client, as a guest) drops without consent; a fresh page
+    //    reconnects into the held seat through POST /matchmake/reconnect (same room, same session).
+    const sdk = new Client(COLYSEUS_URL);
+    const dropped = await sdk.joinOrCreate('hello');
+    const token = dropped.reconnectionToken;
+    const { roomId, sessionId } = dropped;
+    dropped.reconnection.enabled = false; // the page, not this client, takes the seat back
+    await dropped.leave(false);
+    const resumed = await context.newPage();
+    await resumed.goto(`${SPIKE_URL}?resume=${encodeURIComponent(token)}`, { waitUntil: 'domcontentloaded' });
+    await resumed.waitForFunction(() => document.querySelector('#status')?.textContent === 'in room', null, {
+      timeout: 30_000,
+    });
+    const resumedLog = await resumed.textContent('#rally-dev-harness >> [data-role="log"]');
+    assert.match(resumedLog, new RegExp(`reconnected to hello .*\\(resume, .*→ room ${roomId}, session ${sessionId}`));
+    console.log(
+      `✓ ?resume=<roomId>:<token> → POST /matchmake/reconnect → back in room ${roomId} as session ${sessionId}`,
+    );
+
+    //    The journal: a report for this room is stored (and offered as "reload with ?resume"), others are ignored.
+    const reported = await bridgeCall(resumed, 'session.reportReconnection', {
+      roomId,
+      token: `${roomId}:not-a-real-token`,
+      ttlSec: 30,
+    });
+    assert.equal(reported.params, null);
+    await bridgeCall(resumed, 'session.reportReconnection', { roomId: 'other', token: 'other:x', ttlSec: 30 });
+    const record = await resumed.evaluate(() =>
+      Object.entries(localStorage).find(([k]) => k.startsWith('rally-harness:rejoin:spike:')),
+    );
+    assert.ok(record, 'rejoin record stored');
+    assert.equal(JSON.parse(record[1]).roomId, roomId);
+    assert.equal(JSON.parse(record[1]).token, 'not-a-real-token');
+    await resumed.waitForSelector('#rally-dev-harness >> button[data-action="rejoin"]:not([hidden])');
+    assert.match(
+      await resumed.textContent('#rally-dev-harness >> [data-role="log"]'),
+      /reconnection token for room other ignored: not the joined room/,
+    );
+    //    Bare ?resume (the rejoin button) uses the stored token; a dead one fails without falling back to quick play.
+    await resumed.click('#rally-dev-harness >> button[data-action="rejoin"]');
+    await resumed.waitForURL(/[?&]resume$/);
+    await resumed.waitForFunction(() => /^error: /.test(document.querySelector('#status')?.textContent ?? ''), null, {
+      timeout: 30_000,
+    });
+    const failedLog = await resumed.textContent('#rally-dev-harness >> [data-role="log"]');
+    assert.match(failedLog, /session\.join MATCHMAKE_FAILED: that match has ended/);
+    assert.doesNotMatch(failedLog, /matchmade hello/);
+    assert.equal(
+      await resumed.evaluate(() => Object.keys(localStorage).some((k) => k.startsWith('rally-harness:rejoin:'))),
+      false,
+      'failed resume clears the record',
+    );
+    console.log(
+      '✓ rejoin journal: report stored for the joined room only; bare ?resume with a dead token → "that match has ended", record cleared',
+    );
 
     const unexpected = errors.filter((e) => !/WebGPU|GPU stall|favicon/i.test(e));
     assert.deepEqual(unexpected, [], 'no page errors');

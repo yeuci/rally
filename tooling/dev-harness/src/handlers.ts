@@ -1,6 +1,6 @@
-import { LaunchContextSchema, type LaunchContext } from '@rally/protocol';
+import { LaunchContextSchema, type LaunchContext, type LaunchIntent } from '@rally/protocol';
 import { HostError, type RequestHandlers } from './host-bridge.ts';
-import { matchmake, roomIdForCode, toWsUrl } from './matchmake.ts';
+import { matchmake, roomByCode, splitReconnectionToken, toWsUrl } from './matchmake.ts';
 import type { AchievementDef, BoardDef, HarnessUser, ProgressStore } from './progress.ts';
 
 /** Port of apps/mobile/src/game-host/rate-limit.ts: `capacity` calls, refilled continuously over `perMs`. */
@@ -28,16 +28,249 @@ export class TokenBucket {
 }
 
 /**
- * How `session.join` matchmakes. The shell only does `quick` today (joinOrCreate with the user's JWT); the others
- * exercise the private-room endpoints of apps/game-server ahead of the shell.
+ * How `session.join` matchmakes (docs/m3-phase2.md §1, harness flavour). Parsed once from the page URL by
+ * {@link parseJoinTarget}; **sticky**: every `session.join` repeats it, except `resume`, which is used once and then
+ * falls back to `room` with the same id and code. Matchmaking bodies never carry `username`/`avatarUrl`: the server
+ * resolves signed-in players from `profiles`, and a guest (the harness never sends a token) is named by the game's
+ * `profile` room message, which carries the launch context's `user.username` (`?name=`).
  */
 export type JoinTarget =
   | { kind: 'quick' }
-  /** `joinOrCreate` with `{ private: true }`: always a fresh private room with a join code. */
+  /** `joinOrCreate` with `{ private: true }` (the server routes it to `create`): a fresh private room with a code. */
   | { kind: 'private' }
   /** `GET /rooms/code/<code>` → `joinById` with `{ code }`. */
   | { kind: 'code'; code: string }
-  | { kind: 'room'; roomId: string };
+  /** `joinById`, with `{ code }` when given (private rooms require it). */
+  | { kind: 'room'; roomId: string; code?: string }
+  /** `POST /matchmake/reconnect/<roomId>` with `{ reconnectionToken: token }` (the token without its `<roomId>:`). */
+  | { kind: 'resume'; roomId: string; token: string; code?: string }
+  /** A target that cannot be used (e.g. `?resume` with nothing stored): `session.join` fails with `reason`. */
+  | { kind: 'invalid'; reason: string };
+
+/** What the harness remembers to offer a rejoin, like the shell's `rally.rejoin.<userId>` (§4). */
+export interface RejoinRecord {
+  gameId: string;
+  roomId: string;
+  /** The reconnection token without its `<roomId>:` prefix. */
+  token: string;
+  /** Join code of the room when it was joined with one (the `room` fallback after a resume needs it). */
+  code?: string;
+  /** Launch intent of the original join; a resume launches with it again (plus `resume`). */
+  intent: LaunchIntent;
+  ttlSec: number;
+  /** Epoch ms. */
+  expiresAt: number;
+}
+
+/** Reconnection grace of `RallyRoom` (60 s, §4): a game-reported TTL is clamped to it. */
+export const REJOIN_MAX_TTL_SEC = 60;
+
+/**
+ * The page's join target, from its query string:
+ *
+ * | Query | Target |
+ * | --- | --- |
+ * | `?resume=<roomId>:<token>` (the SDK's `room.reconnectionToken`), or `?resume=<token>&room=<id>` | `resume` |
+ * | `?resume` (no value) | `resume` from the stored record (`stored`), else `invalid` |
+ * | `?room=<id>&code=<CODE>` | `room` with the code |
+ * | `?code=<CODE>` | `code` |
+ * | `?room=<id>` | `room` |
+ * | `?private` or intent `private` | `private` |
+ * | otherwise | `quick` |
+ *
+ * `?resume` wins over the others; with it, `&code=` (or the stored record's code for the same room) becomes the code
+ * of the `room` fallback.
+ */
+export function parseJoinTarget(
+  params: URLSearchParams,
+  opts: { intent?: string; stored?: RejoinRecord | null } = {},
+): JoinTarget {
+  const param = (name: string) => params.get(name)?.trim() || undefined;
+  const code = param('code');
+  const roomId = param('room');
+  if (params.has('resume')) {
+    const value = param('resume');
+    const stored = opts.stored ?? null;
+    if (!value) {
+      if (!stored) {
+        return {
+          kind: 'invalid',
+          reason:
+            'no reconnection token is stored for this game and player (none reported yet, or it expired): ' +
+            'play a match first, or pass ?resume=<roomId>:<token>',
+        };
+      }
+      return withCode({ kind: 'resume', roomId: stored.roomId, token: stored.token }, code ?? stored.code);
+    }
+    const split = splitReconnectionToken(value);
+    const id = split.roomId || roomId;
+    if (!id || !split.token) {
+      return {
+        kind: 'invalid',
+        reason: `?resume=${value} is not a reconnection token: pass the SDK's room.reconnectionToken (<roomId>:<token>), or add &room=<id>`,
+      };
+    }
+    return withCode(
+      { kind: 'resume', roomId: id, token: split.token },
+      code ?? (stored?.roomId === id ? stored.code : undefined),
+    );
+  }
+  if (roomId) return withCode({ kind: 'room', roomId }, code);
+  if (code) return { kind: 'code', code };
+  if (params.has('private') || opts.intent === 'private') return { kind: 'private' };
+  return { kind: 'quick' };
+}
+
+function withCode<T extends { kind: 'room' | 'resume' }>(target: T, code: string | undefined): T {
+  return code ? { ...target, code } : target;
+}
+
+/**
+ * The launch intent a target implies (`fallback` = `?intent=` or the plugin's `launch.intent`, else `quick`).
+ * A resume launches with the original join's intent, read from the stored record when it is for the same room.
+ */
+export function launchIntentFor(
+  target: JoinTarget,
+  fallback: LaunchIntent,
+  stored: RejoinRecord | null = null,
+): LaunchIntent {
+  switch (target.kind) {
+    case 'code':
+    case 'room':
+      return 'joinById';
+    case 'private':
+      return 'private';
+    case 'resume':
+      return stored?.roomId === target.roomId ? stored.intent : target.code ? 'joinById' : fallback;
+    default:
+      return fallback;
+  }
+}
+
+/**
+ * `href` with its join parameters (`resume`, `room`, `code`, `private`) replaced by `target`'s, the inverse of
+ * {@link parseJoinTarget}: the panel's room list and rejoin button navigate with it. Other parameters are kept.
+ * `{ kind: 'stored' }` → a bare `?resume`, which reads the journal on load: the server issues a new token on every
+ * join, so after a reconnect only the journal (updated by the game's next report) still holds a valid one.
+ */
+export function joinTargetHref(
+  href: string,
+  target: Exclude<JoinTarget, { kind: 'invalid' }> | { kind: 'stored' },
+): string {
+  const url = new URL(href);
+  for (const k of ['resume', 'room', 'code', 'private']) url.searchParams.delete(k);
+  if (url.searchParams.get('intent') === 'private' && target.kind !== 'private') url.searchParams.delete('intent');
+  switch (target.kind) {
+    case 'stored':
+      url.searchParams.set('resume', '');
+      break;
+    case 'resume':
+      url.searchParams.set('resume', `${target.roomId}:${target.token}`);
+      if (target.code) url.searchParams.set('code', target.code);
+      break;
+    case 'room':
+      url.searchParams.set('room', target.roomId);
+      if (target.code) url.searchParams.set('code', target.code);
+      break;
+    case 'code':
+      url.searchParams.set('code', target.code);
+      break;
+    case 'private':
+      url.searchParams.set('private', '');
+      break;
+  }
+  // `?private=` → `?private` (flag parameters read better bare; parseJoinTarget only checks presence).
+  return url.toString().replace(/([?&](?:private|nohost|resume))=(?=&|$)/g, '$1');
+}
+
+/** The rejoin journal (one record per game and harness user). Expired records read as null and are dropped. */
+export interface RejoinJournal {
+  get(): RejoinRecord | null;
+  put(record: RejoinRecord): void;
+  /** `expiresAt = now + ttlSec` (the page is going away: the server's grace starts at the socket drop). */
+  restamp(): void;
+  clear(): void;
+}
+
+type KeyValueStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
+
+/**
+ * Rejoin journal in localStorage (`rally-harness:rejoin:<gameId>:<userId>`), so it survives a reload or a closed
+ * tab like the shell's survives a cold start; in memory if storage is blocked. `storage`/`now` are for tests.
+ */
+export function localRejoinJournal(
+  gameId: string,
+  userId: string,
+  storage: KeyValueStorage | null = browserStorage(),
+  now: () => number = Date.now,
+): RejoinJournal {
+  const key = `rally-harness:rejoin:${gameId}:${userId}`;
+  let memory: string | null = null;
+  const read = () => {
+    try {
+      return storage ? storage.getItem(key) : memory;
+    } catch {
+      return null;
+    }
+  };
+  const write = (value: string | null) => {
+    if (!storage) {
+      memory = value;
+      return;
+    }
+    try {
+      if (value === null) storage.removeItem(key);
+      else storage.setItem(key, value);
+    } catch {
+      /* storage full or blocked: rejoin is best effort */
+    }
+  };
+  const journal: RejoinJournal = {
+    get() {
+      const raw = read();
+      if (!raw) return null;
+      let rec: RejoinRecord | null = null;
+      try {
+        rec = JSON.parse(raw) as RejoinRecord;
+      } catch {
+        /* corrupt: dropped below */
+      }
+      if (
+        !rec ||
+        rec.gameId !== gameId ||
+        typeof rec.roomId !== 'string' ||
+        typeof rec.token !== 'string' ||
+        typeof rec.expiresAt !== 'number' ||
+        rec.expiresAt <= now()
+      ) {
+        write(null);
+        return null;
+      }
+      return rec;
+    },
+    put(record) {
+      write(JSON.stringify(record));
+    },
+    restamp() {
+      const rec = journal.get();
+      if (rec) write(JSON.stringify({ ...rec, expiresAt: now() + rec.ttlSec * 1000 }));
+    },
+    clear() {
+      write(null);
+    },
+  };
+  return journal;
+}
+
+function browserStorage(): KeyValueStorage | null {
+  try {
+    const s = window.localStorage;
+    s.getItem('rally-harness:probe');
+    return s;
+  } catch {
+    return null;
+  }
+}
 
 export interface HarnessHandlerDeps {
   buildLaunchContext: () => LaunchContext;
@@ -45,13 +278,10 @@ export interface HarnessHandlerDeps {
   colyseusUrl: string;
   /** `server.room` from game.json, or null for games without a server. */
   room: string | null;
-  /** Default `{ kind: 'quick' }`. */
+  /** Default `{ kind: 'quick' }`. Sticky; `resume` is used once, then becomes `room` (see {@link JoinTarget}). */
   join?: JoinTarget;
-  /**
-   * Matchmaking body: `{ username, avatarUrl }` of the harness user, which the game server uses as the display name
-   * of a guest (the harness has no Supabase session, so it never sends a token).
-   */
-  matchOptions?: Record<string, unknown>;
+  /** Where `session.reportReconnection` stores the token for `?resume`; omitted → reports are only logged. */
+  rejoin?: RejoinJournal;
   saves: SaveStore;
   /** `leaderboards` / `achievements` from game.json. */
   leaderboards: BoardDef[];
@@ -61,8 +291,10 @@ export interface HarnessHandlerDeps {
   onReady: (ctx: LaunchContext) => void;
   onLoading: (progress: number) => void;
   onExit: (reason: string) => void;
-  onJoined: (info: { roomId: unknown; sessionId: unknown }) => void;
-  onReconnection: (info: { roomId: string; ttlSec: number }) => void;
+  /** `kind`: the target this join used (after a resume, later joins report `room`). */
+  onJoined: (info: { roomId: unknown; sessionId: unknown; kind: JoinTarget['kind'] }) => void;
+  /** `stored: false` with a `note` when the report was ignored (not the joined room, no journal). */
+  onReconnection: (info: { roomId: string; ttlSec: number; stored: boolean; note?: string }) => void;
   onScore?: (info: { boardId: string; score: number; accepted: boolean; best: number | null; note?: string }) => void;
   onUnlock?: (info: { key: string; title: string; alreadyHad: boolean }) => void;
   now?: () => number;
@@ -89,6 +321,11 @@ const PROGRESS_LIMITS_PER_MINUTE = { submit: 30, top: 60, unlock: 60 } as const;
 export function createHarnessHandlers(deps: HarnessHandlerDeps): RequestHandlers {
   let ready = false;
   let readyAt = 0;
+  let launchIntent: LaunchIntent = 'quick';
+  let gameId = '';
+  let target: JoinTarget = deps.join ?? { kind: 'quick' };
+  /** The room the last `session.join` reserved a seat in, and the code it was joined with. */
+  let joined: { roomId: string; code?: string } | null = null;
   const now = deps.now ?? Date.now;
   const putBucket = new TokenBucket(SAVE_PUTS_PER_MINUTE, 60_000);
   const submitBucket = new TokenBucket(PROGRESS_LIMITS_PER_MINUTE.submit, 60_000);
@@ -121,6 +358,8 @@ export function createHarnessHandlers(deps: HarnessHandlerDeps): RequestHandlers
         throw new HostError('INTERNAL', `harness launch context is invalid: ${parsed.error.message}`);
       ready = true;
       readyAt = now();
+      launchIntent = parsed.data.intent;
+      gameId = parsed.data.game.id;
       deps.onReady(parsed.data);
       return parsed.data;
     },
@@ -129,30 +368,88 @@ export function createHarnessHandlers(deps: HarnessHandlerDeps): RequestHandlers
 
     'session.join': async () => {
       if (!ready) throw new HostError('NOT_READY', 'call ready() before session.join()');
-      if (!deps.room) throw new HostError('NOT_SUPPORTED', 'game.json has no server.room');
-      const join = deps.join ?? { kind: 'quick' };
-      const opts = deps.matchOptions ?? {};
-      const seatReservation =
-        join.kind === 'code'
-          ? // A private room admits joinById only with its code (apps/game-server routes.ts).
-            await matchmake(deps.colyseusUrl, 'joinById', await roomIdForCode(deps.colyseusUrl, join.code), {
-              ...opts,
-              code: join.code,
-            })
-          : join.kind === 'room'
-            ? await matchmake(deps.colyseusUrl, 'joinById', join.roomId, opts)
-            : await matchmake(
-                deps.colyseusUrl,
-                'joinOrCreate',
-                deps.room,
-                join.kind === 'private' ? { ...opts, private: true } : opts,
-              );
-      deps.onJoined({ roomId: (seatReservation as { roomId?: unknown }).roomId, sessionId: seatReservation.sessionId });
+      const roomName = deps.room;
+      if (!roomName) throw new HostError('NOT_SUPPORTED', 'game.json has no server.room');
+      const join = target;
+      if (join.kind === 'invalid') throw new HostError('MATCHMAKE_FAILED', join.reason);
+      // Resume once: a second session.join (the game retrying, a lost socket) joins the same room by id instead.
+      if (join.kind === 'resume') target = withCode({ kind: 'room', roomId: join.roomId }, join.code);
+
+      let seatReservation: Record<string, unknown>;
+      switch (join.kind) {
+        case 'resume':
+          try {
+            seatReservation = {
+              ...(await matchmake(deps.colyseusUrl, 'reconnect', join.roomId, { reconnectionToken: join.token })),
+              // The server's reservation does not echo the token; the SDK's consumeSeatReservation forwards it from
+              // here to the socket, which is what makes it a reconnection (so games need no code for resume).
+              reconnectionToken: join.token,
+            };
+          } catch (err) {
+            // Grace over or room gone: the record is useless now. An unreachable server keeps it for a retry.
+            if (err instanceof HostError && !err.message.startsWith('cannot reach')) deps.rejoin?.clear();
+            throw err instanceof HostError ? new HostError(err.code, `that match has ended (${err.message})`) : err;
+          }
+          break;
+        case 'code': {
+          const found = await roomByCode(deps.colyseusUrl, join.code);
+          if (found.roomName && found.roomName !== roomName) {
+            throw new HostError(
+              'MATCHMAKE_FAILED',
+              `code "${join.code}" is for another game (room type "${found.roomName}", this game uses "${roomName}")`,
+            );
+          }
+          // A private room admits joinById only with its code (apps/game-server routes.ts).
+          seatReservation = await matchmake(deps.colyseusUrl, 'joinById', found.roomId, { code: join.code });
+          break;
+        }
+        case 'room':
+          seatReservation = await matchmake(
+            deps.colyseusUrl,
+            'joinById',
+            join.roomId,
+            join.code ? { code: join.code } : {},
+          );
+          break;
+        case 'private':
+          seatReservation = await matchmake(deps.colyseusUrl, 'joinOrCreate', roomName, { private: true });
+          break;
+        default:
+          seatReservation = await matchmake(deps.colyseusUrl, 'joinOrCreate', roomName, {});
+      }
+
+      // Read defensively: the reservation is opaque to the bridge.
+      const roomId = typeof seatReservation.roomId === 'string' ? seatReservation.roomId : null;
+      const code = join.kind === 'code' || join.kind === 'room' || join.kind === 'resume' ? join.code : undefined;
+      joined = roomId ? { roomId, ...(code ? { code } : {}) } : null;
+      const stored = deps.rejoin?.get();
+      if (stored && stored.roomId !== roomId) deps.rejoin?.clear();
+      deps.onJoined({ roomId: seatReservation.roomId, sessionId: seatReservation.sessionId, kind: join.kind });
       return { endpoint: toWsUrl(deps.colyseusUrl), seatReservation };
     },
 
-    'session.reportReconnection': ({ roomId, ttlSec }) => {
-      deps.onReconnection({ roomId, ttlSec });
+    'session.reportReconnection': ({ roomId, token, ttlSec }) => {
+      const ignore = (note: string) => {
+        deps.onReconnection({ roomId, ttlSec, stored: false, note });
+        return null;
+      };
+      if (!deps.rejoin) return ignore('no rejoin journal');
+      // Only the room this host matchmade into: a game cannot plant a token for another room (§4).
+      if (!joined || joined.roomId !== roomId) return ignore(`not the joined room (${joined?.roomId ?? 'none'})`);
+      const split = splitReconnectionToken(token);
+      if (split.roomId !== null && split.roomId !== roomId) return ignore(`the token is for room ${split.roomId}`);
+      if (!split.token) return ignore('empty token');
+      const ttl = Math.min(ttlSec, REJOIN_MAX_TTL_SEC);
+      deps.rejoin.put({
+        gameId,
+        roomId,
+        token: split.token,
+        ...(joined.code ? { code: joined.code } : {}),
+        intent: launchIntent,
+        ttlSec: ttl,
+        expiresAt: now() + ttl * 1000,
+      });
+      deps.onReconnection({ roomId, ttlSec: ttl, stored: true });
       return null;
     },
 
@@ -240,6 +537,8 @@ export function createHarnessHandlers(deps: HarnessHandlerDeps): RequestHandlers
     'party.get': () => null,
 
     exit: (params) => {
+      // A consented exit: nothing to rejoin (§4).
+      deps.rejoin?.clear();
       deps.onExit(params?.reason ?? 'game');
       return null;
     },

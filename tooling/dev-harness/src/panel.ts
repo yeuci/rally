@@ -1,4 +1,5 @@
 import type { HostEvent } from '@rally/protocol';
+import type { RoomListing } from './matchmake.ts';
 
 export type LogLevel = 'info' | 'ok' | 'warn' | 'error';
 
@@ -9,10 +10,71 @@ export interface PanelOptions {
   onHostEvent: (event: HostEvent) => void;
   onToggleHost: () => void;
   onClearSaves: () => void;
-  /** Display name of the harness player (sent as the matchmaking `username`). */
+  /**
+   * Display name of the harness player: the launch context's `user.username`. Not sent in matchmaking; a game
+   * passes it on in the `profile` room message, which the server accepts for guests (as `guest-<name>`).
+   */
   name?: string;
   /** Save a new display name and reload. Omit to hide the name row. */
   onSetName?: (name: string) => void;
+  /** `GET /rooms/<room>`; polled every {@link ROOMS_POLL_MS} while the panel is open. Omit to hide the room list. */
+  listRooms?: () => Promise<RoomListing[]>;
+  /** The room this page is in, marked in the list. */
+  currentRoomId?: () => string | null;
+  /** A room row was clicked: join it by id (with its code if it has one). */
+  onJoinRoom?: (row: RoomRow) => void;
+  /**
+   * The live rejoin record (read every second): while there is one, a "reload with ?resume" button with a countdown
+   * shows (the record lasts until the game reports another room, an exit, a failed resume or expiry).
+   */
+  rejoin?: { current: () => { roomId: string; expiresAt: number } | null; onRejoin: () => void };
+}
+
+/** How often the open panel refreshes its room list (the shell's server browser uses the same interval). */
+export const ROOMS_POLL_MS = 5000;
+
+/** One line of the panel's room list. */
+export interface RoomRow {
+  roomId: string;
+  name: string;
+  /** Seated players (metadata, which counts seats inside their reconnection grace), else connected clients. */
+  players: number;
+  maxPlayers: number;
+  /** From the game's `phase` metadata (Sumo): `waiting` → Waiting, any other phase → In match; none → null. */
+  phase: 'Waiting' | 'In match' | null;
+  private: boolean;
+  /** Private rooms: the join code from the metadata (needed by `joinById`). */
+  code?: string;
+  serverVersion: number | null;
+  /** Full or locked: not joinable. */
+  joinable: boolean;
+  /** This page's room. */
+  current: boolean;
+}
+
+/** Room listings → panel rows, in the server's order (fullest first). */
+export function roomRows(listings: RoomListing[], currentRoomId: string | null): RoomRow[] {
+  return listings.map((r) => {
+    const m = r.metadata ?? {};
+    const int = (v: unknown, fallback: number) =>
+      typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : fallback;
+    const players = int(m.players, r.clients);
+    const maxPlayers = int(m.maxPlayers, r.maxClients);
+    const phase = typeof m.phase === 'string' && m.phase ? (m.phase === 'waiting' ? 'Waiting' : 'In match') : null;
+    const code = typeof m.code === 'string' && m.code ? m.code : undefined;
+    return {
+      roomId: r.roomId,
+      name: typeof m.name === 'string' && m.name.trim() ? m.name.trim() : r.roomId,
+      players,
+      maxPlayers,
+      phase,
+      private: m.private === true,
+      ...(code ? { code } : {}),
+      serverVersion: typeof m.serverVersion === 'number' ? m.serverVersion : null,
+      joinable: !r.locked && (maxPlayers === 0 || players < maxPlayers),
+      current: r.roomId === currentRoomId,
+    };
+  });
 }
 
 const HOST_EVENTS: HostEvent[] = ['pause', 'resume', 'exitRequested', 'lowMemory', 'partyUpdated'];
@@ -46,6 +108,18 @@ button.toggle.on { border-color: #3fb950; } button.toggle.off { border-color: #d
 .log { max-height: 140px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; user-select: text;
   border-top: 1px solid rgba(240, 246, 252, 0.1); padding-top: 4px; }
 .log .ok { color: #7ee787; } .log .warn { color: #e3b341; } .log .error { color: #ff7b72; } .log .info { color: #c9d1d9; }
+.rooms { margin-bottom: 6px; border-top: 1px solid rgba(240, 246, 252, 0.1); padding-top: 4px; }
+.rooms .title { display: flex; justify-content: space-between; color: #9da7b3; margin-bottom: 2px; }
+.rooms .list { max-height: 110px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.rooms .room { display: flex; gap: 6px; align-items: center; text-align: left; width: 100%; }
+.rooms .room .n { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rooms .room .badge { color: #9da7b3; }
+.rooms .room.current { border-color: #3fb950; }
+.rooms .room.current:disabled { opacity: 1; cursor: default; }
+.rooms .empty { color: #9da7b3; }
+.rooms .empty.error { color: #ff7b72; }
+button.rejoin { border-color: #58a6ff; margin-bottom: 4px; }
+button[hidden] { display: none; }
 .overlay { position: fixed; inset: 0; z-index: 2147483647; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 12px; background: rgba(1, 4, 9, 0.85); color: #e6edf3; font: 16px/1.4 system-ui, sans-serif; }
 .overlay button { font-size: 14px; padding: 6px 14px; }
@@ -54,9 +128,15 @@ button.toggle.on { border-color: #3fb950; } button.toggle.off { border-color: #d
 /** Floating, collapsible control panel in a shadow root so neither side's CSS leaks into the other. */
 export class Panel {
   private hostEl: HTMLElement | null = null;
+  /** Set by destroy(); a mount still pending on DOMContentLoaded then does nothing. */
+  private destroyed = false;
 
   /** Remove the panel entirely (used when the harness stands down inside the real shell). */
   destroy(): void {
+    this.destroyed = true;
+    this.stopRooms();
+    if (this.rejoinTimer) clearInterval(this.rejoinTimer);
+    this.rejoinTimer = null;
     this.hostEl?.remove();
     this.hostEl = null;
   }
@@ -70,6 +150,12 @@ export class Panel {
   private lastKey: string | null = null;
   private lastCount = 0;
   private status = '';
+  private roomsEl: HTMLElement | null = null;
+  private roomsTitleEl: HTMLElement | null = null;
+  private rows: RoomRow[] = [];
+  private roomsTimer: ReturnType<typeof setInterval> | null = null;
+  private roomsInFlight = false;
+  private rejoinTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(opts: PanelOptions) {
     this.opts = opts;
@@ -79,6 +165,7 @@ export class Panel {
   }
 
   private mount(): void {
+    if (this.destroyed) return;
     const host = document.createElement('div');
     host.id = 'rally-dev-harness';
     document.documentElement.appendChild(host);
@@ -102,6 +189,18 @@ export class Panel {
         : ''
     }
     <div class="row">${HOST_EVENTS.map((e) => `<button data-action="${e}" ${this.opts.hostOn ? '' : 'disabled'}>${e}</button>`).join('')}</div>
+    ${
+      this.opts.listRooms
+        ? `<div class="rooms" data-role="rooms-section">${
+            this.opts.rejoin
+              ? `<button class="rejoin" data-action="rejoin" hidden title="Reload and reconnect with the stored reconnection token, like a relaunch within the grace"></button>`
+              : ''
+          }
+      <div class="title"><span data-role="rooms-title">rooms</span><span title="Click a room to join it by id; refreshed every ${ROOMS_POLL_MS / 1000} s while the panel is open">click to join</span></div>
+      <div class="list" data-role="rooms"></div>
+    </div>`
+        : ''
+    }
     <div class="row">
       <button class="toggle ${this.opts.hostOn ? 'on' : 'off'}" data-action="toggle-host" title="Reload with or without ?nohost">host: ${this.opts.hostOn ? 'on' : 'off'}</button>
       <button data-action="clear-saves" title="Delete this game's localStorage save slots, leaderboard entries and achievements">clear data</button>
@@ -123,16 +222,28 @@ export class Panel {
     this.progressEl = root.querySelector('[data-role="progress"]');
     this.setStatus(this.status);
 
+    this.roomsEl = root.querySelector('[data-role="rooms"]');
+    this.roomsTitleEl = root.querySelector('[data-role="rooms-title"]');
+
     const panel = root.querySelector<HTMLElement>('.panel')!;
     root.querySelector('[data-role="head"]')!.addEventListener('click', () => {
       panel.classList.toggle('collapsed');
-      writeFlag(COLLAPSED_KEY, panel.classList.contains('collapsed'));
+      const isCollapsed = panel.classList.contains('collapsed');
+      writeFlag(COLLAPSED_KEY, isCollapsed);
+      if (isCollapsed) this.stopRooms();
+      else this.startRooms();
     });
+    if (this.opts.visible && !collapsed) this.startRooms();
+    this.startRejoinCountdown();
     root.addEventListener('click', (ev) => {
       const btn = (ev.target as HTMLElement).closest<HTMLButtonElement>('button[data-action]');
       if (!btn || btn.disabled) return;
       const action = btn.dataset.action!;
-      if (action === 'toggle-host') this.opts.onToggleHost();
+      if (action === 'join-room') {
+        const row = this.rows.find((r) => r.roomId === btn.dataset.roomId);
+        if (row) this.opts.onJoinRoom?.(row);
+      } else if (action === 'rejoin') this.opts.rejoin?.onRejoin();
+      else if (action === 'toggle-host') this.opts.onToggleHost();
       else if (action === 'clear-saves') this.opts.onClearSaves();
       else if (action === 'reload') location.reload();
       else this.opts.onHostEvent(action as HostEvent);
@@ -156,6 +267,87 @@ export class Panel {
     this.pending = [];
     this.lastKey = null;
     for (const l of queued) this.log(l.text, l.level, l.key);
+  }
+
+  /** Fetch the room list now (e.g. right after this page joined a room), if the list is showing. */
+  refreshRooms(): void {
+    if (this.roomsTimer !== null) void this.loadRooms();
+  }
+
+  private startRooms(): void {
+    if (!this.opts.listRooms || !this.roomsEl || this.roomsTimer !== null) return;
+    void this.loadRooms();
+    this.roomsTimer = setInterval(() => {
+      if (document.visibilityState !== 'hidden') void this.loadRooms();
+    }, ROOMS_POLL_MS);
+  }
+
+  private stopRooms(): void {
+    if (this.roomsTimer !== null) clearInterval(this.roomsTimer);
+    this.roomsTimer = null;
+  }
+
+  private async loadRooms(): Promise<void> {
+    if (!this.opts.listRooms || this.roomsInFlight) return;
+    this.roomsInFlight = true;
+    try {
+      this.rows = roomRows(await this.opts.listRooms(), this.opts.currentRoomId?.() ?? null);
+      this.renderRooms(null);
+    } catch (err) {
+      this.rows = [];
+      this.renderRooms(err instanceof Error ? err.message : String(err));
+    } finally {
+      this.roomsInFlight = false;
+    }
+  }
+
+  private renderRooms(error: string | null): void {
+    const list = this.roomsEl;
+    if (!list) return;
+    if (this.roomsTitleEl) this.roomsTitleEl.textContent = error ? 'rooms' : `rooms (${this.rows.length})`;
+    const nodes: HTMLElement[] = this.rows.map((r) => {
+      const btn = document.createElement('button');
+      btn.className = `room${r.current ? ' current' : ''}`;
+      btn.dataset.action = 'join-room';
+      btn.dataset.roomId = r.roomId;
+      btn.disabled = r.current || !r.joinable;
+      btn.title = `${r.roomId}${r.private ? ' (private)' : ''}${r.serverVersion !== null ? ` · server v${r.serverVersion}` : ''}${
+        r.current ? ' · you are here' : r.joinable ? ' · click to join by id' : ' · full or locked'
+      }`;
+      const name = document.createElement('span');
+      name.className = 'n';
+      name.textContent = `${r.private ? 'private · ' : ''}${r.name}`;
+      const count = document.createElement('span');
+      count.textContent = `${r.players}/${r.maxPlayers}`;
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = r.current ? 'you' : (r.phase ?? '');
+      btn.append(name, count, badge);
+      return btn;
+    });
+    if (nodes.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = error ? 'empty error' : 'empty';
+      empty.textContent = error ?? 'no open rooms (quick play starts one)';
+      nodes.push(empty);
+    }
+    list.replaceChildren(...nodes);
+  }
+
+  private startRejoinCountdown(): void {
+    const rejoin = this.opts.rejoin;
+    const btn = this.root?.querySelector<HTMLButtonElement>('button[data-action="rejoin"]');
+    if (!rejoin || !btn) return;
+    const tick = () => {
+      const rec = rejoin.current();
+      const left = rec ? Math.round((rec.expiresAt - Date.now()) / 1000) : 0;
+      btn.hidden = left <= 0;
+      if (rec && left > 0) {
+        btn.textContent = `reload with ?resume · ${rec.roomId} (${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')})`;
+      }
+    };
+    tick();
+    this.rejoinTimer = setInterval(tick, 1000);
   }
 
   setStatus(text: string): void {

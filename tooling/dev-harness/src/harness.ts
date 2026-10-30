@@ -16,9 +16,16 @@ import {
   type LaunchContext,
 } from '@rally/protocol';
 import type { HarnessConfig } from './config.ts';
-import { createHarnessHandlers, localSaveStore, type JoinTarget } from './handlers.ts';
+import {
+  createHarnessHandlers,
+  joinTargetHref,
+  launchIntentFor,
+  localRejoinJournal,
+  localSaveStore,
+  parseJoinTarget,
+} from './handlers.ts';
 import { HostBridge } from './host-bridge.ts';
-import { toHttpUrl } from './matchmake.ts';
+import { listRooms, toHttpUrl } from './matchmake.ts';
 import { Panel, type LogLevel } from './panel.ts';
 import { localProgressStore } from './progress.ts';
 
@@ -49,16 +56,6 @@ function lanDefault(url: string): string {
   } catch {
     return url;
   }
-}
-
-/** `?code=K7M2PQ` → join that private room; `?room=<id>` → joinById; `?private` / `?intent=private` → new private room. */
-function joinTargetFrom(params: URLSearchParams, intent: string | undefined): JoinTarget {
-  const code = params.get('code');
-  if (code) return { kind: 'code', code };
-  const roomId = params.get('room');
-  if (roomId) return { kind: 'room', roomId };
-  if (params.has('private') || intent === 'private') return { kind: 'private' };
-  return { kind: 'quick' };
 }
 
 interface InstalledHost {
@@ -103,10 +100,35 @@ function main(): void {
     ? { id: `dev-${chosenName.toLowerCase().replace(/[^a-z0-9_-]+/g, '-')}`, username: chosenName, avatarUrl: null }
     : (cfg.launch.user ?? { id: 'dev-user', username: 'dev', avatarUrl: null });
 
+  // Rejoin journal (session.reportReconnection → ?resume), per game and player like the shell's rally.rejoin.<userId>.
+  const rejoin = localRejoinJournal(cfg.game.id, user.id);
+  const stored = rejoin.get();
+  const roomName = cfg.room;
+  /** Room of the last successful session.join (highlighted in the panel's room list). */
+  let joinedRoomId: string | null = null;
+
   const panel = new Panel({
     hostOn,
     visible: cfg.panel,
     name: user.username,
+    listRooms: roomName && hostOn ? () => listRooms(colyseusUrl, roomName) : undefined,
+    currentRoomId: () => joinedRoomId,
+    onJoinRoom: (row) => {
+      location.href = joinTargetHref(location.href, {
+        kind: 'room',
+        roomId: row.roomId,
+        ...(row.code ? { code: row.code } : {}),
+      });
+    },
+    rejoin:
+      roomName && hostOn
+        ? {
+            current: () => rejoin.get(),
+            onRejoin: () => {
+              location.href = joinTargetHref(location.href, { kind: 'stored' });
+            },
+          }
+        : undefined,
     onSetName: cfg.room
       ? (name) => {
           try {
@@ -168,22 +190,21 @@ function main(): void {
   const startedAt = performance.now();
   let readyAt: number | null = null;
   const intentParam = LaunchIntent.safeParse(params.get('intent') ?? undefined);
-  const join = joinTargetFrom(params, intentParam.success ? intentParam.data : cfg.launch.intent);
-  const intent =
-    join.kind === 'code' || join.kind === 'room'
-      ? 'joinById'
-      : join.kind === 'private'
-        ? 'private'
-        : intentParam.success
-          ? intentParam.data
-          : (cfg.launch.intent ?? 'quick');
+  const baseIntent = intentParam.success ? intentParam.data : (cfg.launch.intent ?? 'quick');
+  const join = parseJoinTarget(params, { intent: baseIntent, stored });
+  const intent = launchIntentFor(join, baseIntent, stored);
+  // The game learns it is resuming from the launch context (`resume.reconnectionToken`, the SDK's format).
+  const resume = join.kind === 'resume' ? { reconnectionToken: `${join.roomId}:${join.token}` } : cfg.launch.resume;
+  if (join.kind === 'invalid') log(join.reason, 'warn');
+  // Leaving the page drops the socket: the server's grace starts now, so the record's expiry does too (§4).
+  window.addEventListener('pagehide', () => rejoin.restamp());
 
   const buildLaunchContext = (): LaunchContext => ({
     game: cfg.game,
     user,
     intent,
     ...(cfg.launch.party ? { party: cfg.launch.party } : {}),
-    ...(cfg.launch.resume ? { resume: cfg.launch.resume } : {}),
+    ...(resume ? { resume } : {}),
     device: {
       safeArea: cfg.launch.safeArea ?? { top: 0, right: 0, bottom: 0, left: 0 },
       orientation: window.matchMedia?.('(orientation: portrait)').matches ? 'portrait' : 'landscape',
@@ -202,7 +223,7 @@ function main(): void {
       colyseusUrl,
       room: cfg.room,
       join,
-      matchOptions: { username: user.username, ...(user.avatarUrl ? { avatarUrl: user.avatarUrl } : {}) },
+      rejoin,
       saves,
       leaderboards,
       achievements,
@@ -224,14 +245,19 @@ function main(): void {
         bridge.close();
         panel.showExit(reason);
       },
-      onJoined: ({ roomId, sessionId }) => {
+      onJoined: ({ roomId, sessionId, kind }) => {
+        joinedRoomId = typeof roomId === 'string' ? roomId : null;
         panel.setStatus(`in room ${String(roomId)}`);
+        panel.refreshRooms();
         log(
-          `matchmade ${cfg.room} via ${colyseusUrl} (${join.kind}, as "${user.username}") → room ${String(roomId)}, session ${String(sessionId)}`,
+          `${kind === 'resume' ? 'reconnected to' : 'matchmade'} ${cfg.room} via ${colyseusUrl} (${kind}, as "${user.username}") → room ${String(roomId)}, session ${String(sessionId)}`,
           'ok',
         );
       },
-      onReconnection: ({ roomId, ttlSec }) => log(`reconnection token stored for room ${roomId} (${ttlSec} s)`),
+      onReconnection: ({ roomId, ttlSec, stored: kept, note }) =>
+        kept
+          ? log(`reconnection token stored for room ${roomId} (${ttlSec} s): reload with ?resume to rejoin`)
+          : log(`reconnection token for room ${roomId} ignored: ${note ?? 'unknown reason'}`, 'warn'),
       onScore: ({ boardId, score, accepted, best, note }) =>
         log(
           `score ${score} on "${boardId}": ${accepted ? 'new best' : note ? `rejected, ${note}` : 'not a new best'} (best ${best ?? '—'})`,
