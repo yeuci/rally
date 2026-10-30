@@ -248,3 +248,27 @@ test('without a play session service (Developer launcher) nothing is recorded', 
   await tick();
   assert.equal(recorded, 0);
 });
+
+test('page diagnostics from the injected script are shown in the load-timeout error, never treated as bridge traffic', async () => {
+  const warnings: string[] = [];
+  const { controller } = setup({ readyTimeoutMs: 5 });
+  (controller as unknown as { opts: { warn: (m: string) => void } }).opts.warn = (m) => warnings.push(m);
+  controller.handleMessage('{"rallyDiag":1,"kind":"boot","message":"injected script ran (ReactNativeWebView present, https://cdn.example.com/games/spike/0.1.0/index.html)"}', BUNDLE);
+  controller.handleMessage('{"rallyDiag":1,"kind":"csp","message":"script-src-elem blocked https://cdn.example.com/games/spike/0.1.0/assets/index.js"}', BUNDLE);
+  await new Promise((r) => setTimeout(r, 20));
+  const v = controller.getSnapshot();
+  assert.equal(v.phase, 'failed');
+  assert.match(v.error ?? '', /no messages from the game/);
+  assert.match(v.error ?? '', /injected script ran/);
+  assert.match(v.error ?? '', /csp: script-src-elem blocked/);
+  assert.doesNotMatch(v.error ?? '', /dropped/);
+  assert.deepEqual(warnings, ['[game csp] script-src-elem blocked https://cdn.example.com/games/spike/0.1.0/assets/index.js']);
+  controller.stop();
+});
+
+test('a load timeout without the injected script having run says so', async () => {
+  const { controller } = setup({ readyTimeoutMs: 5 });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.match(controller.getSnapshot().error ?? '', /injected script did not run/);
+  controller.stop();
+});

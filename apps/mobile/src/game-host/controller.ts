@@ -1,7 +1,7 @@
 import type { LaunchContext, LaunchIntent } from '@rally/protocol';
 import { HostBridge } from './bridge';
 import { createHostHandlers, type HostHandlers, type MatchmakingTarget } from './handlers';
-import { buildDeliverScript } from './injected';
+import { buildDeliverScript, parseDiagnostic, type PageDiagnostic } from './injected';
 import type { PlaySessionService } from './play-session';
 import type { ProgressStore } from './progress';
 import type { SaveStore } from './saves';
@@ -175,8 +175,16 @@ export class GameHostController {
   /** Diagnostics for the load-timeout overlay: what the game sent (or didn't) before giving up. */
   private readonly seenMethods: string[] = [];
   private droppedCount = 0;
+  /** Page-level reports from the injected diagnostics script (CSP violations, failed loads, exceptions). */
+  private readonly diagnostics: PageDiagnostic[] = [];
 
   handleMessage = (data: string, sourceUrl: string | undefined): void => {
+    const diag = parseDiagnostic(data);
+    if (diag) {
+      if (this.diagnostics.length < 12) this.diagnostics.push(diag);
+      if (diag.kind !== 'boot') this.warn(`[game ${diag.kind}] ${diag.message}`);
+      return;
+    }
     const m = /"method":"([^"]+)"/.exec(data)?.[1];
     if (m && this.seenMethods.length < 20) this.seenMethods.push(m);
     if (!this.active || this.exited) return;
@@ -360,7 +368,13 @@ export class GameHostController {
       if (this.view.phase !== 'loading') return;
       const seen = this.seenMethods.length ? `received: ${[...new Set(this.seenMethods)].join(', ')}` : 'no messages from the game';
       const dropped = this.droppedCount ? `, ${this.droppedCount} dropped (nonce/origin)` : '';
-      this.lastError ??= `game did not call ready() within ${Math.round(ms / 1000)}s (${seen}${dropped}, url ${this.opts.bundleUrl})`;
+      const booted = this.diagnostics.some((d) => d.kind === 'boot');
+      const page = this.diagnostics.filter((d) => d.kind !== 'boot').map((d) => `${d.kind}: ${d.message}`);
+      const detail = [
+        booted ? 'injected script ran' : 'injected script did not run',
+        ...(page.length ? page : booted ? ['no page errors reported'] : []),
+      ].join('\n');
+      this.lastError ??= `game did not call ready() within ${Math.round(ms / 1000)}s (${seen}${dropped}, url ${this.opts.bundleUrl})\n${detail}`;
       this.setView({ phase: 'failed', error: this.lastError });
     }, ms);
   }

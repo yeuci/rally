@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from './zod.ts';
 
 /** Bridge protocol version. Bump only on incompatible envelope changes. */
 export const PROTOCOL_VERSION = 1 as const;

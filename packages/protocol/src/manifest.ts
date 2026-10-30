@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from './zod.ts';
 import { Orientation } from './launch-context.ts';
 
 export const GameEngine = z.enum(['playcanvas', 'phaser', 'custom']);

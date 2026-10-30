@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from './zod.ts';
 
 export const LaunchIntent = z.enum(['solo', 'quick', 'joinById', 'private', 'party']);
 export type LaunchIntent = z.infer<typeof LaunchIntent>;
