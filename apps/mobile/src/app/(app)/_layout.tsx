@@ -1,8 +1,12 @@
-import { Stack } from 'expo-router';
+import { Redirect, Stack } from 'expo-router';
+import { useSession } from '@/lib/auth/session';
 
 export const unstable_settings = { initialRouteName: 'index' };
 
 export default function AppLayout() {
+  const { signedIn } = useSession();
+  // Signed out (or an unlinked anonymous session) never sees the app: back to the welcome screen.
+  if (!signedIn) return <Redirect href="/welcome" />;
   return (
     <Stack screenOptions={{ headerShadowVisible: false, headerBackButtonDisplayMode: 'minimal' }}>
       <Stack.Screen name="index" options={{ headerShown: false }} />

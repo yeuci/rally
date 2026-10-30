@@ -25,7 +25,7 @@ void SplashScreen.preventAutoHideAsync().catch(() => {});
 export default function RootLayout() {
   const { theme } = useUniwind();
   const nav = NAV_THEME[theme ?? 'dark'];
-  const { initialized, signedIn } = useSession();
+  const { initialized } = useSession();
 
   useEffect(() => {
     if (initialized) void SplashScreen.hideAsync().catch(() => {});
@@ -46,12 +46,10 @@ export default function RootLayout() {
             contentStyle: { backgroundColor: nav.colors.background },
           }}
         >
-          <Stack.Protected guard={signedIn}>
-            <Stack.Screen name="(app)" options={{ headerShown: false }} />
-          </Stack.Protected>
-          <Stack.Protected guard={!signedIn}>
-            <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-          </Stack.Protected>
+          {/* The gate itself lives in each group's layout as a <Redirect>: Stack.Protected on the root `/`
+              route leaves the router with nothing to fall back to and renders "Unmatched Route". */}
+          <Stack.Screen name="(app)" options={{ headerShown: false }} />
+          <Stack.Screen name="(auth)" options={{ headerShown: false }} />
           <Stack.Screen name="auth/callback" options={{ title: '', headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="auth/reset-password" options={{ title: 'New password' }} />
           <Stack.Protected guard={config.devTools}>
