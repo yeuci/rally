@@ -35,6 +35,8 @@ const ui = {
 const params = new URLSearchParams(location.search);
 /** `?predict=0` renders your own puck interpolated like everyone else's (to compare). */
 const PREDICT = params.get('predict') !== '0';
+/** Dev only: `?art=icon|cover|countdown|match|result` stages a frozen scene for the store art (src/art.ts). */
+const ART = import.meta.env.DEV ? params.get('art') : null;
 
 function loading(progress: number) {
   ui.loadingBar.style.width = `${Math.round(progress * 100)}%`;
@@ -45,7 +47,8 @@ const bootStart = performance.now();
 loading(0.05);
 
 // --- engine, scene, HUD, input -----------------------------------------------------------------------
-const { app, onResize } = createApp({ canvas: ui.canvas });
+// The art capture renders at up to 3× device pixels (store screenshots); the game itself keeps the cap of 2.
+const { app, onResize } = createApp({ canvas: ui.canvas, ...(ART ? { maxPixelRatio: 3 } : {}) });
 const scene = createSumoScene(app, (fn) => onResize(fn));
 const hud = createHud();
 const controls = createControls(ui.canvas, ui.stick);
@@ -290,6 +293,11 @@ async function boot() {
   if (exiting) return; // exit requested while loading: never take a seat
   hud.setMessage('Joining…');
   joining = (async () => {
+    if (import.meta.env.DEV && ART) {
+      const art = await import('./art.ts');
+      if (!art.isArtShot(ART)) throw new Error(`?art=${ART}: expected one of ${art.ART_SHOTS.join(', ')}`);
+      return art.stageArt(ART, { app, scene, hud });
+    }
     if (rally.isHosted) {
       // The host matchmakes (with the player's Supabase token) and hands over a seat; the socket is ours.
       const { endpoint, seatReservation } = await rally.session.join();

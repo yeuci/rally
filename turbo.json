@@ -3,23 +3,51 @@
   "ui": "tui",
   "tasks": {
     "build": {
-      "dependsOn": ["^build"],
-      "outputs": ["dist/**", "build/**"]
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        "dist/**",
+        "build/**"
+      ]
     },
     "typecheck": {
-      "dependsOn": ["^build"]
+      "dependsOn": [
+        "^build"
+      ]
     },
     "lint": {},
     "test": {
-      "dependsOn": ["^build"]
+      "dependsOn": [
+        "^build"
+      ]
     },
     "@rally/publish-game#test": {
-      "dependsOn": ["^build", "@rally/game-spike#build"],
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/games/spike/game.json", "$TURBO_ROOT$/games/spike/art/**"]
+      "dependsOn": [
+        "^build",
+        "@rally/game-spike#build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/games/spike/game.json",
+        "$TURBO_ROOT$/games/spike/art/**"
+      ]
     },
     "dev": {
       "cache": false,
       "persistent": true
+    },
+    "@rally/game-sumo#typecheck": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "../scripts/**"
+      ]
+    },
+    "@rally/game-sumo#lint": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "../scripts/**"
+      ]
     }
   }
 }

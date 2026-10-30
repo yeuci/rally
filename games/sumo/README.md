@@ -90,7 +90,7 @@ id order), which the unit tests check bit for bit.
 
 | Path                    | What                                                                                                                  |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `game.json`             | 2–8 players, `quick` + `private`, landscape, room `sumo`, board `wins`, 4 achievements (awarded by the room).         |
+| `game.json`             | 2–8 players, `quick` + `browser` + `private`, landscape, room `sumo`, board `wins`, 4 achievements, store art.        |
 | `server/src/physics.ts` | Pucks: `integrate`, `collide` (pushes both), `isOut`, `stepWorld`, spawn ring.                                        |
 | `server/src/input.ts`   | `clampStick`, `parseInput`, `RateWindow`, keyboard/drag → stick.                                                      |
 | `server/src/match.ts`   | `SumoMatch`: waiting → countdown → playing → roundOver → matchOver, scoring, knock-out credit, results.               |
@@ -101,6 +101,8 @@ id order), which the unit tests check bit for bit.
 | `client/src/predict.ts` | Own-puck prediction (above).                                                                                          |
 | `client/src/scene.ts`   | PlayCanvas: platform, pucks, falls, hit flashes, screen shake, label anchors.                                         |
 | `client/src/hud.ts`     | Score strip, round/clock/ping, countdown and result banners (with the `result` line), join code.                      |
+| `client/src/art.ts`     | Dev-only `?art=<shot>`: frozen, deterministic scenes for the store art (below).                                       |
+| `scripts/art.ts`        | Renders `art/*.webp` from those scenes in headless Chromium (`pnpm --filter @rally/game-sumo art`).                   |
 
 `games/sumo/server` is the `@rally/game-sumo-server` package: engine- and network-free, built with `tsc` for the game
 server and imported from source by the client (Vite alias and tsconfig `paths`) and by `pnpm dev:server`
@@ -110,7 +112,7 @@ server and imported from source by the client (Vite alias and tsconfig `paths`) 
 
 ```bash
 pnpm --filter @rally/game-sumo-server test    # physics, input clamping, match state machine (node:test)
-pnpm --filter @rally/game-sumo test           # prediction, result line (node:test)
+pnpm --filter @rally/game-sumo test           # prediction, result line, art poses (node:test)
 pnpm --filter @rally/game-server test         # SumoRoom over real sockets (@colyseus/testing), auth, join codes
 pnpm --filter @rally/game-sumo test:e2e       # Playwright: two Chrome contexts through the harness (needs Chromium;
                                               # playwright via NODE_PATH); starts both servers if they are not up
@@ -128,4 +130,43 @@ uses) a game server on that port and points the pages at it (`?colyseus=`).
 
 ## Art
 
-`game.json` lists no icon, cover or screenshots yet (the app shows generated art). See games/stack/README.md.
+The store art in `art/` is rendered by the game itself (the real PlayCanvas scene, HUD and frame loop), so it never
+drifts from what players see. Re-render after a visual change and commit the files:
+
+```bash
+pnpm --filter @rally/game-sumo art      # needs Chromium + Playwright (via NODE_PATH, as for test:e2e); no game server
+ART_ONLY=icon,cover pnpm --filter @rally/game-sumo art   # a subset
+```
+
+`scripts/art.ts` starts the Vite dev server (:5182) unless it is up, opens `?nohost&art=<shot>` headless with
+software WebGL, waits for `window.__sumoArt.ready`, screenshots, and encodes WebP in Chromium (quality stepped down
+until the file fits its budget; no image library needed). `?art` is handled by `client/src/art.ts`, which main.ts
+loads only behind `import.meta.env.DEV` (it is not in the published bundle). Open `http://localhost:5182/?nohost&art=match`
+in a browser to look at a pose.
+
+| File          | Size      | Budget | Scene (`?art=`)                                                                                                                       |
+| ------------- | --------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `icon.webp`   | 1024×1024 | 400 KB | `icon`: four pucks colliding on a shrunken ring, cropped square around the platform, dark backdrop, no HUD or text.                   |
+| `cover.webp`  | 1920×1080 | 400 KB | `cover`: six pucks on the arena, one tipping off the edge; the platform is centred inside the middle 90 % of the 16:7 and 10:7 crops. |
+| `shot-1.webp` | 2532×1170 | 500 KB | `countdown`: the "3" before round 4 (iPhone landscape, 844×390 @3×), score strip and name labels.                                     |
+| `shot-2.webp` | 2532×1170 | 500 KB | `match`: the first hard hit of round 3, all six pucks on, HUD.                                                                        |
+| `shot-3.webp` | 2532×1170 | 500 KB | `result`: "You win!" with a signed-in result line ("Wins 14 · Rank #3 · 💥 Ring Out unlocked").                                       |
+
+The three screenshots come from one real match of the shared rules (`SumoMatch`) between six scripted players
+(`steer()` in art.ts); each round has a designated strong player, so the match plays out the same way (yuki 3, mika 1,
+inside the 90 s limit) even if a different Chromium rounds the physics slightly differently. The icon and cover are
+hand-posed. Time is frozen once a scene is staged, so re-running gives the same images on the same machine. Fonts:
+the capture prefers SF Pro Rounded, then Inter, as installed on the machine.
+
+## Release (0.2.0)
+
+`game.json` 0.2.0 lists the art, adds the `browser` mode (the shell's Rooms screen) and needs server v2
+(`server.minVersion: 2`: the `result` message). Publish order (docs/m3-phase2.md §7):
+
+1. Deploy the game server (v2) on the VPS (infra/game-server/README.md) and check `https://play.<domain>/versions`.
+2. `supabase db push` (the M3 phase 2 migration: `server_record_match`, rooms, presence).
+3. Publish with the deployed origin pinned in the CSP:
+   `RALLY_COLYSEUS_URL=https://play.<domain> pnpm --filter @rally/publish-game publish-game sumo` (run `--dry-run`
+   first; add `--publish` the first time to make the draft visible). It uploads the art, upserts the `wins` board and the
+   achievements, and flips the current version.
+4. Build the app with `EXPO_PUBLIC_COLYSEUS_URL=https://play.<domain>` (eas.json) and run the M3 device checks.

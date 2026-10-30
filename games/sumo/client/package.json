@@ -8,9 +8,10 @@
     "build": "vite build",
     "preview": "vite preview --host",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "lint": "eslint . --max-warnings 0",
+    "lint": "eslint . ../scripts --max-warnings 0",
     "test": "node --conditions=rally-source --experimental-strip-types --no-warnings=ExperimentalWarning --test test/*.test.ts",
-    "test:e2e": "node test/e2e.cjs"
+    "test:e2e": "node test/e2e.cjs",
+    "art": "node --experimental-strip-types --no-warnings=ExperimentalWarning ../scripts/art.ts"
   },
   "dependencies": {
     "@colyseus/sdk": "^0.18.8",

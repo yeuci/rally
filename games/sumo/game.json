@@ -1,10 +1,12 @@
 {
   "id": "sumo",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "title": "Sumo",
   "description": "Push your friends off the platform. Drag to shove your puck, bump the others over the edge, and be the last one standing. The ring shrinks, so nobody hides for long. 2–8 players, first to 3 rounds.",
   "genres": ["party", "arcade"],
-  "screenshots": [],
+  "icon": "art/icon.webp",
+  "cover": "art/cover.webp",
+  "screenshots": ["art/shot-1.webp", "art/shot-2.webp", "art/shot-3.webp"],
   "engine": "playcanvas",
   "entry": "index.html",
   "orientation": "landscape",
@@ -12,7 +14,7 @@
     "min": 2,
     "max": 8
   },
-  "modes": ["quick", "private"],
+  "modes": ["quick", "browser", "private"],
   "server": {
     "room": "sumo",
     "minVersion": 2

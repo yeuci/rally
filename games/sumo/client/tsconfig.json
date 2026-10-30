@@ -11,5 +11,5 @@
     // The shared rules are compiled from source (same as the Vite alias), so prediction never runs stale code.
     "paths": { "@rally/game-sumo-server": ["../server/src/index.ts"] }
   },
-  "include": ["src", "test", "vite.config.ts"]
+  "include": ["src", "test", "../scripts", "vite.config.ts"]
 }
