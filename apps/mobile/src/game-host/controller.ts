@@ -24,12 +24,18 @@ export interface HostView {
   progress: number;
   status: string;
   error: string | null;
+  /** Last frame rate the game's WebView reported (once a second while the FPS overlay is on); null otherwise. */
+  fps: number | null;
 }
 
 export interface GameHostResult {
   reason: string;
   /** ms from WebView start to `ready()`; null if the game never became ready. */
   readyMs: number | null;
+  /** ms from start to the entry document being downloaded and verified; null if it never was. */
+  entryMs: number | null;
+  /** ms from start to the WebView beginning to load the entry; null if it never did. */
+  pageMs: number | null;
   /** Foreground seconds between `ready()` and exit; 0 if never ready. Feeds `end_play_session` / `record_play`. */
   playtimeS: number;
   metrics: Record<string, number | string | boolean> | null;
@@ -58,6 +64,8 @@ export interface GameHostControllerOptions {
   readyTimeoutMs?: number;
   now?: () => number;
   warn?: (message: string) => void;
+  /** Launch timings, one line per session (dev builds log them to the Metro terminal). */
+  log?: (message: string) => void;
 }
 
 /**
@@ -81,6 +89,9 @@ export class GameHostController {
   private playSession: Promise<string | null> | null = null;
   private startedAt: number;
   private readyAt: number | null = null;
+  private entryAt: number | null = null;
+  private pageAt: number | null = null;
+  private fpsOverlay = false;
   private pausedAt: number | null = null;
   private pausedMs = 0;
   private metrics: Record<string, number | string | boolean> | null = null;
@@ -99,7 +110,7 @@ export class GameHostController {
     this.onPlayRecorded = opts.onPlayRecorded;
     this.startedAt = this.now();
     const nonce = opts.createNonce();
-    this.view = { attempt: 0, nonce, phase: 'loading', progress: 0, status: 'Loading…', error: null };
+    this.view = { attempt: 0, nonce, phase: 'loading', progress: 0, status: 'Loading…', error: null, fps: null };
     this.bridge = this.createBridge(nonce);
   }
 
@@ -181,6 +192,11 @@ export class GameHostController {
   handleMessage = (data: string, sourceUrl: string | undefined): void => {
     const diag = parseDiagnostic(data);
     if (diag) {
+      if (diag.kind === 'fps') {
+        const fps = Number(diag.message);
+        if (this.fpsOverlay && Number.isFinite(fps) && fps !== this.view.fps) this.setView({ fps });
+        return;
+      }
       if (this.diagnostics.length < 12) this.diagnostics.push(diag);
       if (diag.kind !== 'boot') this.warn(`[game ${diag.kind}] ${diag.message}`);
       return;
@@ -197,8 +213,22 @@ export class GameHostController {
    * cold cache, a game calling location.reload()) the game will call ready() again, so the handshake is reset and
    * the loading overlay returns until it does.
    */
+  /** GameHost downloaded and verified the entry document (see entry.ts). */
+  onEntryLoaded = (): void => {
+    this.entryAt ??= this.now();
+  };
+
+  /** Show or hide the FPS overlay: starts/stops the sampler in the page; takes effect live. */
+  setFpsOverlay = (on: boolean): void => {
+    if (on === this.fpsOverlay) return;
+    this.fpsOverlay = on;
+    if (!on && this.view.fps !== null) this.setView({ fps: null });
+    this.getWebView?.()?.injectJavaScript(`window.__rallyDiag && window.__rallyDiag.fps(${on ? 'true' : 'false'}); true;`);
+  };
+
   onMainFrameLoadStart = (url: string): void => {
     if (!this.bridge.isInsideBundle(url)) return;
+    this.pageAt ??= this.now();
     this.handlers.resetHandshake();
     if (this.view.phase === 'ready') {
       this.setView({ phase: 'loading', progress: 0, status: 'Reloading…' });
@@ -261,11 +291,13 @@ export class GameHostController {
     this.bridge = this.createBridge(nonce);
     this.startedAt = this.now();
     this.readyAt = null;
+    this.entryAt = null;
+    this.pageAt = null;
     this.pausedAt = null;
     this.pausedMs = 0;
     this.lastError = null;
     this.exitRequestedAt = 0;
-    this.setView({ attempt: this.view.attempt + 1, nonce, phase: 'loading', progress: 0, status: 'Loading…', error: null });
+    this.setView({ attempt: this.view.attempt + 1, nonce, phase: 'loading', progress: 0, status: 'Loading…', error: null, fps: null });
     if (this.active) this.armReadyTimeout();
   };
 
@@ -280,6 +312,8 @@ export class GameHostController {
     this.onExit({
       reason,
       readyMs: this.readyAt === null ? null : this.readyAt - this.startedAt,
+      entryMs: this.entryAt === null ? null : this.entryAt - this.startedAt,
+      pageMs: this.pageAt === null ? null : this.pageAt - this.startedAt,
       playtimeS,
       metrics: this.metrics,
       error: this.lastError,
@@ -343,6 +377,10 @@ export class GameHostController {
           this.readyAt = this.now();
           this.clearReadyTimeout();
           this.setView({ phase: 'ready', progress: 1 });
+          const ms = (t: number | null) => (t === null ? '—' : `${t - this.startedAt} ms`);
+          this.opts.log?.(
+            `[game-host] ${this.opts.game.id}@${this.opts.game.version} ready in ${ms(this.readyAt)} (entry downloaded ${ms(this.entryAt)}, page load started ${ms(this.pageAt)})`,
+          );
         },
         onLoading: (progress) => {
           if (this.view.phase === 'loading') this.setView({ progress: Math.max(this.view.progress, progress) });

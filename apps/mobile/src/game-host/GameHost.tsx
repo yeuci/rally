@@ -11,6 +11,7 @@ import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { GameHostController, type DeviceInfo, type GameHostResult } from './controller';
 import { fetchEntryDocument, type EntryDocument } from './entry';
+import { usePrefs } from '@/lib/prefs';
 import type { MatchmakingTarget } from './handlers';
 import { buildInjectedScript } from './injected';
 import type { PlaySessionService } from './play-session';
@@ -91,6 +92,7 @@ export function GameHost(props: GameHostProps) {
         onExit: props.onExit,
         onPlayRecorded: props.onPlayRecorded,
         createNonce: newNonce,
+        log: __DEV__ ? (m) => console.log(m) : undefined,
       }),
   );
   const view = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
@@ -106,7 +108,9 @@ export function GameHost(props: GameHostProps) {
     const abort = new AbortController();
     fetchEntryDocument(bundleUrl, { expectedSha256: entrySha256 ?? null, digest: sha256Hex, signal: abort.signal })
       .then((doc) => {
-        if (!cancelled) setFetched({ attempt, doc });
+        if (cancelled) return;
+        controller.onEntryLoaded();
+        setFetched({ attempt, doc });
       })
       .catch((err: unknown) => {
         if (!cancelled) controller.onLoadError(err instanceof Error ? err.message : String(err));
@@ -165,7 +169,11 @@ export function GameHost(props: GameHostProps) {
     return () => sub.remove();
   }, [controller]);
 
-  const injected = useMemo(() => buildInjectedScript(view.nonce), [view.nonce]);
+  const { showFps } = usePrefs();
+  const injected = useMemo(() => buildInjectedScript(view.nonce, { fps: showFps }), [view.nonce, showFps]);
+  useEffect(() => {
+    controller.setFpsOverlay(showFps);
+  }, [controller, showFps]);
 
   return (
     <View style={styles.root}>
@@ -214,6 +222,18 @@ export function GameHost(props: GameHostProps) {
           onLoadStart={(e) => controller.onMainFrameLoadStart(e.nativeEvent.url)}
           onLoadProgress={(e) => controller.onLoadProgress(e.nativeEvent.progress)}
         />
+      )}
+
+      {view.phase === 'ready' && showFps && view.fps !== null && (
+        <View
+          pointerEvents="none"
+          className="absolute rounded-md bg-black/60 px-1.5 py-0.5"
+          style={{ top: insets.top + 6, left: insets.left + 6 }}
+        >
+          <Text className="font-mono text-[12px] font-semibold leading-4 text-white" style={styles.fps}>
+            {view.fps} fps
+          </Text>
+        </View>
       )}
 
       {view.phase === 'loading' && (
@@ -267,6 +287,7 @@ export function GameHost(props: GameHostProps) {
 }
 
 const styles = StyleSheet.create({
+  fps: { fontVariant: ['tabular-nums'] },
   root: { flex: 1, backgroundColor: '#0A0A0A' },
   webview: { flex: 1, backgroundColor: '#0A0A0A' },
 });

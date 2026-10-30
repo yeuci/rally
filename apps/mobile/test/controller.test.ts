@@ -272,3 +272,36 @@ test('a load timeout without the injected script having run says so', async () =
   assert.match(controller.getSnapshot().error ?? '', /injected script did not run/);
   controller.stop();
 });
+
+test('fps reports update the view only while the overlay is on, and never land in the diagnostics', async () => {
+  const { controller } = setup({ readyTimeoutMs: 5 });
+  const js: string[] = [];
+  controller.setWebView(() => ({ injectJavaScript: (s: string) => js.push(s) }) as never);
+  controller.handleMessage('{"rallyDiag":1,"kind":"fps","message":"58"}', BUNDLE);
+  assert.equal(controller.getSnapshot().fps, null);
+  controller.setFpsOverlay(true);
+  assert.match(js.at(-1) ?? '', /__rallyDiag\.fps\(true\)/);
+  controller.handleMessage('{"rallyDiag":1,"kind":"fps","message":"58"}', BUNDLE);
+  assert.equal(controller.getSnapshot().fps, 58);
+  controller.setFpsOverlay(false);
+  assert.equal(controller.getSnapshot().fps, null);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.doesNotMatch(controller.getSnapshot().error ?? '', /fps/);
+  controller.stop();
+});
+
+test('launch timings: entry, page start and ready are measured from start()', async () => {
+  const { controller, c, exits } = setup();
+  c.advance(150);
+  controller.onEntryLoaded();
+  c.advance(100);
+  controller.onMainFrameLoadStart(BUNDLE);
+  c.advance(1000);
+  controller.handleMessage(req('ready', { sdkVersion: '1' }), BUNDLE);
+  await tick();
+  controller.finish('exit');
+  await tick();
+  assert.equal(exits[0]?.entryMs, 150);
+  assert.equal(exits[0]?.pageMs, 250);
+  assert.equal(exits[0]?.readyMs, 1250);
+});

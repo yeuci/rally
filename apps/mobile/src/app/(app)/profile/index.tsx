@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { ChevronRightIcon, LifeBuoyIcon, LogOutIcon, PencilIcon, Trash2Icon, WrenchIcon, type LucideIcon } from 'lucide-react-native';
+import { ChevronRightIcon, GaugeIcon, LifeBuoyIcon, LogOutIcon, PencilIcon, Trash2Icon, WrenchIcon, type LucideIcon } from 'lucide-react-native';
 import { useState } from 'react';
 import { Linking, Pressable, ScrollView, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,11 +20,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { Separator } from '@/components/ui/separator';
+import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Text } from '@/components/ui/text';
 import { config } from '@/config';
 import { describeAuthError } from '@/lib/auth/errors';
 import { signOut } from '@/lib/auth/providers';
+import { prefs, usePrefs } from '@/lib/prefs';
 import { useProfile } from '@/lib/profile';
 import { useColumnPadding } from '@/lib/use-layout';
 import { cn } from '@/lib/utils';
@@ -36,6 +38,7 @@ export default function ProfileScreen() {
   const column = useColumnPadding();
   const glow = Math.min(width, 700) * 1.1;
   const profile = useProfile();
+  const { showFps } = usePrefs();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState<string | null>(null);
@@ -89,6 +92,10 @@ export default function ProfileScreen() {
       </View>
 
       <View className="bg-card border-border overflow-hidden rounded-2xl border">
+        <ToggleRow icon={GaugeIcon} label="Show FPS in games" value={showFps} onChange={(showFps) => prefs.update({ showFps })} />
+      </View>
+
+      <View className="bg-card border-border overflow-hidden rounded-2xl border">
         {config.devTools && (
           <>
             <Row icon={WrenchIcon} label="Developer" onPress={() => router.push('/dev')} />
@@ -136,6 +143,23 @@ export default function ProfileScreen() {
         </AlertDialogContent>
       </AlertDialog>
     </ScrollView>
+  );
+}
+
+function ToggleRow({ icon, label, value, onChange }: { icon: LucideIcon; label: string; value: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <Pressable
+      onPress={() => onChange(!value)}
+      accessibilityRole="switch"
+      accessibilityState={{ checked: value }}
+      className="active:bg-accent flex-row items-center gap-3.5 px-4 py-3"
+    >
+      <View className="bg-muted size-9 items-center justify-center rounded-xl">
+        <Icon as={icon} className="text-secondary-foreground size-[18px]" />
+      </View>
+      <Text className="flex-1 text-[15px] font-medium">{label}</Text>
+      <Switch checked={value} onCheckedChange={onChange} />
+    </Pressable>
   );
 }
 

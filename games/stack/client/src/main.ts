@@ -268,12 +268,12 @@ setInterval(() => rally.telemetry.report('stack', collect()), TELEMETRY_MS);
 
 // --- boot ------------------------------------------------------------------------------------------
 async function boot() {
+  // The save (one host round trip, a Supabase call) is not on the critical path: `createSave` reapplies updates
+  // made before it resolves, and only "Best" at game over and the tower hue read it. Render first, load alongside.
   const saved = save.load().catch(() => save.data);
   app.start();
-  loading(0.8);
-  await saved;
   newGame();
-  loading(1);
+  loading(0.9);
   // Show the first rendered frame before telling the host to drop its overlay (bounded: a page that boots hidden
   // gets no rAF, and the host would hit its load timeout).
   await new Promise<void>((resolve) => {
@@ -288,6 +288,10 @@ async function boot() {
   }
   readyMs = Math.round(performance.now() - bootStart);
   ui.loading.hidden = true;
+  loading(1);
+  await saved;
+  // Not started yet: pick the tower hue from the real play count, as later games do.
+  if (sim.phase === 'ready') scene.reset((save.data.played * 67 + 200) % 360);
 }
 
 boot().catch((err) => {

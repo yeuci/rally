@@ -5,7 +5,7 @@ import { PROTOCOL_VERSION } from '@rally/protocol';
  * exists before any game script runs. Messages delivered before the SDK installs its
  * dispatcher are queued; the SDK drains `queue` on init. iframes never receive the nonce.
  */
-export function buildInjectedScript(nonce: string): string {
+export function buildInjectedScript(nonce: string, opts: { fps?: boolean } = {}): string {
   return `(function () {
   if (window.__rally) return;
   var queue = [];
@@ -17,6 +17,7 @@ export function buildInjectedScript(nonce: string): string {
   };
 })();
 ${DIAGNOSTICS_SCRIPT}
+window.__rallyDiag.fps(${opts.fps ? 'true' : 'false'});
 true;`;
 }
 
@@ -24,7 +25,7 @@ true;`;
 export const DIAG_PREFIX = '{"rallyDiag":1,';
 
 export interface PageDiagnostic {
-  kind: 'boot' | 'error' | 'resource' | 'rejection' | 'csp' | 'console.error';
+  kind: 'boot' | 'error' | 'resource' | 'rejection' | 'csp' | 'console.error' | 'fps';
   message: string;
 }
 
@@ -46,6 +47,10 @@ export function parseDiagnostic(data: string): PageDiagnostic | null {
  * exceptions, failed resource loads (a script or stylesheet the CSP or SRI refused, a 404), unhandled promise
  * rejections, CSP violation reports and console.error. The host shows them in the load-failure overlay and never
  * treats them as bridge traffic (no envelope, no nonce; see `parseDiagnostic`).
+ *
+ * `window.__rallyDiag.fps(on)` starts/stops a requestAnimationFrame counter that reports the frame rate once a
+ * second (`kind: 'fps'`), for the shell's optional FPS overlay. The page's own rAF is the only true measure of the
+ * game's frame rate; the shell's JS thread knows nothing about it.
  */
 const DIAGNOSTICS_SCRIPT = `(function () {
   var sent = 0, pending = [];
@@ -77,6 +82,24 @@ const DIAGNOSTICS_SCRIPT = `(function () {
   console.error = function () {
     try { diag('console.error', Array.prototype.map.call(arguments, describe).join(' ')); } catch (e) {}
     return consoleError.apply(console, arguments);
+  };
+  var fpsOn = false, fpsFrames = 0, fpsSince = 0;
+  function fpsTick(now) {
+    if (!fpsOn) return;
+    fpsFrames++;
+    if (now - fpsSince >= 1000) {
+      try { post(${JSON.stringify(DIAG_PREFIX)} + '"kind":"fps","message":"' + Math.round(fpsFrames * 1000 / (now - fpsSince)) + '"}'); } catch (e) {}
+      fpsFrames = 0; fpsSince = now;
+    }
+    requestAnimationFrame(fpsTick);
+  }
+  window.__rallyDiag = {
+    fps: function (on) {
+      on = !!on;
+      if (on === fpsOn) return;
+      fpsOn = on;
+      if (on) { fpsFrames = 0; fpsSince = performance.now(); requestAnimationFrame(fpsTick); }
+    }
   };
   function flush() { while (pending.length && window.ReactNativeWebView) post(pending.shift()); }
   document.addEventListener('DOMContentLoaded', flush);

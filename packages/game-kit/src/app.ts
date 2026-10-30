@@ -1,4 +1,4 @@
-import * as pc from 'playcanvas';
+import { Application, FILLMODE_FILL_WINDOW, Mouse, RESOLUTION_AUTO, TouchDevice, platform } from 'playcanvas';
 
 /** DPR is capped at 2: higher only burns fill rate on phones (architecture §2). */
 export const MAX_PIXEL_RATIO = 2;
@@ -16,7 +16,7 @@ export interface CreateAppOptions {
 }
 
 export interface AppHandle {
-  app: pc.Application;
+  app: Application;
   /** Re-apply the DPR cap and resize the canvas (called on resize / orientation change). */
   resize(): void;
   /** Subscribe to size changes after the canvas was resized. Returns an unsubscribe function. */
@@ -35,7 +35,7 @@ export function createApp(options: CreateAppOptions): AppHandle {
   canvas.style.userSelect = 'none';
   (canvas.style as CSSStyleDeclaration & { webkitTouchCallout?: string }).webkitTouchCallout = 'none';
 
-  const app = new pc.Application(canvas, {
+  const app = new Application(canvas, {
     graphicsDeviceOptions: {
       antialias,
       alpha: false,
@@ -43,12 +43,12 @@ export function createApp(options: CreateAppOptions): AppHandle {
       preserveDrawingBuffer: false,
       ...options.graphicsDeviceOptions,
     },
-    mouse: pointerDevices ? new pc.Mouse(canvas) : undefined,
-    touch: pointerDevices && pc.platform.touch ? new pc.TouchDevice(canvas) : undefined,
+    mouse: pointerDevices ? new Mouse(canvas) : undefined,
+    touch: pointerDevices && platform.touch ? new TouchDevice(canvas) : undefined,
   });
 
-  app.setCanvasFillMode(pc.FILLMODE_FILL_WINDOW);
-  app.setCanvasResolution(pc.RESOLUTION_AUTO);
+  app.setCanvasFillMode(FILLMODE_FILL_WINDOW);
+  app.setCanvasResolution(RESOLUTION_AUTO);
 
   const listeners = new Set<(w: number, h: number) => void>();
   const resize = () => {

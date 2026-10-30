@@ -15,6 +15,8 @@ export interface RunReport {
   reason: string;
   metrics: Record<string, number | string | boolean> | null;
   readyMs: number | null;
+  entryMs: number | null;
+  pageMs: number | null;
   playtimeS: number;
   error: string | null;
 }

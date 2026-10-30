@@ -1,8 +1,8 @@
-import * as pc from 'playcanvas';
+import { type Application, BLEND_ADDITIVEALPHA, Color, Entity, PROJECTION_ORTHOGRAPHIC, SHADOW_PCF5_16F, StandardMaterial, Vec3 } from 'playcanvas';
 import { BASE_SIZE, LAYER_HEIGHT, type Slab } from './sim.ts';
 
 /** Matches the app's near-black background. */
-const BG = new pc.Color(10 / 255, 10 / 255, 10 / 255);
+const BG = new Color(10 / 255, 10 / 255, 10 / 255);
 /** Layers kept as entities below the top (older ones are far below the camera). */
 const KEEP_LAYERS = 56;
 const KEEP_LAYERS_LOW_MEMORY = 36;
@@ -11,10 +11,10 @@ const GRAVITY = 22;
 const BASE_COLUMN = 30;
 
 interface Debris {
-  e: pc.Entity;
-  mat: pc.StandardMaterial;
-  vel: pc.Vec3;
-  spin: pc.Vec3;
+  e: Entity;
+  mat: StandardMaterial;
+  vel: Vec3;
+  spin: Vec3;
   age: number;
 }
 
@@ -36,47 +36,47 @@ export interface StackScene {
   readonly entityCount: number;
 }
 
-export function hueColor(hue: number, light = 0.6): pc.Color {
+export function hueColor(hue: number, light = 0.6): Color {
   const h = (((hue % 360) + 360) % 360) / 360;
   const s = 0.55;
   const k = (n: number) => (n + h * 12) % 12;
   const a = s * Math.min(light, 1 - light);
   const f = (n: number) => light - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
-  return new pc.Color(f(0), f(8), f(4));
+  return new Color(f(0), f(8), f(4));
 }
 
-function flatMaterial(color: pc.Color): pc.StandardMaterial {
-  const m = new pc.StandardMaterial();
+function flatMaterial(color: Color): StandardMaterial {
+  const m = new StandardMaterial();
   m.diffuse = color;
-  m.specular = new pc.Color(0, 0, 0);
+  m.specular = new Color(0, 0, 0);
   m.gloss = 0;
   m.useMetalness = false;
   m.update();
   return m;
 }
 
-export function createStackScene(app: pc.Application): StackScene {
-  app.scene.ambientLight = new pc.Color(0.5, 0.5, 0.55);
+export function createStackScene(app: Application): StackScene {
+  app.scene.ambientLight = new Color(0.5, 0.5, 0.55);
 
   // Orthographic, isometric-ish camera: the classic Stack look and no perspective distortion while it rises.
-  const camera = new pc.Entity('camera');
+  const camera = new Entity('camera');
   camera.addComponent('camera', {
     clearColor: BG,
-    projection: pc.PROJECTION_ORTHOGRAPHIC,
+    projection: PROJECTION_ORTHOGRAPHIC,
     orthoHeight: 9,
     nearClip: 0.1,
     farClip: 200,
   });
   app.root.addChild(camera);
-  const CAM_DIR = new pc.Vec3(1, 0.95, 1).normalize().mulScalar(40);
+  const CAM_DIR = new Vec3(1, 0.95, 1).normalize().mulScalar(40);
 
-  const sun = new pc.Entity('sun');
+  const sun = new Entity('sun');
   sun.addComponent('light', {
     type: 'directional',
-    color: new pc.Color(1, 0.98, 0.95),
+    color: new Color(1, 0.98, 0.95),
     intensity: 0.85,
     castShadows: true,
-    shadowType: pc.SHADOW_PCF5_16F,
+    shadowType: SHADOW_PCF5_16F,
     shadowBias: 0.3,
     normalOffsetBias: 0.06,
     shadowResolution: 1024,
@@ -86,29 +86,29 @@ export function createStackScene(app: pc.Application): StackScene {
   sun.setEulerAngles(55, -25, 0);
   app.root.addChild(sun);
 
-  const towerRoot = new pc.Entity('tower');
+  const towerRoot = new Entity('tower');
   app.root.addChild(towerRoot);
-  const tower: { e: pc.Entity; mat: pc.StandardMaterial; layer: number }[] = [];
+  const tower: { e: Entity; mat: StandardMaterial; layer: number }[] = [];
   let keepLayers = KEEP_LAYERS;
   let baseHue = 200;
   const hueOf = (layer: number) => baseHue + layer * 5;
 
   const sliderMat = flatMaterial(hueColor(baseHue));
-  const slider = new pc.Entity('slider');
+  const slider = new Entity('slider');
   slider.addComponent('render', { type: 'box', material: sliderMat, castShadows: true, receiveShadows: true });
   app.root.addChild(slider);
   let sliderLayer = -1;
 
   // Perfect-drop flash: a thin additive plate that expands and fades around the placed slab.
-  const flashMat = new pc.StandardMaterial();
-  flashMat.diffuse = new pc.Color(0, 0, 0);
-  flashMat.emissive = new pc.Color(1, 1, 1);
+  const flashMat = new StandardMaterial();
+  flashMat.diffuse = new Color(0, 0, 0);
+  flashMat.emissive = new Color(1, 1, 1);
   flashMat.useLighting = false;
-  flashMat.blendType = pc.BLEND_ADDITIVEALPHA;
+  flashMat.blendType = BLEND_ADDITIVEALPHA;
   flashMat.depthWrite = false;
   flashMat.opacity = 0;
   flashMat.update();
-  const flash = new pc.Entity('flash');
+  const flash = new Entity('flash');
   flash.addComponent('render', { type: 'box', material: flashMat, castShadows: false });
   flash.enabled = false;
   app.root.addChild(flash);
@@ -127,7 +127,7 @@ export function createStackScene(app: pc.Application): StackScene {
 
   function addTowerSlab(slab: Slab) {
     const mat = flatMaterial(hueColor(hueOf(slab.layer)));
-    const e = new pc.Entity(`slab-${slab.layer}`);
+    const e = new Entity(`slab-${slab.layer}`);
     e.addComponent('render', { type: 'box', material: mat, castShadows: true, receiveShadows: true });
     if (slab.layer === 0) {
       // The base is a tall column so the tower never shows a floating bottom.
@@ -211,7 +211,7 @@ export function createStackScene(app: pc.Application): StackScene {
         old.mat.destroy();
       }
       const mat = flatMaterial(hueColor(hueOf(slab.layer)));
-      const e = new pc.Entity('debris');
+      const e = new Entity('debris');
       e.addComponent('render', { type: 'box', material: mat, castShadows: true });
       e.setLocalScale(slab.w, LAYER_HEIGHT, slab.d);
       e.setPosition(slab.x, yOf(slab.layer), slab.z);
@@ -220,8 +220,8 @@ export function createStackScene(app: pc.Application): StackScene {
       debris.push({
         e,
         mat,
-        vel: new pc.Vec3(alongX ? awayDir * 1.2 : 0, 0.5, alongX ? 0 : awayDir * 1.2),
-        spin: new pc.Vec3(alongX ? 0 : awayDir * 90, 0, alongX ? -awayDir * 90 : 0),
+        vel: new Vec3(alongX ? awayDir * 1.2 : 0, 0.5, alongX ? 0 : awayDir * 1.2),
+        spin: new Vec3(alongX ? 0 : awayDir * 90, 0, alongX ? -awayDir * 90 : 0),
         age: 0,
       });
     },

@@ -117,6 +117,8 @@ export default function DeveloperLauncher() {
             </CardDescription>
           </CardHeader>
           <CardContent className="gap-2">
+            <Row k="entry" v={lastRun.entryMs === null ? '—' : `${lastRun.entryMs} ms`} />
+            <Row k="page load" v={lastRun.pageMs === null ? '—' : `${lastRun.pageMs} ms`} />
             <Row k="ready()" v={lastRun.readyMs === null ? '—' : `${lastRun.readyMs} ms`} />
             <Row k="playtime" v={`${lastRun.playtimeS.toFixed(1)} s`} />
             {lastRun.error && <Row k="error" v={lastRun.error} />}
