@@ -1,9 +1,10 @@
 import { router } from 'expo-router';
 import type { ReactNode } from 'react';
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton, SkeletonText } from '@/components/ui/skeleton';
+import { TapPressable } from '@/components/ui/tap-pressable';
 import { Text } from '@/components/ui/text';
 import { cn } from '@/lib/utils';
 import { PresenceDot } from './presence-dot';
@@ -52,7 +53,7 @@ export function PersonRow({
 }) {
   const name = person.displayName || person.username;
   return (
-    <Pressable
+    <TapPressable
       accessibilityRole="button"
       accessibilityLabel={presence ? `${name}, @${person.username}, ${presence.label}` : `${name}, @${person.username}`}
       accessibilityHint="Opens the profile"
@@ -88,7 +89,7 @@ export function PersonRow({
         )}
       </View>
       {accessory}
-    </Pressable>
+    </TapPressable>
   );
 }
 

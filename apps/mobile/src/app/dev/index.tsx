@@ -3,7 +3,7 @@ import { Gamepad2Icon, MoonStarIcon, PlayIcon, SunIcon } from 'lucide-react-nati
 import { useState } from 'react';
 import { ActivityIndicator, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Uniwind, useUniwind } from 'uniwind';
+import { useUniwind } from 'uniwind';
 import { ErrorText } from '@/components/rally/form-field';
 import { Segmented } from '@/components/rally/segmented';
 import { Badge } from '@/components/ui/badge';
@@ -17,7 +17,9 @@ import { Text } from '@/components/ui/text';
 import { RoomLookupError, roomByCode } from '@/game-host/matchmake';
 import { DEV_ROOM_PRESETS, launchStore, useLaunchStore, type DevJoinMode } from '@/launch-store';
 import { ROOM_ID_RE, joinTargetParams, targetForCode, type JoinTarget } from '@/lib/join-target';
+import { prefs } from '@/lib/prefs';
 import { useColumnPadding } from '@/lib/use-layout';
+import { usePalette } from '@/lib/use-palette';
 
 const JOIN_MODES: readonly { value: DevJoinMode; label: string }[] = [
   { value: 'quick', label: 'Quick' },
@@ -47,6 +49,7 @@ export default function DeveloperLauncher() {
   const insets = useSafeAreaInsets();
   const column = useColumnPadding(640);
   const { theme } = useUniwind();
+  const palette = usePalette();
   const [error, setError] = useState<string | null>(null);
   const [looking, setLooking] = useState(false);
 
@@ -114,7 +117,8 @@ export default function DeveloperLauncher() {
           variant="ghost"
           className="rounded-full"
           accessibilityLabel="Toggle theme"
-          onPress={() => Uniwind.setTheme(theme === 'dark' ? 'light' : 'dark')}
+          // Through the preference (persisted, and Settings → Appearance shows it), not Uniwind.setTheme directly.
+          onPress={() => prefs.update({ appearance: theme === 'dark' ? 'light' : 'dark' })}
         >
           <Icon as={theme === 'dark' ? SunIcon : MoonStarIcon} />
         </Button>
@@ -200,7 +204,7 @@ export default function DeveloperLauncher() {
           </View>
           <ErrorText>{error}</ErrorText>
           <Button size="lg" onPress={() => void launch()} disabled={looking}>
-            {looking ? <ActivityIndicator /> : <Icon as={PlayIcon} />}
+            {looking ? <ActivityIndicator color={palette.primaryForeground} /> : <Icon as={PlayIcon} />}
             <Text>Launch spike</Text>
           </Button>
         </CardContent>

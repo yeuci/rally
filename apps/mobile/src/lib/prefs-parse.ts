@@ -9,9 +9,11 @@ export interface Prefs {
   showFps: boolean;
   /** Applied with `Uniwind.setTheme` (which also sets the native `Appearance`), see prefs.ts. */
   appearance: Appearance;
+  /** The shell's tap / toggle haptics (lib/haptics.ts); games are not affected. */
+  haptics: boolean;
 }
 
-export const DEFAULTS: Prefs = { showFps: false, appearance: 'system' };
+export const DEFAULTS: Prefs = { showFps: false, appearance: 'system', haptics: true };
 
 export function isAppearance(v: unknown): v is Appearance {
   return typeof v === 'string' && (APPEARANCES as readonly string[]).includes(v);
@@ -26,6 +28,7 @@ export function parsePrefs(raw: string | null): Prefs {
     return {
       showFps: typeof p.showFps === 'boolean' ? p.showFps : DEFAULTS.showFps,
       appearance: isAppearance(p.appearance) ? p.appearance : DEFAULTS.appearance,
+      haptics: typeof p.haptics === 'boolean' ? p.haptics : DEFAULTS.haptics,
     };
   } catch {
     return DEFAULTS;

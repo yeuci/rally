@@ -25,6 +25,7 @@ import { drawerGesture } from '@/lib/press-guard';
 import { countBadge } from '@/lib/social';
 import { AppDrawerContext } from '@/lib/use-app-drawer';
 import { useLayout } from '@/lib/use-layout';
+import { usePalette } from '@/lib/use-palette';
 import { useSignOut } from '@/lib/use-sign-out';
 import { cn } from '@/lib/utils';
 import { LogoMark } from './logo';
@@ -61,6 +62,7 @@ const PATHS: Record<DrawerItemKey, string> = {
 export function AppDrawer({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { width } = useLayout();
+  const palette = usePalette();
   const [open, setOpen] = useState(false);
   const swipe = drawerSwipeEnabled(pathname);
 
@@ -87,7 +89,8 @@ export function AppDrawer({ children }: { children: ReactNode }) {
         swipeEdgeWidth={DRAWER_EDGE_WIDTH}
         onGestureStart={drawerGesture.mark}
         drawerStyle={{ width: drawerWidth(width), backgroundColor: 'transparent' }}
-        overlayStyle={OVERLAY}
+        // The `backdrop` token (lighter on the light theme), like the sheets and dialogs.
+        overlayStyle={{ backgroundColor: palette.backdrop }}
         overlayAccessibilityLabel="Close menu"
         renderDrawerContent={() => <DrawerPanel pathname={pathname} onClose={() => setOpen(false)} />}
       >
@@ -96,8 +99,6 @@ export function AppDrawer({ children }: { children: ReactNode }) {
     </AppDrawerContext.Provider>
   );
 }
-
-const OVERLAY = { backgroundColor: 'rgba(0, 0, 0, 0.5)' } as const;
 
 /** Header (avatar, display name, @username → Profile), the items, then Sign out and the app version at the bottom. */
 function DrawerPanel({ pathname, onClose }: { pathname: string; onClose: () => void }) {

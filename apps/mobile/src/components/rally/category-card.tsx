@@ -39,7 +39,7 @@ export const CategoryCard = memo(function CategoryCard({
       accessibilityRole="button"
       accessibilityLabel={`${group.label}, ${count}`}
       accessibilityHint="Lists the games in this category"
-      className="active:opacity-80"
+      className="active:opacity-70"
       style={{ width }}
     >
       <GameCover

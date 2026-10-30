@@ -1,8 +1,16 @@
 import { router } from 'expo-router';
 import { ChevronRightIcon, CircleAlertIcon, TrophyIcon, UsersIcon } from 'lucide-react-native';
-import { useState } from 'react';
-import { Pressable, View, type TextStyle } from 'react-native';
-import { EmptyState } from '@/components/rally/empty-state';
+import { useEffect, useState } from 'react';
+import { StyleSheet, View, type TextStyle } from 'react-native';
+import Animated, {
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
+import { EmptyState, RetryButton } from '@/components/rally/empty-state';
 import { ProfileAvatar } from '@/components/rally/profile-avatar';
 import { SectionHeader } from '@/components/rally/section-header';
 import { Segmented } from '@/components/rally/segmented';
@@ -10,10 +18,18 @@ import { Badge } from '@/components/ui/badge';
 import { Icon } from '@/components/ui/icon';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton, SkeletonText } from '@/components/ui/skeleton';
+import { TapPressable } from '@/components/ui/tap-pressable';
 import { Text } from '@/components/ui/text';
 import { useLeaderboardTop, useMyRank, type Board, type Scope } from '@/lib/game-progress';
 import { useProfile } from '@/lib/profile';
-import { boardLabel, formatScore, splitLeaderboard, type LeaderboardRow } from '@/lib/progress-format';
+import {
+  boardLabel,
+  formatScore,
+  podiumTint,
+  splitLeaderboard,
+  type LeaderboardRow,
+  type PodiumTint,
+} from '@/lib/progress-format';
 import { cn } from '@/lib/utils';
 
 const TABULAR: TextStyle = { fontVariant: ['tabular-nums'] };
@@ -23,31 +39,48 @@ const SCOPES = [
   { value: 'friends', label: 'Friends' },
 ] as const;
 
-/** A row opens that player's public profile (your own row opens your profile). */
-function openPlayer(row: { username: string; isMe: boolean }) {
-  if (row.isMe) router.push('/profile');
-  else router.push({ pathname: '/u/[username]', params: { username: row.username } });
+/** Rank badge of the top three: the medal tokens (tuned per theme in global.css), static class names for Uniwind. */
+const PODIUM_BADGE: Record<PodiumTint, string> = {
+  gold: 'bg-gold-soft border-gold-line border',
+  silver: 'bg-silver-soft border-silver-line border',
+  bronze: 'bg-bronze-soft border-bronze-line border',
+};
+const PODIUM_TEXT: Record<PodiumTint, string> = { gold: 'text-gold', silver: 'text-silver', bronze: 'text-bronze' };
+
+/** Another player's row opens their public profile. */
+function openPlayer(row: { username: string }) {
+  router.push({ pathname: '/u/[username]', params: { username: row.username } });
 }
 
 /**
  * Game page leaderboard: board picker (when the game has several), Global / Friends, the top 10 with your row
- * highlighted, and "Your rank" below them when you are on the board but outside the top 10. Renders nothing
- * once the game turns out to have no boards.
+ * tinted, and "Your rank" below them when you are on the board but outside the top 10. The top three get gold /
+ * silver / bronze rank badges. Tapping your own row (or `highlightMe` changing: the page's "Best" row) flashes it.
+ * Renders nothing once the game turns out to have no boards.
  */
 export function LeaderboardSection({
   gameId,
   boards,
   loading,
   error,
+  highlightMe = 0,
+  onRetry,
 }: {
   gameId: string;
   boards: Board[];
   loading: boolean;
   /** The board list failed to load. */
   error: boolean;
+  /** Bumped by the caller to flash your row (0 = never asked). */
+  highlightMe?: number;
+  /** Reloads the board list after `error`. */
+  onRetry?: () => void;
 }) {
   const [picked, setPicked] = useState<string | null>(null);
   const [scope, setScope] = useState<Scope>('global');
+  const [tapped, setTapped] = useState(0);
+  // Changes whenever either source asks for a flash (both only ever count up).
+  const flash = tapped + highlightMe;
   const board = boards.find((b) => b.key === picked) ?? boards[0];
 
   const top = useLeaderboardTop(gameId, board?.key, scope);
@@ -62,7 +95,8 @@ export function LeaderboardSection({
           compact
           icon={CircleAlertIcon}
           title="Couldn't load the leaderboard"
-          body="Pull down to try again."
+          body="Check your connection and try again."
+          action={onRetry ? <RetryButton compact onPress={onRetry} /> : undefined}
         />
       </View>
     ) : null;
@@ -103,7 +137,8 @@ export function LeaderboardSection({
           compact
           icon={CircleAlertIcon}
           title="Couldn't load the leaderboard"
-          body="Pull down to try again."
+          body="Check your connection and try again."
+          action={<RetryButton compact onPress={() => void top.refetch()} />}
         />
       ) : rows.length === 0 ? (
         scope === 'friends' ? (
@@ -126,7 +161,7 @@ export function LeaderboardSection({
           {rows.map((row, i) => (
             <View key={`${row.rank}-${row.userId}`}>
               {i > 0 && <Separator className="ml-[60px]" />}
-              <Row row={row} />
+              <Row row={row} flash={flash} onHighlight={() => setTapped((n) => n + 1)} />
             </View>
           ))}
           {yourRank && me && (
@@ -145,6 +180,8 @@ export function LeaderboardSection({
                   score: yourRank.score,
                   isMe: true,
                 }}
+                flash={flash}
+                onHighlight={() => setTapped((n) => n + 1)}
               />
             </>
           )}
@@ -154,23 +191,40 @@ export function LeaderboardSection({
   );
 }
 
-function Row({ row }: { row: LeaderboardRow }) {
+/**
+ * One board row: rank badge (medal tint for the top three), avatar, name, score. Another player's row opens their
+ * profile; your own row (tinted) flashes when tapped or when `flash` changes, an opacity fade that also runs under
+ * Reduce Motion (nothing moves).
+ */
+function Row({ row, flash, onHighlight }: { row: LeaderboardRow; flash: number; onHighlight: () => void }) {
   const score = formatScore(row.score);
+  const tint = podiumTint(row.rank);
+  const glow = useSharedValue(0);
+  useEffect(() => {
+    if (!row.isMe || flash === 0) return;
+    glow.set(
+      withSequence(
+        ReduceMotion.Never,
+        withTiming(1, { duration: 160, reduceMotion: ReduceMotion.Never }),
+        withDelay(900, withTiming(0, { duration: 480, reduceMotion: ReduceMotion.Never }), ReduceMotion.Never),
+      ),
+    );
+  }, [flash, row.isMe, glow]);
+  const glowStyle = useAnimatedStyle(() => ({ opacity: glow.value }));
   return (
-    <Pressable
+    <TapPressable
       accessibilityRole="button"
       accessibilityLabel={`Rank ${row.rank}, ${row.isMe ? 'you' : row.username}, ${score}`}
-      onPress={() => openPlayer(row)}
-      className={cn('flex-row items-center gap-3 px-4 py-2.5 active:opacity-70', row.isMe && 'bg-fill')}
+      accessibilityHint={row.isMe ? 'Highlights your row' : 'Opens the profile'}
+      onPress={() => (row.isMe ? onHighlight() : openPlayer(row))}
+      className={cn('active:bg-accent flex-row items-center gap-3 px-4 py-2.5', row.isMe && 'bg-fill')}
     >
-      <View
-        className={cn(
-          'h-7 min-w-7 items-center justify-center rounded-full px-1',
-          row.rank <= 3 && 'bg-subtle border-subtle-line border',
-        )}
-      >
+      {row.isMe && (
+        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, glowStyle]} className="bg-subtle-line" />
+      )}
+      <View className={cn('h-7 min-w-7 items-center justify-center rounded-full px-1', tint && PODIUM_BADGE[tint])}>
         <Text
-          className={cn('text-[13px] font-bold', row.rank > 3 && 'text-muted-foreground')}
+          className={cn('text-[13px] font-bold', tint ? PODIUM_TEXT[tint] : 'text-muted-foreground')}
           style={TABULAR}
           numberOfLines={1}
         >
@@ -191,8 +245,8 @@ function Row({ row }: { row: LeaderboardRow }) {
       <Text className="text-[15px] font-bold" style={TABULAR}>
         {score}
       </Text>
-      <Icon as={ChevronRightIcon} className="text-muted-foreground size-4" />
-    </Pressable>
+      {row.isMe ? <View className="size-4" /> : <Icon as={ChevronRightIcon} className="text-muted-foreground size-4" />}
+    </TapPressable>
   );
 }
 

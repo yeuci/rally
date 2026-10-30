@@ -75,7 +75,7 @@ export function SearchPillButton({ label = 'Search games and players', onPress }
       accessibilityLabel={label}
       accessibilityHint="Opens search"
       onPress={onPress}
-      className="bg-muted h-12 flex-row items-center gap-2.5 rounded-full border border-transparent pl-4 pr-3 active:opacity-80"
+      className="bg-muted h-12 flex-row items-center gap-2.5 rounded-full border border-transparent pl-4 pr-3 active:opacity-70"
     >
       <Icon as={SearchIcon} className="text-muted-foreground size-[18px]" />
       <Text className="text-muted-foreground shrink text-base" numberOfLines={1}>

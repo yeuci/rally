@@ -37,7 +37,7 @@ export function BottomSheet({
     >
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1 justify-end">
         <Pressable
-          className="absolute bottom-0 left-0 right-0 top-0 bg-black/50"
+          className="bg-backdrop absolute bottom-0 left-0 right-0 top-0"
           onPress={onClose}
           accessibilityRole="button"
           accessibilityLabel="Close"
@@ -55,7 +55,8 @@ export function BottomSheet({
           }}
           accessibilityViewIsModal
         >
-          <View className="bg-muted-foreground/40 mb-4 h-1 w-10 self-center rounded-full" />
+          {/* Grabber: the muted foreground at 40 % (a token with an opacity modifier would compile to no colour on native). */}
+          <View className="bg-muted-foreground mb-4 h-1 w-10 self-center rounded-full opacity-40" />
           <View className="mb-4 gap-1">
             <Text className="text-xl font-bold leading-7 tracking-tight" role="heading">
               {title}

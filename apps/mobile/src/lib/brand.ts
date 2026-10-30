@@ -27,6 +27,8 @@ export const PALETTE = {
     destructive: '#FF6467',
     skeleton: '#222222',
     skeletonHighlight: '#363636',
+    /** `--color-backdrop`: the dim behind sheets, dialogs and the drawer. */
+    backdrop: 'rgba(0, 0, 0, 0.60)',
   },
   light: {
     background: '#FFFFFF',
@@ -41,6 +43,7 @@ export const PALETTE = {
     destructive: '#E7000B',
     skeleton: '#EBEBEB',
     skeletonHighlight: '#F8F8F8',
+    backdrop: 'rgba(0, 0, 0, 0.40)',
   },
 } as const;
 

@@ -43,7 +43,7 @@ export function ToastHost() {
             onPress={() => hideToast(toast.id)}
             accessibilityRole="alert"
             accessibilityHint="Dismisses the message"
-            className="bg-card border-border flex-row items-center gap-2.5 rounded-2xl border px-4 py-3 shadow-lg shadow-black/20 active:opacity-80"
+            className="bg-card border-border flex-row items-center gap-2.5 rounded-2xl border px-4 py-3 shadow-lg shadow-black/20 active:opacity-70"
           >
             <Icon as={CircleAlertIcon} className="text-foreground size-[18px]" />
             <Text className="shrink text-[15px] font-semibold leading-5">{toast.message}</Text>

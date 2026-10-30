@@ -1,12 +1,14 @@
 import { memo } from 'react';
 import { View, type StyleProp, type ViewStyle } from 'react-native';
 import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
+import { useUniwind } from 'uniwind';
 import { BRAND } from '@/lib/brand';
 import { cn } from '@/lib/utils';
 import { useSvgId } from './logo';
 
 /**
- * A soft radial light: a barely-there white haze for depth on the dark theme (it vanishes on light backgrounds).
+ * A soft radial light: a barely-there white haze for depth on the dark theme. On the light theme a white haze is
+ * invisible on the white page (and a dark one reads as a smudge), so the default white glow draws nothing there.
  * Absolutely positioned, ignores touches; place with className.
  */
 export const Glow = memo(function Glow({
@@ -23,6 +25,8 @@ export const Glow = memo(function Glow({
   style?: StyleProp<ViewStyle>;
 }) {
   const id = useSvgId('glow');
+  const { theme } = useUniwind();
+  if (theme === 'light' && color === BRAND.white) return null;
   const r = size / 2;
   return (
     <View pointerEvents="none" className={cn('absolute', className)} style={[{ width: size, height: size }, style]}>

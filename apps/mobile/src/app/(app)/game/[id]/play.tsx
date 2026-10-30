@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Redirect, router, useLocalSearchParams } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { RoomCodePill } from '@/components/rally/room-code-pill';
@@ -157,7 +158,9 @@ export default function PlayScreen() {
   if (plan.isLoading || consent.isLoading || profile.isLoading || resumeRecord.isLoading || resumeEnded) {
     return (
       <View className="flex-1 items-center justify-center bg-[#0A0A0A]">
-        <ActivityIndicator size="large" />
+        {/* The host's chrome is always dark (games draw on it): light status-bar text in both themes. */}
+        <StatusBar style="light" />
+        <ActivityIndicator size="large" color="#A1A1A1" />
       </View>
     );
   }
@@ -172,6 +175,7 @@ export default function PlayScreen() {
 
   return (
     <View className="flex-1 bg-[#0A0A0A]">
+      <StatusBar style="light" />
       <GameHost
         key={p.game.id}
         bundleUrl={p.entryUrl}

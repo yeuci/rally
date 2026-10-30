@@ -1,6 +1,6 @@
 import { CircleAlertIcon, LockIcon, TrophyIcon } from 'lucide-react-native';
 import { View } from 'react-native';
-import { EmptyState } from '@/components/rally/empty-state';
+import { EmptyState, RetryButton } from '@/components/rally/empty-state';
 import { Image } from '@/components/rally/image';
 import { SectionHeader } from '@/components/rally/section-header';
 import { Icon } from '@/components/ui/icon';
@@ -52,10 +52,12 @@ export function AchievementsSection({
   tiles,
   loading,
   error,
+  onRetry,
 }: {
   tiles: AchievementTile[] | undefined;
   loading: boolean;
   error: boolean;
+  onRetry?: () => void;
 }) {
   const box = useBoxSize();
   if (!loading && !error && (!tiles || tiles.length === 0)) return null;
@@ -79,7 +81,8 @@ export function AchievementsSection({
             compact
             icon={CircleAlertIcon}
             title="Couldn't load achievements"
-            body="Pull down to try again."
+            body="Check your connection and try again."
+            action={onRetry ? <RetryButton compact onPress={onRetry} /> : undefined}
           />
         ) : tileWidth > 0 ? (
           <View className="flex-row flex-wrap" style={{ gap: ROW_GAP }}>

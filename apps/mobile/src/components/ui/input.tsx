@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils';
 import { Platform, TextInput } from 'react-native';
+import { useKeyboardAppearance } from '@/lib/use-palette';
 
 /**
  * Text input. Focus ring: the neutral `ring` border over a faint `field-focus` fill (Uniwind's TextInput tracks focus
@@ -11,6 +12,7 @@ function Input({
   invalid,
   ...props
 }: React.ComponentProps<typeof TextInput> & { invalid?: boolean }) {
+  const keyboardAppearance = useKeyboardAppearance();
   return (
     <TextInput
       className={cn(
@@ -34,6 +36,7 @@ function Input({
       placeholderTextColorClassName={cn('accent-muted-foreground', placeholderTextColorClassName)}
       selectionColorClassName="accent-ring"
       cursorColorClassName="accent-foreground"
+      keyboardAppearance={keyboardAppearance}
       {...props}
     />
   );

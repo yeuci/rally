@@ -1,12 +1,10 @@
 import { useCallback, type ReactNode } from 'react';
 import { FlatList, View, type ListRenderItem } from 'react-native';
 import { SkeletonText } from '@/components/ui/skeleton';
-import { TapPressable } from '@/components/ui/tap-pressable';
-import { Text } from '@/components/ui/text';
 import type { GameCard } from '@/lib/catalog';
 import { ROW_GAP, snapInterval } from '@/lib/layout';
 import { GameTile, GameTileSkeleton } from './game-card';
-import { SectionHeader } from './section-header';
+import { HeaderAction, SectionHeader } from './section-header';
 
 const SKELETONS = [0, 1, 2, 3, 4, 5];
 
@@ -91,19 +89,9 @@ export function TileRow({
   );
 }
 
-/** "See all" header accessory. */
+/** "See all" header accessory (the shared SectionHeader action). */
 export function SeeAll({ label, onPress }: { label: string; onPress: () => void }) {
-  return (
-    <TapPressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={`See all ${label}`}
-      hitSlop={8}
-      className="active:opacity-70"
-    >
-      <Text className="text-muted-foreground text-[15px] font-semibold">See all</Text>
-    </TapPressable>
-  );
+  return <HeaderAction label="See all" accessibilityLabel={`See all ${label}`} onPress={onPress} />;
 }
 
 /**

@@ -1,11 +1,12 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { router, Stack, useFocusEffect, useIsFocused, useLocalSearchParams } from 'expo-router';
-import { CircleAlertIcon, InboxIcon, SearchIcon, UserPlusIcon, UsersIcon } from 'lucide-react-native';
+import { CircleAlertIcon, InboxIcon, SearchIcon, SearchXIcon, UserPlusIcon, UsersIcon } from 'lucide-react-native';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, RefreshControl, ScrollView, View } from 'react-native';
 import { LaunchConsentDialog } from '@/components/rally/consent-dialog';
-import { EmptyState } from '@/components/rally/empty-state';
+import { EmptyState, RetryButton } from '@/components/rally/empty-state';
 import { PersonList, PersonListSkeleton, PersonRow } from '@/components/rally/person-row';
+import { SearchPill } from '@/components/rally/search-pill';
 import { SectionHeader } from '@/components/rally/section-header';
 import { Segmented } from '@/components/rally/segmented';
 import { Button } from '@/components/ui/button';
@@ -24,6 +25,7 @@ import {
 import { usePublicProfile } from '@/lib/game-progress';
 import { useProfile } from '@/lib/profile';
 import { formatScore, sameUsername } from '@/lib/progress-format';
+import { filterPeople } from '@/lib/search';
 import {
   describeSocialError,
   presenceRow,
@@ -39,10 +41,14 @@ import { usePalette } from '@/lib/use-palette';
 
 type Tab = 'friends' | 'requests';
 
+/** "Find players": the search screen with "@" typed (people only). */
+const findPlayers = () => router.push({ pathname: '/search', params: { q: '@' } });
+
 /**
- * Friends (`/friends`): your friends (`my_friends`) and pending requests (`my_friend_requests`: incoming with Accept /
- * Decline, outgoing with Cancel), from the profile's Friends row and stats strip (`?tab=requests` opens Requests).
- * With `?username=` it lists another player's friends (`public_friends`, the profile's "See all").
+ * Friends (`/friends`): your friends (`my_friends`, with a field that filters them on the device: name or @username)
+ * and pending requests (`my_friend_requests`: incoming with Accept / Decline, outgoing with Cancel), from the
+ * profile's Friends row and stats strip (`?tab=requests` opens Requests). "Find players" opens search with "@". With
+ * `?username=` it lists another player's friends (`public_friends`, the profile's "See all").
  *
  * Your friends show their presence (`friends_presence`, m3-phase2 §2): "Online" or "In Sumo", playing friends first,
  * with **Join** when their room has a free seat (`useLaunchGame` → `join=friend`: the play route asks
@@ -69,6 +75,7 @@ function MyFriends({ initialTab }: { initialTab: Tab }) {
   const presence = useFriendsPresence(focused);
   const launcher = useLaunchGame();
   const [refreshing, setRefreshing] = useState(false);
+  const [filter, setFilter] = useState('');
   const incoming = requests.data?.incoming ?? [];
   const outgoing = requests.data?.outgoing ?? [];
   const pending = incoming.length + outgoing.length;
@@ -90,16 +97,20 @@ function MyFriends({ initialTab }: { initialTab: Tab }) {
   }
 
   const findPeople = (
-    <Button variant="secondary" onPress={() => router.push('/search')}>
+    <Button variant="secondary" onPress={findPlayers}>
       <Text>Find players</Text>
     </Button>
   );
+  const shown = friends.data ? filterPeople(friends.data, filter) : [];
 
   return (
     <ScrollView
       className="bg-background flex-1"
       contentContainerClassName="gap-6 pt-4"
       contentContainerStyle={[column, { paddingBottom: insets.bottom + 32 }]}
+      // The filter field: a tap on a friend or Join while the keyboard is up goes through, a drag dismisses it.
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
@@ -126,17 +137,32 @@ function MyFriends({ initialTab }: { initialTab: Tab }) {
         friends.isLoading ? (
           <PersonListSkeleton count={5} />
         ) : friends.isError ? (
-          <EmptyState icon={CircleAlertIcon} title="Couldn't load your friends" body={describeSocialError(friends.error)} />
+          <EmptyState
+            icon={CircleAlertIcon}
+            title="Couldn't load your friends"
+            body={describeSocialError(friends.error)}
+            action={<RetryButton onPress={() => void friends.refetch()} />}
+          />
         ) : !friends.data || friends.data.length === 0 ? (
           <EmptyState icon={UsersIcon} title="No friends yet" body="Search for players by name or @username and send a request." action={findPeople} />
         ) : (
           <>
+            <SearchPill value={filter} onChangeText={setFilter} placeholder="Search your friends" />
             {launcher.notice ? (
               <Text variant="muted" className="text-center leading-5" accessibilityLiveRegion="polite">
                 {launcher.notice.message}
               </Text>
             ) : null}
-            <FriendList friends={friends.data} presence={presence.data} launcher={launcher} />
+            {shown.length > 0 ? (
+              <FriendList friends={shown} presence={presence.data} launcher={launcher} />
+            ) : (
+              <EmptyState
+                icon={SearchXIcon}
+                title={`No friends match “${filter.trim()}”`}
+                body="Looking for someone new? Search all players."
+                action={findPeople}
+              />
+            )}
           </>
         )
       ) : requests.isLoading ? (
@@ -145,7 +171,12 @@ function MyFriends({ initialTab }: { initialTab: Tab }) {
           <PersonListSkeleton count={2} accessory />
         </View>
       ) : requests.isError ? (
-        <EmptyState icon={CircleAlertIcon} title="Couldn't load requests" body={describeSocialError(requests.error)} />
+        <EmptyState
+          icon={CircleAlertIcon}
+          title="Couldn't load requests"
+          body={describeSocialError(requests.error)}
+          action={<RetryButton onPress={() => void requests.refetch()} />}
+        />
       ) : pending === 0 ? (
         <EmptyState icon={InboxIcon} title="No pending requests" body="Requests you send and receive wait here until they're answered." action={findPeople} />
       ) : (
@@ -318,7 +349,12 @@ function TheirFriends({ username }: { username: string }) {
       {loading ? (
         <PersonListSkeleton count={6} />
       ) : profile.isError || friends.isError ? (
-        <EmptyState icon={CircleAlertIcon} title="Couldn't load friends" body="Pull down to try again." />
+        <EmptyState
+          icon={CircleAlertIcon}
+          title="Couldn't load friends"
+          body="Check your connection and try again."
+          action={<RetryButton onPress={() => void refresh()} />}
+        />
       ) : !profile.data ? (
         <EmptyState icon={SearchIcon} title="Player not found" body={`There's no Rally player called @${username}.`} />
       ) : !friends.data || friends.data.length === 0 ? (

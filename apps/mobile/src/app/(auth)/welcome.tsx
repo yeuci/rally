@@ -16,6 +16,7 @@ import { describeAuthError } from '@/lib/auth/errors';
 import { isAppleSignInAvailable, signInWithProvider, type OAuthProvider } from '@/lib/auth/providers';
 import { columnPadding } from '@/lib/layout';
 import { useLayout } from '@/lib/use-layout';
+import { usePalette } from '@/lib/use-palette';
 import { cn } from '@/lib/utils';
 
 /**
@@ -26,6 +27,7 @@ import { cn } from '@/lib/utils';
 export default function Welcome() {
   const { width, insets, landscape } = useLayout();
   const { theme } = useUniwind();
+  const palette = usePalette();
   const column = columnPadding(width, insets, landscape ? 840 : 560, 24);
   const [appleAvailable, setAppleAvailable] = useState(false);
   const [busy, setBusy] = useState<OAuthProvider | null>(null);
@@ -97,7 +99,7 @@ export default function Welcome() {
         )}
 
         <Button size="lg" variant="outline" disabled={!!busy} onPress={() => void continueWith('google')}>
-          {busy === 'google' ? <ActivityIndicator /> : <Text className="text-base">Continue with Google</Text>}
+          {busy === 'google' ? <ActivityIndicator color={palette.foreground} /> : <Text className="text-base">Continue with Google</Text>}
         </Button>
 
         <Button size="lg" variant="secondary" disabled={!!busy} onPress={() => router.push('/sign-in')}>

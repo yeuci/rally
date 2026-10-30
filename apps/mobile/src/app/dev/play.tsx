@@ -1,4 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import { useCallback, useMemo, useState } from 'react';
 import { toWsUrl } from '@/config';
 import { GameHost, type GameHostResult } from '@/game-host/GameHost';
@@ -53,18 +54,22 @@ export default function DevPlayScreen() {
   }, []);
 
   return (
-    <GameHost
-      bundleUrl={settings.bundleUrl}
-      game={{ id: roomName === 'hello' ? 'spike' : roomName, version: '0.1.0' }}
-      user={DEV_USER}
-      intent={target.join === 'resume' ? 'quick' : intentFor(target.join)}
-      orientation="landscape"
-      saves={saves}
-      progress={progress}
-      soloScores
-      playSessions={null}
-      matchmaking={matchmaking}
-      onExit={onExit}
-    />
+    <>
+      {/* The host's chrome is dark in both themes: light status-bar text (the root bar is dark on the light theme). */}
+      <StatusBar style="light" />
+      <GameHost
+        bundleUrl={settings.bundleUrl}
+        game={{ id: roomName === 'hello' ? 'spike' : roomName, version: '0.1.0' }}
+        user={DEV_USER}
+        intent={target.join === 'resume' ? 'quick' : intentFor(target.join)}
+        orientation="landscape"
+        saves={saves}
+        progress={progress}
+        soloScores
+        playSessions={null}
+        matchmaking={matchmaking}
+        onExit={onExit}
+      />
+    </>
   );
 }

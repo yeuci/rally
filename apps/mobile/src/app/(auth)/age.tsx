@@ -10,12 +10,14 @@ import { Text } from '@/components/ui/text';
 import { meetsMinimumAge, parseDob } from '@/lib/auth/age';
 import { ageGate, useAgeGate } from '@/lib/auth/age-gate-store';
 import { parseSignupMethod } from '@/lib/auth/signup-method';
+import { usePalette } from '@/lib/use-palette';
 
 /**
  * Age gate (architecture §8): neutral date-of-birth screen before any account exists. A refusal is remembered
  * on this device and closes signup; the copy does not say why or how to get past it.
  */
 export default function AgeGate() {
+  const palette = usePalette();
   const method = parseSignupMethod(useLocalSearchParams<{ method?: string }>().method);
   const gate = useAgeGate();
   const [month, setMonth] = useState('');
@@ -28,7 +30,7 @@ export default function AgeGate() {
   if (!gate.loaded) {
     return (
       <View className="bg-background flex-1 items-center justify-center">
-        <ActivityIndicator />
+        <ActivityIndicator color={palette.mutedForeground} />
       </View>
     );
   }

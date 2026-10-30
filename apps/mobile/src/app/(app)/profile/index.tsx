@@ -97,7 +97,13 @@ export default function ProfileScreen() {
         />
       </View>
 
-      <PlayedGamesSection games={games.data} loading={!p || games.isLoading} error={games.isError} own />
+      <PlayedGamesSection
+        games={games.data}
+        loading={!p || games.isLoading}
+        error={games.isError}
+        onRetry={() => void games.refetch()}
+        own
+      />
 
       <SettingsGroup>
         {/* Appearance, Show FPS in games and the privacy shortcut live on the Settings screen. */}

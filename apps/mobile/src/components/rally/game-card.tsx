@@ -1,7 +1,7 @@
 import { Link } from 'expo-router';
 import { ChevronRightIcon, PlayIcon, UsersIcon } from 'lucide-react-native';
 import { memo } from 'react';
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
 import { Badge } from '@/components/ui/badge';
 import { Icon } from '@/components/ui/icon';
 import { Skeleton, SkeletonText } from '@/components/ui/skeleton';
@@ -31,11 +31,11 @@ export const FeaturedGameCard = memo(function FeaturedGameCard({
   const meta = [game.genres[0] && capitalize(game.genres[0]), playersLabel(game)].filter(Boolean).join(' · ');
   return (
     <Link href={{ pathname: '/game/[id]', params: { id: game.id } }} asChild>
-      <Pressable
+      <TapPressable
         accessibilityRole="button"
         accessibilityLabel={`${game.title}, ${meta}`}
         accessibilityHint="Opens the game page"
-        className="active:opacity-90"
+        className="active:opacity-70"
         style={{ width }}
       >
         <GameCover
@@ -89,7 +89,7 @@ export const FeaturedGameCard = memo(function FeaturedGameCard({
             </View>
           )}
         </GameCover>
-      </Pressable>
+      </TapPressable>
     </Link>
   );
 });
@@ -128,7 +128,7 @@ export const GameTile = memo(function GameTile({
       <TapPressable
         accessibilityRole="button"
         accessibilityLabel={live ? `${game.title}, ${meta}, ${live}` : `${game.title}, ${meta}`}
-        className={cn('gap-2 active:opacity-80', className)}
+        className={cn('gap-2 active:opacity-70', className)}
         style={{ width }}
       >
         <GameCover

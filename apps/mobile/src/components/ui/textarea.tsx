@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils';
 import { Platform, TextInput } from 'react-native';
+import { useKeyboardAppearance } from '@/lib/use-palette';
 
 function Textarea({
   className,
@@ -8,6 +9,7 @@ function Textarea({
   placeholderTextColorClassName,
   ...props
 }: React.ComponentProps<typeof TextInput>) {
+  const keyboardAppearance = useKeyboardAppearance();
   return (
     <TextInput
       className={cn(
@@ -22,6 +24,7 @@ function Textarea({
       placeholderTextColorClassName={cn('accent-muted-foreground', placeholderTextColorClassName)}
       selectionColorClassName="accent-ring"
       cursorColorClassName="accent-foreground"
+      keyboardAppearance={keyboardAppearance}
       multiline={multiline}
       numberOfLines={numberOfLines}
       textAlignVertical="top"

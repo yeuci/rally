@@ -44,7 +44,7 @@ export function RoomCodePill({ code, gameTitle }: { code: string; gameTitle: str
             accessibilityLabel={`Room code ${spokenJoinCode(code)}`}
             accessibilityHint="Shares the code"
             hitSlop={6}
-            className="flex-row items-center gap-2 rounded-full border border-white/20 bg-black/65 py-2 pl-3.5 pr-3 active:opacity-80"
+            className="flex-row items-center gap-2 rounded-full border border-white/20 bg-black/65 py-2 pl-3.5 pr-3 active:opacity-70"
           >
             <Text className="text-[13px] font-medium text-white/75">Room code</Text>
             <Text className="font-mono text-[15px] font-bold tracking-wider text-white">{shown}</Text>

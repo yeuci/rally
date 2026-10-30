@@ -10,11 +10,13 @@ import { describeAuthError } from '@/lib/auth/errors';
 import { exchangeCodeOnce } from '@/lib/auth/providers';
 import { useSession } from '@/lib/auth/session';
 import { supabase } from '@/lib/supabase';
+import { usePalette } from '@/lib/use-palette';
 
 type Phase = 'exchanging' | 'ready' | 'invalid' | 'saving';
 
 /** `rally://auth/reset-password?code=…` from `resetPasswordForEmail`: recovery session → new password. */
 export default function ResetPassword() {
+  const palette = usePalette();
   const params = useLocalSearchParams<{ code?: string; sb_flow_id?: string }>();
   const code = typeof params.code === 'string' ? params.code : null;
   const flowId = typeof params.sb_flow_id === 'string' ? params.sb_flow_id : null;
@@ -51,7 +53,7 @@ export default function ResetPassword() {
   if (phase === 'exchanging') {
     return (
       <View className="bg-background flex-1 items-center justify-center">
-        <ActivityIndicator size="large" />
+        <ActivityIndicator color={palette.mutedForeground} size="large" />
       </View>
     );
   }

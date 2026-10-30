@@ -3,6 +3,7 @@ import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import Svg, { Circle, Defs, LinearGradient, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { Text } from '@/components/ui/text';
 import { coverArt, trianglePath, type CoverShape } from '@/lib/cover-art';
+import { darkScrim, gameHeroFade, pageFade, sideScrim, type GradientStop } from '@/lib/gradient';
 import { useBoxSize } from '@/lib/use-layout';
 import { cn } from '@/lib/utils';
 import { Image } from './image';
@@ -39,7 +40,7 @@ export const GameCover = memo(function GameCover({
   uri?: string | null;
   variant?: Variant;
   showTitle?: boolean;
-  /** `side` darkens the left edge (type over a wide banner). */
+  /** `side` darkens the left edge (type over a wide banner); `fade` shades the top and fades into `scrimColor`. */
   scrim?: 'none' | ScrimKind;
   /** End colour of the `fade` scrim. */
   scrimColor?: string;
@@ -76,7 +77,12 @@ export const GameCover = memo(function GameCover({
   );
 });
 
-type ScrimKind = 'dark' | 'fade' | 'side';
+/**
+ * `dark` / `side`: black shade on the art for white type. `fade`: the game page hero (status-bar shade, then the art
+ * fades into `color`). `page`: a plain fade into `color` from alpha 0, nothing else (an edge content scrolls under,
+ * like the sticky Play footer). Stops come from lib/gradient.ts.
+ */
+type ScrimKind = 'dark' | 'fade' | 'side' | 'page';
 type SvgLength = number | `${number}%`;
 
 /**
@@ -94,7 +100,7 @@ function FillLayer({ children }: { children: (width: SvgLength, height: SvgLengt
   );
 }
 
-/** Gradient overlay for type over covers (`dark`, `side`) or the fade into the page (`fade`, ends in `color`). */
+/** Gradient overlay for type over covers (`dark`, `side`) or a fade into the page (`fade`, `page`: end in `color`). */
 export const CoverScrim = memo(function CoverScrim({
   kind,
   photo = false,
@@ -113,7 +119,7 @@ export const CoverScrim = memo(function CoverScrim({
  */
 function ScrimSvg({ kind, photo, color, width, height }: { kind: ScrimKind; photo: boolean; color: string; width: SvgLength; height: SvgLength }) {
   const id = useSvgId('cover-scrim');
-  const stops = kind === 'fade' ? fadeScrim(color) : kind === 'side' ? sideScrim(photo) : darkScrim(photo);
+  const stops = scrimStops(kind, photo, color);
   return (
     <Svg style={StyleSheet.absoluteFill} width={width} height={height} viewBox="0 0 1 1" preserveAspectRatio="none" pointerEvents="none">
       <Defs>
@@ -128,26 +134,18 @@ function ScrimSvg({ kind, photo, color, width, height }: { kind: ScrimKind; phot
   );
 }
 
-type ScrimStop = { offset: number; color: string; opacity: number };
-/** Bottom darkening for type over art; photos get a deeper one. */
-const darkScrim = (photo: boolean): ScrimStop[] => [
-  { offset: photo ? 0.3 : 0.42, color: '#000000', opacity: 0 },
-  { offset: 1, color: '#000000', opacity: photo ? 0.72 : 0.55 },
-];
-/** Left-edge darkening for type over the left third of a wide banner. */
-const sideScrim = (photo: boolean): ScrimStop[] => [
-  { offset: 0, color: '#000000', opacity: photo ? 0.75 : 0.6 },
-  { offset: 0.3, color: '#000000', opacity: photo ? 0.5 : 0.35 },
-  { offset: 0.62, color: '#000000', opacity: 0 },
-];
-/** Hero: a touch of shade under the status bar, then a fade that ends exactly in the page background. */
-const fadeScrim = (to: string): ScrimStop[] => [
-  { offset: 0, color: '#000000', opacity: 0.28 },
-  { offset: 0.22, color: '#000000', opacity: 0 },
-  { offset: 0.5, color: to, opacity: 0 },
-  { offset: 0.82, color: to, opacity: 0.75 },
-  { offset: 1, color: to, opacity: 1 },
-];
+function scrimStops(kind: ScrimKind, photo: boolean, color: string): GradientStop[] {
+  switch (kind) {
+    case 'fade':
+      return gameHeroFade(color);
+    case 'page':
+      return pageFade(color);
+    case 'side':
+      return sideScrim(photo);
+    case 'dark':
+      return darkScrim(photo);
+  }
+}
 
 const TITLE_SHADOW = { textShadowColor: 'rgba(0,0,0,0.35)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 8 };
 

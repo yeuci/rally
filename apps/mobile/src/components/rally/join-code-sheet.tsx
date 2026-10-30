@@ -8,7 +8,7 @@ import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { checkJoinCode, codeCells, codeInputValue, formatJoinCode, spokenJoinCode } from '@/lib/join-code-input';
 import { JOIN_CODE_LENGTH, type JoinTarget } from '@/lib/join-target';
-import { usePalette } from '@/lib/use-palette';
+import { useKeyboardAppearance, usePalette } from '@/lib/use-palette';
 import { cn } from '@/lib/utils';
 import { BottomSheet } from './bottom-sheet';
 
@@ -50,6 +50,7 @@ export function JoinCodeSheet({
 
 function CodeForm({ roomName, onJoin }: { roomName: string; onJoin: (target: RoomTarget) => void }) {
   const palette = usePalette();
+  const keyboardAppearance = useKeyboardAppearance();
   const input = useRef<ComponentRef<typeof TextInput>>(null);
   const lookup = useRef<AbortController | null>(null);
   const [value, setValue] = useState('');
@@ -125,6 +126,7 @@ function CodeForm({ roomName, onJoin }: { roomName: string; onJoin: (target: Roo
           importantForAutofill="no"
           returnKeyType="join"
           caretHidden
+          keyboardAppearance={keyboardAppearance}
           contextMenuHidden={false}
           editable={!checking}
           accessibilityLabel="Room code"

@@ -1,11 +1,15 @@
-import type { LucideIcon } from 'lucide-react-native';
+import { RotateCwIcon, type LucideIcon } from 'lucide-react-native';
 import type { ReactNode } from 'react';
 import { View } from 'react-native';
+import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { cn } from '@/lib/utils';
 
-/** Designed empty / error state: quiet icon tile, title, one line of help, optional action. */
+/**
+ * Designed empty / error state: quiet icon tile, title, one line of help, optional action (under the text; on the
+ * right in the `compact` row). Every "Couldn't load …" state passes a `RetryButton`.
+ */
 export function EmptyState({
   icon,
   title,
@@ -31,10 +35,11 @@ export function EmptyState({
     return (
       <View className={cn('bg-card border-border flex-row items-center gap-3.5 rounded-2xl border p-4', className)}>
         {tile}
-        <View className="shrink gap-0.5">
+        <View className="shrink grow gap-0.5">
           <Text className="text-[15px] font-semibold">{title}</Text>
           {body ? <Text className="text-muted-foreground text-[13px] leading-[18px]">{body}</Text> : null}
         </View>
+        {action}
       </View>
     );
   }
@@ -47,5 +52,32 @@ export function EmptyState({
       </View>
       {action ? <View className="pt-1">{action}</View> : null}
     </View>
+  );
+}
+
+/** The action of every "Couldn't load …" state. `compact`: the small pill for a compact EmptyState row. */
+export function RetryButton({
+  onPress,
+  compact = false,
+  label = 'Retry',
+  disabled = false,
+}: {
+  onPress: () => void;
+  compact?: boolean;
+  label?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <Button
+      variant="secondary"
+      size="sm"
+      className={compact ? 'h-8 rounded-full px-3' : 'rounded-full px-4'}
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityHint="Loads it again"
+    >
+      <Icon as={RotateCwIcon} className="text-secondary-foreground size-3.5" />
+      <Text className={compact ? 'text-[13px]' : undefined}>{label}</Text>
+    </Button>
   );
 }

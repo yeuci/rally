@@ -1,4 +1,5 @@
 import Constants from 'expo-constants';
+import { normalizeWebOrigin } from '@/lib/share';
 
 /** Build-time configuration. EXPO_PUBLIC_* variables are inlined by Metro. */
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
@@ -10,6 +11,8 @@ export const config = {
   /** False when the env vars are missing: auth screens say so and only the Developer launcher works. */
   supabaseConfigured: supabaseUrl.length > 0 && supabaseAnonKey.length > 0,
   colyseusUrl: (process.env.EXPO_PUBLIC_COLYSEUS_URL ?? 'http://localhost:2567').replace(/\/$/, ''),
+  /** The web catalog's origin (apps/web `SITE_ORIGIN`): the game page's Share adds `<origin>/game/<id>` when set. */
+  webOrigin: normalizeWebOrigin(process.env.EXPO_PUBLIC_WEB_ORIGIN),
   spikeBundleUrl: process.env.EXPO_PUBLIC_SPIKE_BUNDLE_URL ?? 'http://localhost:5180/index.html',
   /** Developer launcher (M0 spike path). Always on in __DEV__; opt-in for internal preview builds. */
   devTools: __DEV__ || process.env.EXPO_PUBLIC_DEV_TOOLS === '1',

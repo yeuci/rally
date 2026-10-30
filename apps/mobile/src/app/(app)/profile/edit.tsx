@@ -4,7 +4,8 @@ import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, View, type LayoutChangeEvent, type ScrollViewInstance } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { EmptyState } from '@/components/rally/empty-state';
+import { EmptyState, RetryButton } from '@/components/rally/empty-state';
+import { SectionHeader } from '@/components/rally/section-header';
 import { ErrorText, FormField } from '@/components/rally/form-field';
 import { ProfileAvatar, ProfileAvatarSkeleton } from '@/components/rally/profile-avatar';
 import { Segmented } from '@/components/rally/segmented';
@@ -38,9 +39,11 @@ export default function EditProfileScreen() {
           body="Check your connection and try again."
           className="w-full"
           action={
-            <Button variant="secondary" disabled={profile.isFetching} onPress={() => void profile.refetch()}>
-              <Text>{profile.isFetching ? 'Loading…' : 'Try again'}</Text>
-            </Button>
+            <RetryButton
+              disabled={profile.isFetching}
+              label={profile.isFetching ? 'Loading…' : 'Retry'}
+              onPress={() => void profile.refetch()}
+            />
           }
         />
       </View>
@@ -138,9 +141,7 @@ function EditProfileForm({ profile, privacy }: { profile: Profile; privacy: Priv
         </FormField>
         <View className="gap-4 pt-2" onLayout={onPrivacyLayout}>
           <View className="gap-1">
-            <Text className="text-[17px] font-bold leading-[22px] tracking-tight" role="heading">
-              Privacy
-            </Text>
+            <SectionHeader title="Privacy" className="px-0" />
             <Text variant="muted" className="leading-5">
               {privacy
                 ? "Who can see these on your profile, and when you're online or in a game."

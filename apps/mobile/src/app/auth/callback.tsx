@@ -6,6 +6,7 @@ import { Text } from '@/components/ui/text';
 import { describeAuthError, describeCallbackError, LINK_EXPIRED } from '@/lib/auth/errors';
 import { exchangeCodeOnce } from '@/lib/auth/providers';
 import { supabase } from '@/lib/supabase';
+import { usePalette } from '@/lib/use-palette';
 
 /**
  * `rally://auth/callback?code=…`: email confirmation links (and OAuth redirects that arrive outside an in-app
@@ -14,6 +15,7 @@ import { supabase } from '@/lib/supabase';
  * logged in dev builds).
  */
 export default function AuthCallback() {
+  const palette = usePalette();
   const params = useLocalSearchParams<{
     code?: string;
     sb_flow_id?: string;
@@ -75,7 +77,7 @@ export default function AuthCallback() {
         </>
       ) : (
         <>
-          <ActivityIndicator size="large" />
+          <ActivityIndicator color={palette.mutedForeground} size="large" />
           <Text variant="muted">Signing you in…</Text>
         </>
       )}

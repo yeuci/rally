@@ -88,6 +88,9 @@ export default function Dashboard() {
   const failed = featured.isError && newest.isError;
   const featuredGames = featured.data ?? [];
   const showHero = !failed && (featured.isLoading || featuredGames.length > 0);
+  // Art under the top bar and the status bar: only once the hero has games. Over its skeleton (a light grey block on
+  // the light theme) the bar is solid with dark type, like a page without a hero.
+  const overHeroArt = showHero && featuredGames.length > 0;
   const heroHeight = dashboardHeroHeight({ width, height }, wide);
   const barHeight = insets.top + TOP_BAR_ROW;
   const tileWidth = rowTileWidth(width, pad.left, wide);
@@ -103,14 +106,14 @@ export default function Dashboard() {
   const counts = liveCounts.data;
   const liveFor = (game: GameCard) => liveCountLabel(game, counts);
 
-  // The top bar turns solid once the hero has scrolled behind it (UI thread); without a hero it is solid from the start.
+  // The top bar turns solid once the hero has scrolled behind it (UI thread); without hero art it is solid from the start.
   const scrollY = useSharedValue(0);
   const onScroll = useAnimatedScrollHandler((e) => {
     scrollY.value = e.contentOffset.y;
   });
   const [barStart, barEnd] = titleBarRange(heroHeight, barHeight);
   const barProgress = useDerivedValue(() =>
-    showHero ? interpolate(scrollY.value, [barStart, barEnd], [0, 1], Extrapolation.CLAMP) : 1,
+    overHeroArt ? interpolate(scrollY.value, [barStart, barEnd], [0, 1], Extrapolation.CLAMP) : 1,
   );
   // Light theme: light status-bar text while the art (with its dark top shade) is under it.
   const [overArt, setOverArt] = useState(true);
@@ -293,7 +296,7 @@ export default function Dashboard() {
         onClose={() => setSheet((s) => (s ? { ...s, open: false } : s))}
       />
       <LaunchConsentDialog launcher={launcher} />
-      {focused && showHero && overArt && theme === 'light' ? <StatusBar style="light" /> : null}
+      {focused && overHeroArt && overArt && theme === 'light' ? <StatusBar style="light" /> : null}
     </View>
   );
 }

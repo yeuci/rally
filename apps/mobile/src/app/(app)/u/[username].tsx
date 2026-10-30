@@ -1,10 +1,10 @@
 import { Redirect, router, Stack, useIsFocused, useLocalSearchParams } from 'expo-router';
 import { BanIcon, EllipsisIcon, RotateCwIcon, SearchXIcon, TrophyIcon } from 'lucide-react-native';
 import { useState } from 'react';
-import { ActionSheetIOS, Alert, Platform, Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import { ActionSheetIOS, Alert, Platform, RefreshControl, ScrollView, View } from 'react-native';
 import { AchievementBadge } from '@/components/rally/achievements';
 import { ConfirmDialog } from '@/components/rally/confirm-dialog';
-import { EmptyState } from '@/components/rally/empty-state';
+import { EmptyState, RetryButton } from '@/components/rally/empty-state';
 import { FriendButtons, FriendButtonsSkeleton } from '@/components/rally/friend-button';
 import { PresenceDot } from '@/components/rally/presence-dot';
 import { FriendsRowSection, PlayedGamesSection, ProfileHeader, StatsStrip } from '@/components/rally/profile-sections';
@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton, SkeletonText } from '@/components/ui/skeleton';
+import { TapPressable } from '@/components/ui/tap-pressable';
 import { Text } from '@/components/ui/text';
 import { useSession } from '@/lib/auth/session';
 import { timeAgo } from '@/lib/format';
@@ -100,9 +101,9 @@ export default function PublicProfileScreen() {
         title: p ? `@${p.username}` : 'Player',
         headerRight: menuAction
           ? () => (
-              <Pressable onPress={openMenu} accessibilityRole="button" accessibilityLabel="More" hitSlop={10} className="active:opacity-70">
+              <TapPressable onPress={openMenu} accessibilityRole="button" accessibilityLabel="More" hitSlop={10} className="active:opacity-70">
                 <Icon as={EllipsisIcon} className="text-foreground size-6" />
-              </Pressable>
+              </TapPressable>
             )
           : undefined,
       }}
@@ -145,9 +146,13 @@ export default function PublicProfileScreen() {
           body={profile.isError ? 'Check your connection and try again.' : `There's no Rally player called @${username ?? ''}.`}
           className="w-full"
           action={
-            <Button variant="secondary" onPress={() => (profile.isError ? void profile.refetch() : router.back())}>
-              <Text>{profile.isError ? 'Try again' : 'Back'}</Text>
-            </Button>
+            profile.isError ? (
+              <RetryButton onPress={() => void profile.refetch()} />
+            ) : (
+              <Button variant="secondary" onPress={() => router.back()}>
+                <Text>Back</Text>
+              </Button>
+            )
           }
         />
       </View>
@@ -172,11 +177,11 @@ export default function PublicProfileScreen() {
           variant="outline"
           size="sm"
           className="h-10 w-full max-w-sm rounded-full"
-          accessibilityLabel="Couldn't load your friendship status. Try again"
+          accessibilityLabel="Couldn't load your friendship status. Retry"
           onPress={() => void friendship.refetch()}
         >
           <Icon as={RotateCwIcon} className="size-4" />
-          <Text className="text-[15px]">Couldn&apos;t load · Try again</Text>
+          <Text className="text-[15px]">Couldn&apos;t load · Retry</Text>
         </Button>
       ) : status && !blocked ? (
         <FriendButtons userId={p.id} name={handle} status={status} mode="profile" />
@@ -197,9 +202,19 @@ export default function PublicProfileScreen() {
     />
   ) : (
     <>
-      <PlayedGamesSection games={games.data} loading={!p || games.isLoading} error={games.isError} />
+      <PlayedGamesSection
+        games={games.data}
+        loading={!p || games.isLoading}
+        error={games.isError}
+        onRetry={() => void games.refetch()}
+      />
       <FriendsRowSection friends={friends.data} total={stats.data?.friends} loading={!p || friends.isLoading} onSeeAll={seeAllFriends} />
-      <Unlocked items={unlocked.data} loading={!p || unlocked.isLoading} error={unlocked.isError} />
+      <Unlocked
+        items={unlocked.data}
+        loading={!p || unlocked.isLoading}
+        error={unlocked.isError}
+        onRetry={() => void unlocked.refetch()}
+      />
     </>
   );
 
@@ -244,7 +259,17 @@ export default function PublicProfileScreen() {
 }
 
 /** Unlocked achievements across games, newest first; rows open the game. */
-function Unlocked({ items, loading, error }: { items: UnlockedAchievement[] | undefined; loading: boolean; error: boolean }) {
+function Unlocked({
+  items,
+  loading,
+  error,
+  onRetry,
+}: {
+  items: UnlockedAchievement[] | undefined;
+  loading: boolean;
+  error: boolean;
+  onRetry: () => void;
+}) {
   return (
     <View className="gap-3">
       <SectionHeader title="Achievements" detail={items && items.length > 0 ? formatScore(items.length) : undefined} className="px-0" />
@@ -264,7 +289,13 @@ function Unlocked({ items, loading, error }: { items: UnlockedAchievement[] | un
           ))}
         </View>
       ) : error ? (
-        <EmptyState compact icon={TrophyIcon} title="Couldn't load achievements" body="Pull down to try again." />
+        <EmptyState
+          compact
+          icon={TrophyIcon}
+          title="Couldn't load achievements"
+          body="Check your connection and try again."
+          action={<RetryButton compact onPress={onRetry} />}
+        />
       ) : !items || items.length === 0 ? (
         <EmptyState compact icon={TrophyIcon} title="No achievements yet" body="Unlocked achievements from every game show up here." />
       ) : (
@@ -272,11 +303,11 @@ function Unlocked({ items, loading, error }: { items: UnlockedAchievement[] | un
           {items.map((a, i) => (
             <View key={a.id}>
               {i > 0 && <Separator className="ml-[68px]" />}
-              <Pressable
+              <TapPressable
                 disabled={!a.game}
                 onPress={() => a.game && router.push({ pathname: '/game/[id]', params: { id: a.game.id } })}
                 accessibilityRole={a.game ? 'button' : undefined}
-                className="flex-row items-center gap-3 px-4 py-3 active:opacity-70"
+                className="active:bg-accent flex-row items-center gap-3 px-4 py-3"
               >
                 <AchievementBadge icon={a.icon} locked={false} size={40} />
                 <View className="shrink grow">
@@ -287,7 +318,7 @@ function Unlocked({ items, loading, error }: { items: UnlockedAchievement[] | un
                     {[a.game?.title, timeAgo(a.unlockedAt)].filter(Boolean).join(' · ')}
                   </Text>
                 </View>
-              </Pressable>
+              </TapPressable>
             </View>
           ))}
         </View>

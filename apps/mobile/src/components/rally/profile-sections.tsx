@@ -1,32 +1,36 @@
+import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
 import { ChevronRightIcon, Gamepad2Icon, type LucideIcon } from 'lucide-react-native';
 import { useState, type ReactNode } from 'react';
-import { Pressable, View, type TextStyle } from 'react-native';
+import { View, type TextStyle } from 'react-native';
 import { Icon } from '@/components/ui/icon';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton, SkeletonText } from '@/components/ui/skeleton';
 import { TapPressable } from '@/components/ui/tap-pressable';
 import { Text } from '@/components/ui/text';
 import { memberSince, playsLabel, timeAgo } from '@/lib/format';
+import { toggleHaptic } from '@/lib/haptics';
 import { coverUriFor } from '@/lib/game-art';
 import { avatarRowCapacity, FRIEND_CELL_WIDTH, ROW_GAP } from '@/lib/layout';
 import type { Profile } from '@/lib/profile';
 import { formatScore, type PublicStats } from '@/lib/progress-format';
 import type { FriendSummary, PlayedGame } from '@/lib/social';
+import { showToast } from '@/lib/toast';
 import { useBoxSize } from '@/lib/use-layout';
 import { cn } from '@/lib/utils';
-import { EmptyState } from './empty-state';
+import { EmptyState, RetryButton } from './empty-state';
 import { GameCover } from './game-cover';
 import { openPerson } from './person-row';
 import { ProfileAvatar, ProfileAvatarSkeleton } from './profile-avatar';
-import { SectionHeader } from './section-header';
+import { HeaderAction, SectionHeader } from './section-header';
 
 const TABULAR: TextStyle = { fontVariant: ['tabular-nums'] };
 
 /**
  * Profile identity block shared by /profile and /u/:username: ringed avatar, display name, @username, bio and
- * "Member since". Line boxes have fixed line heights so the skeleton (`profile` undefined) is the same height as the
- * loaded header, give or take the bio. `children` go under it (Edit profile, friendship buttons).
+ * "Member since Oct 2026". Line boxes have fixed line heights so the skeleton (`profile` undefined) is the same height
+ * as the loaded header, give or take the bio. `children` go under it (Edit profile, friendship buttons). A long press
+ * on the avatar copies "@username" (toast + haptic).
  */
 export function ProfileHeader({
   profile: p,
@@ -39,7 +43,23 @@ export function ProfileHeader({
 }) {
   return (
     <View className="items-center gap-4">
-      {p ? <ProfileAvatar profile={p} size="xl" ring badge={badge} /> : <ProfileAvatarSkeleton size="xl" ring />}
+      {p ? (
+        <TapPressable
+          // Long press only: a tap does nothing (no haptic, no pressed state), so the avatar does not look like a button.
+          onLongPress={() => void copyHandle(p.username)}
+          delayLongPress={350}
+          haptic={false}
+          accessibilityRole="button"
+          accessibilityLabel={`${p.display_name || p.username}, @${p.username}`}
+          accessibilityHint="Long press to copy the username"
+          accessibilityActions={COPY_ACTIONS}
+          onAccessibilityAction={(e) => e.nativeEvent.actionName === 'longpress' && void copyHandle(p.username)}
+        >
+          <ProfileAvatar profile={p} size="xl" ring badge={badge} />
+        </TapPressable>
+      ) : (
+        <ProfileAvatarSkeleton size="xl" ring />
+      )}
       {p ? (
         <View className="items-center">
           <Text className="text-center text-[26px] font-extrabold leading-8 tracking-tight" numberOfLines={2}>
@@ -60,6 +80,19 @@ export function ProfileHeader({
       {children}
     </View>
   );
+}
+
+const COPY_ACTIONS = [{ name: 'longpress', label: 'Copy username' }] as const;
+
+/** "@username" to the clipboard, confirmed by a toast (and a haptic, when on). */
+async function copyHandle(username: string) {
+  try {
+    await Clipboard.setStringAsync(`@${username}`);
+    toggleHaptic();
+    showToast(`Copied @${username}`);
+  } catch {
+    showToast("Couldn't copy the username");
+  }
 }
 
 /** Games played · Achievements · Friends (`public_profile_stats`); Friends is tappable when `onFriendsPress`. */
@@ -135,11 +168,14 @@ export function PlayedGamesSection({
   error,
   own = false,
   limit = 5,
+  onRetry,
 }: {
   games: PlayedGame[] | undefined;
   loading: boolean;
   error: boolean;
   own?: boolean;
+  /** Refetch after an error (the "Couldn't load games" row's Retry). */
+  onRetry?: () => void;
   /** Rows shown before "See all" expands the list. */
   limit?: number;
 }) {
@@ -155,16 +191,20 @@ export function PlayedGamesSection({
         className="px-0"
         accessory={
           !loading && list.length > limit ? (
-            <Pressable onPress={() => setExpanded((v) => !v)} accessibilityRole="button" hitSlop={8} className="active:opacity-70">
-              <Text className="text-[15px] font-semibold">{expanded ? 'Show less' : 'See all'}</Text>
-            </Pressable>
+            <HeaderAction label={expanded ? 'Show less' : 'See all'} onPress={() => setExpanded((v) => !v)} />
           ) : undefined
         }
       />
       {loading ? (
         <PlayedGamesSkeleton />
       ) : error ? (
-        <EmptyState compact icon={Gamepad2Icon} title="Couldn't load games" body="Pull down to try again." />
+        <EmptyState
+          compact
+          icon={Gamepad2Icon}
+          title="Couldn't load games"
+          body="Check your connection and try again."
+          action={onRetry ? <RetryButton compact onPress={onRetry} /> : undefined}
+        />
       ) : shown.length === 0 ? (
         <EmptyState compact icon={Gamepad2Icon} title="No games yet" body="Games you play show up here." />
       ) : (
@@ -261,9 +301,7 @@ export function FriendsRowSection({
         className="px-0"
         accessory={
           more ? (
-            <Pressable onPress={onSeeAll} accessibilityRole="button" hitSlop={8} className="active:opacity-70">
-              <Text className="text-[15px] font-semibold">See all</Text>
-            </Pressable>
+            <HeaderAction label="See all" accessibilityLabel="See all friends" onPress={onSeeAll} />
           ) : undefined
         }
       />
@@ -278,7 +316,7 @@ export function FriendsRowSection({
 
 function FriendCell({ friend: f }: { friend: FriendSummary }) {
   return (
-    <Pressable
+    <TapPressable
       accessibilityRole="button"
       accessibilityLabel={f.displayName || f.username}
       onPress={() => openPerson(f.username)}
@@ -289,7 +327,7 @@ function FriendCell({ friend: f }: { friend: FriendSummary }) {
       <Text className="text-muted-foreground text-[12px] leading-4" numberOfLines={1}>
         {f.username}
       </Text>
-    </Pressable>
+    </TapPressable>
   );
 }
 

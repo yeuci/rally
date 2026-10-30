@@ -22,6 +22,7 @@ import { Text } from '@/components/ui/text';
 import { playersLabel, type GameCard } from '@/lib/catalog';
 import { genreLabel, HERO_AUTO_ADVANCE_MS, heroAutoAdvances, nextHeroPage } from '@/lib/dashboard';
 import { DRAWER_EDGE_WIDTH } from '@/lib/drawer';
+import { dashboardHeroFade, dashboardHeroFadeWide, dashboardHeroSide } from '@/lib/gradient';
 import { coverUriFor } from '@/lib/game-art';
 import { pageIndex } from '@/lib/layout';
 import { useAppDrawer } from '@/lib/use-app-drawer';
@@ -366,19 +367,20 @@ const HeroScrim = memo(function HeroScrim({
 }) {
   const down = useSvgId('hero-down');
   const side = useSvgId('hero-side');
-  const stops = wide ? WIDE_DOWN : NARROW_DOWN;
+  // Black shade on the art at the top, then the page colour from alpha 0 (lib/gradient.ts): never a blend through grey.
+  const stops = wide ? dashboardHeroFadeWide(color) : dashboardHeroFade(color);
   return (
     <Svg key={`${width}x${height}`} style={StyleSheet.absoluteFill} width={width} height={height} pointerEvents="none">
       <Defs>
         <LinearGradient id={down} x1="0" y1="0" x2="0" y2="1">
           {stops.map((s) => (
-            <Stop key={s.offset} offset={s.offset} stopColor={s.page ? color : '#000000'} stopOpacity={s.opacity} />
+            <Stop key={s.offset} offset={s.offset} stopColor={s.color} stopOpacity={s.opacity} />
           ))}
         </LinearGradient>
         {wide && (
           <LinearGradient id={side} x1="0" y1="0" x2="1" y2="0">
-            {WIDE_SIDE.map((s) => (
-              <Stop key={s.offset} offset={s.offset} stopColor={color} stopOpacity={s.opacity} />
+            {dashboardHeroSide(color).map((s) => (
+              <Stop key={s.offset} offset={s.offset} stopColor={s.color} stopOpacity={s.opacity} />
             ))}
           </LinearGradient>
         )}
@@ -388,28 +390,6 @@ const HeroScrim = memo(function HeroScrim({
     </Svg>
   );
 });
-
-type HeroStop = { offset: number; page: boolean; opacity: number };
-const NARROW_DOWN: HeroStop[] = [
-  { offset: 0, page: false, opacity: 0.5 },
-  { offset: 0.2, page: false, opacity: 0 },
-  { offset: 0.36, page: true, opacity: 0 },
-  { offset: 0.6, page: true, opacity: 0.84 },
-  { offset: 0.78, page: true, opacity: 1 },
-  { offset: 1, page: true, opacity: 1 },
-];
-const WIDE_DOWN: HeroStop[] = [
-  { offset: 0, page: false, opacity: 0.45 },
-  { offset: 0.28, page: false, opacity: 0 },
-  { offset: 0.55, page: true, opacity: 0 },
-  { offset: 0.9, page: true, opacity: 0.92 },
-  { offset: 1, page: true, opacity: 1 },
-];
-const WIDE_SIDE = [
-  { offset: 0, opacity: 0.96 },
-  { offset: 0.34, opacity: 0.82 },
-  { offset: 0.62, opacity: 0 },
-];
 
 /**
  * Same box as the hero while the featured games load: a full-bleed block for the art, then the chip, title, meta

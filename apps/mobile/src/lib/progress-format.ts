@@ -166,3 +166,11 @@ export function parsePublicStats(raw: unknown): PublicStats {
 export function sameUsername(a: string | null | undefined, b: string | null | undefined): boolean {
   return !!a && !!b && a.toLowerCase() === b.toLowerCase();
 }
+
+/** The top three's medal tint on a leaderboard rank badge (theme tokens `gold` / `silver` / `bronze`); null below. */
+export type PodiumTint = 'gold' | 'silver' | 'bronze';
+
+export function podiumTint(rank: number): PodiumTint | null {
+  if (!Number.isInteger(rank)) return null;
+  return rank === 1 ? 'gold' : rank === 2 ? 'silver' : rank === 3 ? 'bronze' : null;
+}

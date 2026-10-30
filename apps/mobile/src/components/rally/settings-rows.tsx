@@ -6,6 +6,7 @@ import { Switch } from '@/components/ui/switch';
 import { TapPressable } from '@/components/ui/tap-pressable';
 import { Text } from '@/components/ui/text';
 import { cn } from '@/lib/utils';
+import { SectionHeader } from './section-header';
 
 /**
  * Grouped rows for Settings and Profile: a titled card (`SettingsGroup`) of icon rows that open something
@@ -14,15 +15,7 @@ import { cn } from '@/lib/utils';
 export function SettingsGroup({ title, footer, children }: { title?: string; footer?: string; children: ReactNode }) {
   return (
     <View className="gap-2">
-      {title ? (
-        <Text
-          variant="muted"
-          className="px-1 text-[13px] font-semibold uppercase leading-[18px] tracking-wide"
-          role="heading"
-        >
-          {title}
-        </Text>
-      ) : null}
+      {title ? <SectionHeader variant="group" title={title} /> : null}
       <View className="bg-card border-border overflow-hidden rounded-2xl border">{children}</View>
       {footer ? (
         <Text variant="muted" className="px-1 text-[13px] leading-[18px]">
@@ -116,5 +109,20 @@ export function ToggleRow({
         <Switch checked={value} onCheckedChange={onChange} />
       </View>
     </TapPressable>
+  );
+}
+
+/** A read-only row: icon, label and the current value (a setting the app follows but does not own, like the OS's). */
+export function ValueRow({ icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
+  return (
+    <View className="flex-row items-center gap-3.5 px-4 py-3" accessible accessibilityLabel={`${label}, ${value}`}>
+      <RowIcon icon={icon} />
+      <Text className="flex-1 text-[15px] font-medium" numberOfLines={1}>
+        {label}
+      </Text>
+      <Text variant="muted" className="text-[15px]" numberOfLines={1}>
+        {value}
+      </Text>
+    </View>
   );
 }

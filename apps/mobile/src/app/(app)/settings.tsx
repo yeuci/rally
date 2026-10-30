@@ -1,10 +1,19 @@
 import { router } from 'expo-router';
-import { GaugeIcon, LifeBuoyIcon, LogOutIcon, ShieldIcon, SunMoonIcon } from 'lucide-react-native';
+import {
+  GaugeIcon,
+  LifeBuoyIcon,
+  LogOutIcon,
+  ShieldIcon,
+  SparklesIcon,
+  SunMoonIcon,
+  VibrateIcon,
+} from 'lucide-react-native';
 import { ScrollView, View } from 'react-native';
+import { RetryButton } from '@/components/rally/empty-state';
 import { ErrorText } from '@/components/rally/form-field';
 import { LogoMark } from '@/components/rally/logo';
 import { Segmented } from '@/components/rally/segmented';
-import { SettingsGroup, SettingsRow, ToggleRow } from '@/components/rally/settings-rows';
+import { SettingsGroup, SettingsRow, ToggleRow, ValueRow } from '@/components/rally/settings-rows';
 import { Icon } from '@/components/ui/icon';
 import { Separator } from '@/components/ui/separator';
 import { Text } from '@/components/ui/text';
@@ -16,6 +25,7 @@ import { useProfile } from '@/lib/profile';
 import { visibilityLabel } from '@/lib/social';
 import { openSupportMail } from '@/lib/support';
 import { useColumnPadding, useLayout } from '@/lib/use-layout';
+import { useReduceMotionSetting } from '@/lib/use-reduce-motion';
 import { useSignOut } from '@/lib/use-sign-out';
 
 const APPEARANCE_OPTIONS: readonly { value: Appearance; label: string }[] = [
@@ -26,14 +36,16 @@ const APPEARANCE_OPTIONS: readonly { value: Appearance; label: string }[] = [
 
 /**
  * Settings (`/settings`, the drawer's Settings item and Profile's Settings row): Appearance (System / Dark / Light,
- * lib/prefs.ts → `Uniwind.setTheme`), Games (Show FPS in games), Privacy (a summary, opens Edit profile scrolled to its
+ * lib/prefs.ts → `Uniwind.setTheme`), Feedback & motion (Haptics, `prefs.haptics` → lib/haptics.ts; Reduce motion is
+ * the OS setting, shown, not owned), Games (Show FPS in games), Privacy (a summary, opens Edit profile scrolled to its
  * Privacy section), Help & support, Sign out, and the app version. Device preferences live in lib/prefs.ts; privacy
  * is account data (`my_privacy`), edited on Edit profile.
  */
 export default function SettingsScreen() {
   const { insets } = useLayout();
   const column = useColumnPadding();
-  const { showFps, appearance } = usePrefs();
+  const { showFps, appearance, haptics } = usePrefs();
+  const reduceMotion = useReduceMotionSetting();
   const profile = useProfile();
   const privacy = usePrivacy();
   const { signingOut, error: signOutError, signOut } = useSignOut();
@@ -69,6 +81,24 @@ export default function SettingsScreen() {
         </View>
       </SettingsGroup>
 
+      <SettingsGroup
+        title="Feedback & motion"
+        footer="Reduce motion follows your device's accessibility setting: with it on, Rally pauses the featured carousel and skips animations."
+      >
+        <ToggleRow
+          icon={VibrateIcon}
+          label="Haptics"
+          value={haptics}
+          onChange={(next) => prefs.update({ haptics: next })}
+        />
+        <Separator className="ml-16" />
+        <ValueRow
+          icon={SparklesIcon}
+          label="Reduce motion"
+          value={reduceMotion === null ? '…' : reduceMotion ? 'On' : 'Off'}
+        />
+      </SettingsGroup>
+
       <SettingsGroup title="Games" footer="A frame-rate counter in the top-left corner while a game runs.">
         <ToggleRow
           icon={GaugeIcon}
@@ -78,14 +108,21 @@ export default function SettingsScreen() {
         />
       </SettingsGroup>
 
-      <SettingsGroup title="Privacy" footer={privacySummary}>
-        <SettingsRow
-          icon={ShieldIcon}
-          label="Profile privacy"
-          hint="Choose who sees your games, friends and online status"
-          onPress={() => router.push({ pathname: '/profile/edit', params: { section: 'privacy' } })}
-        />
-      </SettingsGroup>
+      <View className="gap-2">
+        <SettingsGroup title="Privacy" footer={privacySummary}>
+          <SettingsRow
+            icon={ShieldIcon}
+            label="Profile privacy"
+            hint="Choose who sees your games, friends and online status"
+            onPress={() => router.push({ pathname: '/profile/edit', params: { section: 'privacy' } })}
+          />
+        </SettingsGroup>
+        {privacy.isError ? (
+          <View className="self-start px-1">
+            <RetryButton compact onPress={() => void privacy.refetch()} />
+          </View>
+        ) : null}
+      </View>
 
       <View className="gap-2">
         <SettingsGroup>

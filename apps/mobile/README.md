@@ -14,7 +14,7 @@ pnpm dev:mobile:go                    # Metro for Expo Go (email sign-in + Devel
 
 pnpm --filter @rally/mobile typecheck # app + tests
 pnpm --filter @rally/mobile lint      # expo lint (React Compiler rules), zero warnings
-pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects/anonymous plan, bridge + nav gate, handlers (saves, leaderboards, achievements, join limits, token policy), join targets + rejoin journal (target → matchmaking calls, sticky / resume-once, reportReconnection room check, journal expiry, minVersion refusal, room lookups), controller (play sessions, playtime across reloads, diagnostics), session journal, storage reset, progress formatting, cover art, social (friendship buttons, people ranking, privacy incl. presence, requests), presence (heartbeat scheduler: AppState, interval, grace, ok:false, sign-out; presence row model, Join targets, live counts), dashboard (hero / category geometry, genre rows, hero auto-advance rules), drawer (width, swipe routes, edge width, items), press guard (drawer swipe / drag vs tap), preferences (FPS, appearance), join UI (code input normalisation and lookup copy, room rows, rejoin countdown and offer rules, room code share text)
+pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects/anonymous plan, bridge + nav gate, handlers (saves, leaderboards, achievements, join limits, token policy), join targets + rejoin journal (target → matchmaking calls, sticky / resume-once, reportReconnection room check, journal expiry, minVersion refusal, room lookups), controller (play sessions, playtime across reloads, diagnostics), session journal, storage reset, progress formatting, cover art, social (friendship buttons, people ranking, privacy incl. presence, requests), presence (heartbeat scheduler: AppState, interval, grace, ok:false, sign-out; presence row model, Join targets, live counts), dashboard (hero / category geometry, genre rows, hero auto-advance rules), drawer (width, swipe routes, edge width, items), press guard (drawer swipe / drag vs tap), preferences (FPS, appearance, haptics), join UI (code input normalisation and lookup copy, room rows, rejoin countdown and offer rules, room code share text), gradients (page fades from the page colour at alpha 0, no visible colour blends), theme tokens (PALETTE ↔ global.css), recent searches, the friends filter, podium tints, game share copy
 node scripts/generate-brand-assets.cjs  # (from apps/mobile) app icon, adaptive icon layers, splash, favicon from src/lib/brand.ts; needs Playwright
 ```
 
@@ -30,6 +30,7 @@ node scripts/generate-brand-assets.cjs  # (from apps/mobile) app icon, adaptive 
 | `EXPO_PUBLIC_SPIKE_BUNDLE_URL` | default bundle for the Developer launcher |
 | `EXPO_PUBLIC_DEV_TOOLS` | `1` shows the Developer launcher in non-`__DEV__` builds (internal preview builds for device measurements) |
 | `EXPO_PUBLIC_SUPPORT_EMAIL` | target of "Help & support" and "Delete account" |
+| `EXPO_PUBLIC_WEB_ORIGIN` | optional: the web catalog's origin (apps/web `SITE_ORIGIN`, e.g. `https://rally.app`); the game page's Share adds `<origin>/game/<id>`. Unset or not a bare http(s) origin: Share sends the title only |
 
 Without the Supabase variables the app still starts: the welcome screen says so, and the Developer launcher
 (dev builds) works without an account.
@@ -99,13 +100,13 @@ when they do surface (profile edits go through PostgREST, which passes them on).
 | `/forgot-password`, `/check-email` | `src/app/(auth)/…` | reset link request, confirmation notice |
 | `/auth/callback`, `/auth/reset-password` | `src/app/auth/…` | deep-link targets (PKCE code exchange, new password) |
 | `/` | `src/app/(app)/index.tsx` | dashboard: full-bleed featured hero (paged, auto-advancing) under a floating top bar (menu → drawer, greeting, avatar with the request badge), search pill, Continue playing / New on Rally / Favorites, Browse by category, one row per genre ("See all" → category sheet); "12 playing" on multiplayer tiles and the hero (`game_live_counts`, every 30 s while in front) |
-| `/search` | `src/app/(app)/search.tsx` | Games (`searchGames` over the catalog) and People (`search_profiles`, debounced 250 ms, `@name` = people only) with Add / Requested / Friends / Accept |
-| `/friends` | `src/app/(app)/friends.tsx` | your friends (`my_friends`) with presence (`friends_presence`: "Online" / "In Sumo", playing friends first, **Join** when joinable → `join=friend`; every 30 s while in front) and requests (`my_friend_requests`: Accept / Decline, Cancel); `?tab=requests`; `?username=` lists another player's friends (`public_friends`) |
-| `/game/:id` | `src/app/(app)/game/[id]/index.tsx` | game page: screenshot gallery (else cover art), details (+ "Best" for solo games), favorite, Play → consent sheet (multiplayer: Quick play, Rooms, Private → Create room / Join with code), leaderboard, achievements |
+| `/search` | `src/app/(app)/search.tsx` | Games (`searchGames` over the catalog) and People (`search_profiles`, debounced 250 ms, `@name` = people only) with Add / Requested / Friends / Accept; `?q=` prefills the field; with it empty, the last 8 searches (AsyncStorage `rally.recent-searches`, remembered on submit or on leaving with results; × / Clear) |
+| `/friends` | `src/app/(app)/friends.tsx` | your friends (`my_friends`) with presence (`friends_presence`: "Online" / "In Sumo", playing friends first, **Join** when joinable → `join=friend`; every 30 s while in front) and requests (`my_friend_requests`: Accept / Decline, Cancel); a field that filters your friends on the device (name or @username); "Find players" opens search with `@`; `?tab=requests`; `?username=` lists another player's friends (`public_friends`) |
+| `/game/:id` | `src/app/(app)/game/[id]/index.tsx` | game page: screenshot gallery (else cover art), details (+ "Best" for solo games: tap → scrolls to the leaderboard and flashes your row), Share (native sheet: title, plus the web link with `EXPO_PUBLIC_WEB_ORIGIN`), favorite (spring + haptic), Play → consent sheet (multiplayer: Quick play, Rooms, Private → Create room / Join with code), leaderboard (gold / silver / bronze rank badges for the top 3; tapping your own row flashes it), achievements ("3 / 5") |
 | `/game/:id/rooms` | `src/app/(app)/game/[id]/rooms.tsx` | server browser for multiplayer games with the `browser` mode (see Multiplayer below) |
 | `/game/:id/play` | `src/app/(app)/game/[id]/play.tsx` | full-screen `GameHost` for the published version; multiplayer games take `?join=quick\|create\|room\|friend\|resume` (see Multiplayer below) |
-| `/profile`, `/profile/edit` | `src/app/(app)/profile/…` | profile (stats strip, Friends row with request badge, games played, Settings row), edit (display name, username, bio, Privacy: games played / friends list / online status → Everyone / Friends / Only me, read with `my_privacy`; `?section=privacy` scrolls to it), sign out, delete-account request |
-| `/settings` | `src/app/(app)/settings.tsx` | Appearance (System / Dark / Light: `prefs.appearance` → `Uniwind.setTheme`), Show FPS in games, Profile privacy (summary → Edit profile's Privacy section), Help & support, Sign out, app version |
+| `/profile`, `/profile/edit` | `src/app/(app)/profile/…` | profile (long-press the avatar to copy "@username", also on `/u/:username`; "Member since Oct 2026"; stats strip, Friends row with request badge, games played, Settings row), edit (display name, username, bio, Privacy: games played / friends list / online status → Everyone / Friends / Only me, read with `my_privacy`; `?section=privacy` scrolls to it), sign out, delete-account request |
+| `/settings` | `src/app/(app)/settings.tsx` | Appearance (System / Dark / Light: `prefs.appearance` → `Uniwind.setTheme`), Haptics (`prefs.haptics`, read by `lib/haptics.ts`), Reduce motion (the OS setting, shown live, no toggle), Show FPS in games, Profile privacy (summary → Edit profile's Privacy section), Help & support, Sign out, app version |
 | `/u/:username` | `src/app/(app)/u/[username].tsx` | public profile: avatar, names, bio, member since, status line (`public_presence`: "Online" / "Playing Sumo"), friendship button (`friendship_with`), games played · achievements · friends (`public_profile_stats`), games played (`public_profile_games`), friends row (`public_friends`), unlocked achievements; Block / Unblock in the ⋯ menu; your own username redirects to `/profile` |
 | `/dev`, `/dev/play` | `src/app/dev/…` | Developer launcher (M0 spike path: direct bundle + Colyseus URL, room type `hello` / `sumo`, join mode quick / create / code / room id, last-run metrics) |
 
@@ -158,6 +159,31 @@ filter). The top bar turns solid once the hero scrolls behind it; with no featur
   `PlayedGamesSkeleton`, `ProfileAvatarSkeleton`, `DashboardHeroSkeleton`, `TileRowSkeleton`, `CategoryCardSkeleton`,
   `SkeletonText` for single text lines). `components/rally/image.tsx`
   keeps a skeleton under every image until it has faded in.
+- **Errors and lists:** every "Couldn't load …" state offers Retry (`RetryButton` in `components/rally/empty-state.tsx`,
+  also in compact rows). Section headers are one component (`SectionHeader`: `title`, or `group` for the caps label
+  over a settings card) with one text action (`HeaderAction`: See all / Show less / Clear). Rows press to
+  `active:bg-accent`, everything else to `active:opacity-70`; list separators are `Separator` (`border` token).
+
+### Light and dark
+
+Both themes come from the tokens in `global.css` (mirrored in `PALETTE` for JS; `test/theme-tokens.test.ts` keeps the
+two in sync). Rules that keep the light theme clean:
+
+- **Fades into the page** use the page background itself at alpha 0 → 1 (`lib/gradient.ts`, resolved through
+  `usePalette`), never `transparent` (= transparent *black*) or a black shade: a blend between black and white is grey
+  and shows as a line on the light page. A stop list only switches colour where both neighbours are invisible
+  (`visibleColourJumps`). The sticky Play footer uses `CoverScrim kind="page"` (a plain page fade, no hairline).
+- **On art, static dark glass on purpose:** cover scrims, the hero's top shade, page dots, the game page's round
+  buttons, overlay badges and the room-code pill keep `black/…` + white type in both themes. Everything on the page
+  uses tokens.
+- **Status bar:** dark text on the light theme, except light while art is under it (dashboard hero, game page hero
+  until the title bar slides in) and over the game host (`play` routes, always dark chrome).
+- **Keyboard:** `Input`, `Textarea` and the join-code field set `keyboardAppearance` from the theme
+  (`useKeyboardAppearance`), so a forced Light / Dark is not contradicted by a system-coloured keyboard.
+- **Backdrops:** sheets, dialogs and the drawer dim with the `backdrop` token (black at 40 % light, 60 % dark).
+- **Glow:** the white haze draws nothing on the light theme.
+- Opacity modifiers on theme tokens (`bg-muted-foreground/40`) compile to no colour on native: use an alpha token or
+  `opacity-*` on the view.
 
 ## Play flow
 
