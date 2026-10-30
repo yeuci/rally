@@ -5,7 +5,7 @@
  *   node scripts/generate-brand-assets.cjs          (from apps/mobile; needs Playwright + Chromium)
  *
  * brand.ts is transpiled with the TypeScript compiler at run time, so the PNGs always use the exact geometry and
- * colours the app draws with. The script also checks that app.json's splash config matches `SPLASH`.
+ * colours the app draws with: the white mark on the near-black base (no colour anywhere). The script also checks that app.json's splash config matches `SPLASH`.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -25,7 +25,7 @@ function loadBrand() {
   return mod.exports;
 }
 
-const { BRAND, ACCENT_STOPS, MARK, SPLASH } = loadBrand();
+const { BRAND, MARK, SPLASH } = loadBrand();
 
 function checkAppJson() {
   const app = JSON.parse(fs.readFileSync(path.join(root, 'app.json'), 'utf8')).expo;
@@ -48,11 +48,6 @@ function checkAppJson() {
 }
 
 const V = MARK.viewBox;
-const gradient = (id) => {
-  const { x1, y1, x2, y2 } = MARK.gradient;
-  const stops = ACCENT_STOPS.map((s) => `<stop offset="${s.offset}" stop-color="${s.color}"/>`).join('');
-  return `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}">${stops}</linearGradient>`;
-};
 const markGroup = (paint) =>
   `<g stroke="${paint}" stroke-width="${MARK.strokeWidth}" stroke-linecap="round" stroke-linejoin="round">` +
   `<path d="${MARK.stem}" fill="none"/><path d="${MARK.bowl}" fill="${paint}"/><path d="${MARK.leg}" fill="none"/></g>`;
@@ -62,16 +57,18 @@ const placed = (scale, paint) =>
 const svg = (size, body, defs = '') =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${V} ${V}"><defs>${defs}</defs>${body}</svg>`;
 
-/** Opaque app icon: base colour, a soft violet glow behind the mark, a faint cyan one low right. */
-const iconArt = (size) =>
+const WHITE = BRAND.white;
+
+/** Opaque app icon: the white mark on the near-black base, over a very faint white radial lightening. */
+const iconArt = (size, { haze = true } = {}) =>
   svg(
     size,
     `<rect width="${V}" height="${V}" fill="${BRAND.base}"/>` +
-      `<circle cx="46" cy="44" r="46" fill="url(#glowA)"/><circle cx="70" cy="76" r="34" fill="url(#glowB)"/>` +
-      placed(0.62, 'url(#g)'),
-    gradient('g') +
-      `<radialGradient id="glowA" cx="46" cy="44" r="46" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="${BRAND.violet}" stop-opacity="0.34"/><stop offset="1" stop-color="${BRAND.violet}" stop-opacity="0"/></radialGradient>` +
-      `<radialGradient id="glowB" cx="70" cy="76" r="34" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="${BRAND.cyan}" stop-opacity="0.16"/><stop offset="1" stop-color="${BRAND.cyan}" stop-opacity="0"/></radialGradient>`,
+      (haze ? `<circle cx="50" cy="44" r="58" fill="url(#haze)"/>` : '') +
+      placed(0.62, WHITE),
+    haze
+      ? `<radialGradient id="haze" cx="50" cy="44" r="58" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="${WHITE}" stop-opacity="0.07"/><stop offset="1" stop-color="${WHITE}" stop-opacity="0"/></radialGradient>`
+      : '',
   );
 
 // Android adaptive icons keep only a 66/108 circle of the layer safe (radius ≈ 313 px at 1024). The mark's farthest
@@ -80,12 +77,12 @@ const ADAPTIVE_SCALE = 0.5;
 
 const ASSETS = [
   { file: 'icon.png', size: 1024, transparent: false, art: iconArt },
-  { file: 'favicon.png', size: 48, transparent: false, art: iconArt },
-  // Full 100×100 box, exactly what the intro overlay draws at SPLASH.imageWidth.
-  { file: 'splash-icon.png', size: 512, transparent: true, art: (s) => svg(s, markGroup('url(#g)'), gradient('g')) },
-  { file: 'android-icon-foreground.png', size: 1024, transparent: true, art: (s) => svg(s, placed(ADAPTIVE_SCALE, 'url(#g)'), gradient('g')) },
+  { file: 'favicon.png', size: 48, transparent: false, art: (s) => iconArt(s, { haze: false }) },
+  // Full 100×100 box, exactly what the intro overlay draws at SPLASH.imageWidth (in SPLASH.markColor).
+  { file: 'splash-icon.png', size: 512, transparent: true, art: (s) => svg(s, markGroup(SPLASH.markColor)) },
+  { file: 'android-icon-foreground.png', size: 1024, transparent: true, art: (s) => svg(s, placed(ADAPTIVE_SCALE, WHITE)) },
   { file: 'android-icon-background.png', size: 1024, transparent: false, art: (s) => svg(s, `<rect width="${V}" height="${V}" fill="${BRAND.base}"/>`) },
-  { file: 'android-icon-monochrome.png', size: 1024, transparent: true, art: (s) => svg(s, placed(ADAPTIVE_SCALE, '#FFFFFF')) },
+  { file: 'android-icon-monochrome.png', size: 1024, transparent: true, art: (s) => svg(s, placed(ADAPTIVE_SCALE, WHITE)) },
 ];
 
 function pngSize(file) {

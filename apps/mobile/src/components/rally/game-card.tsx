@@ -62,7 +62,7 @@ export const FeaturedGameCard = memo(function FeaturedGameCard({ game, width }: 
   );
 });
 
-/** Warm "Play" pill (decorative inside a pressable card). */
+/** Primary "Play" pill (decorative inside a pressable card). */
 function PlayPill() {
   return (
     <View className="bg-primary h-10 flex-row items-center gap-1.5 rounded-full pl-3.5 pr-4" importantForAccessibility="no">

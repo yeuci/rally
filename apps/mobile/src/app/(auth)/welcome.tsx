@@ -64,7 +64,7 @@ export default function Welcome() {
 
       <View className="gap-3">
         {!config.supabaseConfigured && (
-          <Card className="border-brand-line bg-brand-soft py-4">
+          <Card className="border-subtle-line bg-subtle py-4">
             <CardContent className="px-4">
               <Text variant="muted">
                 Supabase is not configured. Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in apps/mobile/.env.

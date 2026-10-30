@@ -17,8 +17,8 @@ export default function CheckEmail() {
       }
     >
       <View className="items-center gap-4 pt-10">
-        <View className="bg-brand-soft border-brand-line size-20 items-center justify-center rounded-3xl border">
-          <Icon as={MailCheckIcon} className="text-brand size-9" />
+        <View className="bg-subtle border-subtle-line size-20 items-center justify-center rounded-3xl border">
+          <Icon as={MailCheckIcon} className="text-foreground size-9" />
         </View>
         <Text className="text-center text-[28px] font-extrabold leading-[34px] tracking-tight" role="heading">
           Check your inbox

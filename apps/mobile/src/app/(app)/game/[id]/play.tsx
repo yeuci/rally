@@ -59,7 +59,7 @@ export default function PlayScreen() {
 
   if (plan.isLoading || consent.isLoading || profile.isLoading) {
     return (
-      <View className="flex-1 items-center justify-center bg-[#0b1019]">
+      <View className="flex-1 items-center justify-center bg-[#0A0A0A]">
         <ActivityIndicator size="large" />
       </View>
     );

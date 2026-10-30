@@ -27,8 +27,8 @@ const badgeVariants = cva(
           Platform.select({ web: '[a&]:hover:bg-destructive/90' })
         ),
         outline: Platform.select({ web: '[a&]:hover:bg-accent [a&]:hover:text-accent-foreground' }),
-        /** Accent-tinted chip: selected states, highlights. */
-        brand: 'bg-brand-soft border-brand-line',
+        /** Quiet tinted chip: genres, highlights. */
+        subtle: 'bg-subtle border-subtle-line',
         /** Glass chip over cover art and photos. */
         overlay: 'border-white/20 bg-black/35',
       },
@@ -46,7 +46,7 @@ const badgeTextVariants = cva('text-xs font-semibold', {
       secondary: 'text-secondary-foreground',
       destructive: 'text-white',
       outline: 'text-foreground',
-      brand: 'text-foreground',
+      subtle: 'text-foreground',
       overlay: 'text-white',
     },
   },

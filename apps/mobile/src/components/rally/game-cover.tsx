@@ -111,7 +111,7 @@ const fadeScrim = (to: string): ScrimStop[] => [
 
 const TITLE_SHADOW = { textShadowColor: 'rgba(0,0,0,0.35)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 8 };
 
-/** The generated gradient + shapes, filling its parent ("slice": cropped to the parent's aspect ratio). */
+/** The generated grey gradient + shapes, filling its parent ("slice": cropped to the parent's aspect ratio). */
 const CoverArtwork = memo(function CoverArtwork({ id }: { id: string }) {
   const art = useMemo(() => coverArt(id), [id]);
   const bg = useSvgId('cover-bg');
@@ -124,7 +124,7 @@ const CoverArtwork = memo(function CoverArtwork({ id }: { id: string }) {
           <Stop offset={1} stopColor={art.to} />
         </LinearGradient>
         <RadialGradient id={glow} gradientUnits="userSpaceOnUse" cx={art.glow.cx} cy={art.glow.cy} r={art.glow.r}>
-          <Stop offset={0} stopColor={art.glow.color} stopOpacity={0.45} />
+          <Stop offset={0} stopColor={art.glow.color} stopOpacity={0.25} />
           <Stop offset={1} stopColor={art.glow.color} stopOpacity={0} />
         </RadialGradient>
       </Defs>

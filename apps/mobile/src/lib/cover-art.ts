@@ -1,5 +1,5 @@
 /**
- * Generated cover art for games without screenshots: a gradient and a few abstract shapes, derived from a hash of
+ * Generated cover art for games without screenshots: a grey gradient and a few abstract shapes, derived from a hash of
  * the game id so a game always gets the same cover. Pure data (rendered by components/rally/game-cover.tsx) in a
  * 100×100 canvas that the renderer scales with "slice", so key shapes sit in the middle band (≈ 20–80) that
  * survives a 16:9 or tall crop.
@@ -24,20 +24,23 @@ export interface CoverArt {
   shapes: CoverShape[];
 }
 
-/** Curated pairs (deep enough at one end for white type) + a pop colour for one accent shape each. */
+/**
+ * Neutral greys only (R = G = B): a near-black → charcoal gradient (dark enough everywhere for white type) + a lighter
+ * grey for one accent shape each. Covers differ by shape, angle and luminance, never by hue.
+ */
 const PALETTES: readonly (readonly [from: string, to: string, pop: string])[] = [
-  ['#5B3BFF', '#00C2FF', '#FFE66D'],
-  ['#FF3D6E', '#FF9A3D', '#FFF3B0'],
-  ['#8E2DE2', '#FF3CAC', '#7CF7FF'],
-  ['#1E3CFF', '#8A5CFF', '#FF8A5B'],
-  ['#E8461C', '#FFB21E', '#3B1C8C'],
-  ['#0E8F86', '#37E2A3', '#FFE66D'],
-  ['#C2185B', '#7C4DFF', '#FFD36E'],
-  ['#2A2F7A', '#7C5CFF', '#38E1FF'],
-  ['#0057FF', '#4DE8FF', '#FF6A3D'],
-  ['#7A1FA2', '#FF6A3D', '#FFF1A8'],
-  ['#0C7B5A', '#9BE15D', '#2B1B6B'],
-  ['#3A1C71', '#D76D77', '#FFAF7B'],
+  ['#0A0A0A', '#3A3A3A', '#D4D4D4'],
+  ['#111111', '#525252', '#A3A3A3'],
+  ['#171717', '#666666', '#F0F0F0'],
+  ['#0D0D0D', '#2E2E2E', '#8A8A8A'],
+  ['#1C1C1C', '#5C5C5C', '#E5E5E5'],
+  ['#262626', '#6B6B6B', '#C4C4C4'],
+  ['#0A0A0A', '#474747', '#B8B8B8'],
+  ['#141414', '#404040', '#FAFAFA'],
+  ['#202020', '#5E5E5E', '#9E9E9E'],
+  ['#0F0F0F', '#363636', '#DADADA'],
+  ['#181818', '#4A4A4A', '#7A7A7A'],
+  ['#2A2A2A', '#616161', '#CFCFCF'],
 ];
 
 /** FNV-1a, 32-bit. */
@@ -91,7 +94,7 @@ export function coverArt(id: string): CoverArt {
       break;
     }
     case 1: {
-      // Blocks: tumbling rounded squares, one in the pop colour.
+      // Blocks: tumbling rounded squares, one in the pop grey.
       const n = rand.int(3, 4);
       for (let i = 0; i < n; i++) {
         const w = rand.range(14, 30);
@@ -121,7 +124,7 @@ export function coverArt(id: string): CoverArt {
       break;
     }
     default: {
-      // Bands: diagonal stripes crossing the canvas, one in the pop colour.
+      // Bands: diagonal stripes crossing the canvas, one in the pop grey.
       const rotate = rand.range(-50, -25);
       const n = rand.int(3, 4);
       let y = rand.range(18, 26);

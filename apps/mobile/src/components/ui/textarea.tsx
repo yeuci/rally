@@ -20,8 +20,8 @@ function Textarea({
         className
       )}
       placeholderTextColorClassName={cn('accent-muted-foreground', placeholderTextColorClassName)}
-      selectionColorClassName="accent-brand"
-      cursorColorClassName="accent-brand"
+      selectionColorClassName="accent-ring"
+      cursorColorClassName="accent-foreground"
       multiline={multiline}
       numberOfLines={numberOfLines}
       textAlignVertical="top"

@@ -5,7 +5,7 @@ import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { cn } from '@/lib/utils';
 
-/** Designed empty / error state: accent icon tile, title, one line of help, optional action. */
+/** Designed empty / error state: quiet icon tile, title, one line of help, optional action. */
 export function EmptyState({
   icon,
   title,
@@ -23,8 +23,8 @@ export function EmptyState({
   className?: string;
 }) {
   const tile = (
-    <View className={cn('bg-brand-soft border-brand-line items-center justify-center border', compact ? 'size-11 rounded-xl' : 'size-14 rounded-2xl')}>
-      <Icon as={icon} className={cn('text-brand', compact ? 'size-5' : 'size-6')} />
+    <View className={cn('bg-subtle border-subtle-line items-center justify-center border', compact ? 'size-11 rounded-xl' : 'size-14 rounded-2xl')}>
+      <Icon as={icon} className={cn('text-foreground', compact ? 'size-5' : 'size-6')} />
     </View>
   );
   if (compact) {

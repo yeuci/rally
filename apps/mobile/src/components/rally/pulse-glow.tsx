@@ -9,12 +9,11 @@ import Animated, {
   withRepeat,
   withTiming,
 } from 'react-native-reanimated';
-import { BRAND } from '@/lib/brand';
 import { Glow } from './glow';
 
 /**
- * Slowly breathing accent light (violet core, cyan drifting the other way) to sit behind the wordmark. Two
- * transforms on the UI thread; holds still under Reduce Motion.
+ * Slowly breathing white haze (a core, and a smaller one drifting the other way) to sit behind the wordmark: faint
+ * depth, no colour. Two transforms on the UI thread; holds still under Reduce Motion.
  */
 export function PulseGlow({ size }: { size: number }) {
   const t = useSharedValue(0);
@@ -23,11 +22,11 @@ export function PulseGlow({ size }: { size: number }) {
     t.set(withRepeat(withTiming(1, { duration: 2800, easing: Easing.inOut(Easing.sin) }), -1, true, undefined, ReduceMotion.System));
   }, [t]);
 
-  const violet = useAnimatedStyle(() => ({
+  const core = useAnimatedStyle(() => ({
     opacity: interpolate(t.value, [0, 1], [0.75, 1]),
     transform: [{ scale: interpolate(t.value, [0, 1], [0.92, 1.06]) }],
   }));
-  const cyan = useAnimatedStyle(() => ({
+  const drift = useAnimatedStyle(() => ({
     opacity: interpolate(t.value, [0, 1], [0.9, 0.55]),
     transform: [
       { translateX: interpolate(t.value, [0, 1], [size * 0.12, size * 0.04]) },
@@ -38,11 +37,11 @@ export function PulseGlow({ size }: { size: number }) {
 
   return (
     <View pointerEvents="none" className="absolute items-center justify-center" style={{ width: size, height: size }}>
-      <Animated.View className="absolute" style={[{ width: size, height: size }, violet]}>
-        <Glow size={size} opacity={0.42} />
+      <Animated.View className="absolute" style={[{ width: size, height: size }, core]}>
+        <Glow size={size} opacity={0.1} />
       </Animated.View>
-      <Animated.View className="absolute" style={[{ width: size * 0.7, height: size * 0.7 }, cyan]}>
-        <Glow size={size * 0.7} color={BRAND.cyan} opacity={0.22} />
+      <Animated.View className="absolute" style={[{ width: size * 0.7, height: size * 0.7 }, drift]}>
+        <Glow size={size * 0.7} opacity={0.06} />
       </Animated.View>
     </View>
   );

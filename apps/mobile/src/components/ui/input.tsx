@@ -2,7 +2,7 @@ import { cn } from '@/lib/utils';
 import { Platform, TextInput } from 'react-native';
 
 /**
- * Text input. Focus ring: the accent (`ring`) border with a faint brand tint (Uniwind's TextInput tracks focus
+ * Text input. Focus ring: the neutral `ring` border over a faint `field-focus` fill (Uniwind's TextInput tracks focus
  * for `focus:` on native). `invalid` draws the destructive border.
  */
 function Input({
@@ -32,8 +32,8 @@ function Input({
         className
       )}
       placeholderTextColorClassName={cn('accent-muted-foreground', placeholderTextColorClassName)}
-      selectionColorClassName="accent-brand"
-      cursorColorClassName="accent-brand"
+      selectionColorClassName="accent-ring"
+      cursorColorClassName="accent-foreground"
       {...props}
     />
   );

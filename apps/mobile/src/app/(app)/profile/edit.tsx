@@ -11,18 +11,19 @@ import { Text } from '@/components/ui/text';
 import { Textarea } from '@/components/ui/textarea';
 import { describeAuthError } from '@/lib/auth/errors';
 import { useUsernameAvailability } from '@/lib/auth/use-username-availability';
-import { BRAND } from '@/lib/brand';
 import { useProfile, useUpdateProfile, type Profile, type ProfileUpdate } from '@/lib/profile';
+import { usePalette } from '@/lib/use-palette';
 
 const DISPLAY_NAME_MAX = 32; // profiles_display_name_len
 const BIO_MAX = 280; // profiles_bio_len
 
 export default function EditProfileScreen() {
   const profile = useProfile();
+  const palette = usePalette();
   if (!profile.data) {
     return (
       <View className="bg-background flex-1 items-center justify-center">
-        <ActivityIndicator color={BRAND.violet} />
+        <ActivityIndicator color={palette.foreground} />
       </View>
     );
   }

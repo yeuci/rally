@@ -176,7 +176,7 @@ export default function GamePage() {
             </Text>
             <View className="flex-row flex-wrap gap-2">
               {g.genres.map((genre) => (
-                <Badge key={genre} variant="brand">
+                <Badge key={genre} variant="subtle">
                   <Text className="capitalize">{genre}</Text>
                 </Badge>
               ))}
@@ -229,7 +229,7 @@ export default function GamePage() {
           selected={isFavorite}
           onPress={() => toggleFavorite.mutate({ game: g, favorite: !isFavorite })}
         >
-          <Icon as={HeartIcon} className={cn('size-5 text-white', isFavorite && 'fill-white')} />
+          <Icon as={HeartIcon} className={cn('size-5', isFavorite ? 'text-primary-foreground fill-primary-foreground' : 'text-white')} />
         </RoundButton>
       </View>
 
@@ -257,7 +257,7 @@ export default function GamePage() {
             }}
           >
             {resolving ? (
-              <ActivityIndicator color="#FFFFFF" />
+              <ActivityIndicator color={palette.primaryForeground} />
             ) : (
               <Icon as={PlayIcon} className="text-primary-foreground fill-primary-foreground size-5" />
             )}
@@ -287,7 +287,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** Glass button over the hero; `selected` fills it with the accent (favorited). */
+/** Glass button over the hero; `selected` fills it with the primary (foreground) colour (favorited). */
 function RoundButton({
   label,
   onPress,
@@ -308,7 +308,7 @@ function RoundButton({
       hitSlop={8}
       className={cn(
         'size-11 items-center justify-center rounded-full border active:opacity-70',
-        selected ? 'bg-brand border-brand' : 'border-white/15 bg-black/35',
+        selected ? 'bg-primary border-primary' : 'border-white/15 bg-black/35',
       )}
     >
       {children}

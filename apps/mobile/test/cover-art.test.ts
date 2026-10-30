@@ -29,3 +29,16 @@ test('coverArt numbers are finite and opacities in range', () => {
     }
   }
 });
+
+test('coverArt is greyscale: every colour is a neutral grey (no hue)', () => {
+  const grey = (c: string) => {
+    const m = /^#([0-9A-F]{2})([0-9A-F]{2})([0-9A-F]{2})$/i.exec(c);
+    return !!m && m[1] === m[2] && m[2] === m[3];
+  };
+  for (const id of ids) {
+    const art = coverArt(id);
+    const colours = [art.from, art.to, art.glow.color];
+    for (const s of art.shapes) colours.push(s.kind === 'ring' ? s.stroke : s.fill);
+    for (const c of colours) assert.ok(grey(c), `${id}: ${c} is not a neutral grey`);
+  }
+});

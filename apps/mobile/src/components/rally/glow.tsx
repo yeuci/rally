@@ -5,11 +5,14 @@ import { BRAND } from '@/lib/brand';
 import { cn } from '@/lib/utils';
 import { useSvgId } from './logo';
 
-/** A soft radial light (accent violet by default). Absolutely positioned, ignores touches; place with className. */
+/**
+ * A soft radial light: a barely-there white haze for depth on the dark theme (it vanishes on light backgrounds).
+ * Absolutely positioned, ignores touches; place with className.
+ */
 export const Glow = memo(function Glow({
   size,
-  color = BRAND.violet,
-  opacity = 0.35,
+  color = BRAND.white,
+  opacity = 0.08,
   className,
   style,
 }: {

@@ -33,9 +33,9 @@ const NEVER = ReduceMotion.Never; // Reduce Motion is handled explicitly below
 
 /**
  * Cold-start intro. Mounts in the root layout on top of the first screen, drawing the native splash exactly (same
- * mark at `SPLASH.imageWidth`, centred in the window on `SPLASH.backgroundColor`). Once it has laid out and a frame
- * has passed, it hides the native splash (no visible change), spins the mark, zooms it ~14× while it and the
- * background fade, revealing the page, then unmounts. Blocks touches only while it runs (≈ 1.1 s).
+ * white mark at `SPLASH.imageWidth`, centred in the window on `SPLASH.backgroundColor`, whatever the theme). Once it
+ * has laid out and a frame has passed, it hides the native splash (no visible change), spins the mark, zooms it ~14×
+ * while it and the background fade, revealing the page, then unmounts. Blocks touches only while it runs (≈ 1.1 s).
  */
 export function IntroOverlay() {
   const reduceMotion = useReducedMotion();
@@ -125,7 +125,7 @@ export function IntroOverlay() {
     >
       <Animated.View style={[styles.backdrop, backdropStyle]} />
       <Animated.View style={markStyle}>
-        <LogoMark size={SPLASH.imageWidth} />
+        <LogoMark size={SPLASH.imageWidth} color={SPLASH.markColor} />
       </Animated.View>
     </View>
   );

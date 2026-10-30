@@ -14,7 +14,6 @@ import { SectionHeader } from '@/components/rally/section-header';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Text } from '@/components/ui/text';
-import { BRAND } from '@/lib/brand';
 import { useAllGames, useFavorites, useFeaturedGames, useNewGames, useRecentlyPlayed, type GameCard } from '@/lib/catalog';
 import { timeAgo } from '@/lib/format';
 import { useProfile } from '@/lib/profile';
@@ -74,14 +73,13 @@ export default function Dashboard() {
         <RefreshControl
           refreshing={refreshing}
           onRefresh={refresh}
-          tintColor={BRAND.violet}
-          colors={[BRAND.violet]}
+          tintColor={palette.foreground}
+          colors={[palette.foreground]}
           progressBackgroundColor={palette.card}
         />
       }
     >
-      <Glow size={width * 1.4} opacity={0.22} style={{ top: -width * 0.85, left: -width * 0.45 }} />
-      <Glow size={width} color={BRAND.cyan} opacity={0.1} style={{ top: -width * 0.55, right: -width * 0.55 }} />
+      <Glow size={width * 1.4} style={{ top: -width * 0.85, left: -width * 0.45 }} />
 
       <View className="gap-5 px-4">
         <View className="flex-row items-center justify-between gap-4">

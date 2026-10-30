@@ -226,6 +226,6 @@ export function GameHost(props: GameHostProps) {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#0b1019' },
-  webview: { flex: 1, backgroundColor: '#0b1019' },
+  root: { flex: 1, backgroundColor: '#0A0A0A' },
+  webview: { flex: 1, backgroundColor: '#0A0A0A' },
 });

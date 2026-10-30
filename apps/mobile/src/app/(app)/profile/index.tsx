@@ -61,7 +61,7 @@ export default function ProfileScreen() {
       contentContainerClassName="gap-6 px-4 pt-6"
       contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
     >
-      <Glow size={width * 1.1} opacity={0.2} style={{ top: -width * 0.55, left: -width * 0.05 }} />
+      <Glow size={width * 1.1} style={{ top: -width * 0.55, left: -width * 0.05 }} />
 
       <View className="items-center gap-4">
         <ProfileAvatar profile={p} size="xl" ring />

@@ -1,11 +1,10 @@
 import { View } from 'react-native';
-import Svg, { Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
+import Svg, { Circle } from 'react-native-svg';
 import { Text } from '@/components/ui/text';
-import { ACCENT_STOPS } from '@/lib/brand';
 import { initialsFor, type Profile } from '@/lib/profile';
+import { usePalette } from '@/lib/use-palette';
 import { cn } from '@/lib/utils';
 import { Image } from './image';
-import { useSvgId } from './logo';
 
 const SIZES = {
   sm: { px: 36, text: 'text-sm', ring: 1.5, gap: 2 },
@@ -13,7 +12,7 @@ const SIZES = {
   xl: { px: 96, text: 'text-3xl', ring: 3, gap: 4 },
 } as const;
 
-/** `avatar_url` through expo-image, else initials on a brand-tinted disc; `ring` adds the accent-gradient ring. */
+/** `avatar_url` through expo-image, else initials on a subtly tinted disc; `ring` adds a thin foreground-coloured ring. */
 export function ProfileAvatar({
   profile,
   size = 'md',
@@ -26,10 +25,10 @@ export function ProfileAvatar({
   className?: string;
 }) {
   const s = SIZES[size];
-  const id = useSvgId('avatar-ring');
+  const palette = usePalette();
   const disc = (
     <View
-      className={cn('bg-brand-soft items-center justify-center overflow-hidden rounded-full', !ring && className)}
+      className={cn('bg-subtle items-center justify-center overflow-hidden rounded-full', !ring && className)}
       style={{ width: s.px, height: s.px }}
     >
       {profile?.avatar_url ? (
@@ -45,14 +44,7 @@ export function ProfileAvatar({
   return (
     <View className={cn('items-center justify-center', className)} style={{ width: outer, height: outer }}>
       <Svg width={outer} height={outer} style={{ position: 'absolute' }}>
-        <Defs>
-          <LinearGradient id={id} x1="0" y1="0" x2="1" y2="1">
-            {ACCENT_STOPS.map((stop) => (
-              <Stop key={stop.offset} offset={stop.offset} stopColor={stop.color} />
-            ))}
-          </LinearGradient>
-        </Defs>
-        <Circle cx={outer / 2} cy={outer / 2} r={(outer - s.ring) / 2} stroke={`url(#${id})`} strokeWidth={s.ring} fill="none" />
+        <Circle cx={outer / 2} cy={outer / 2} r={(outer - s.ring) / 2} stroke={palette.foreground} strokeWidth={s.ring} fill="none" />
       </Svg>
       {disc}
     </View>
