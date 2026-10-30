@@ -114,6 +114,33 @@ export function createScene(canvas: HTMLCanvasElement): SceneHandle {
     camera.lookAt(0, 1.5, 0);
   });
 
+  // Landmark: a tall pillar with an arrow pointing +X at the centre of the map, so camera orientation and
+  // a page reload (the arrow snaps back to its start angle) are obvious at a glance.
+  const landmarkMat = new pc.StandardMaterial();
+  landmarkMat.diffuse = new pc.Color(1, 1, 1);
+  landmarkMat.emissive = new pc.Color(0.9, 0.9, 0.9);
+  landmarkMat.update();
+  const pillar = new pc.Entity('landmark-pillar');
+  pillar.addComponent('render', { type: 'cylinder', material: landmarkMat, castShadows: true });
+  pillar.setLocalScale(0.6, 14, 0.6);
+  pillar.setPosition(0, 6, 0);
+  app.root.addChild(pillar);
+  const arrowMat = new pc.StandardMaterial();
+  arrowMat.diffuse = new pc.Color(1, 0.25, 0.2);
+  arrowMat.emissive = new pc.Color(0.6, 0.1, 0.05);
+  arrowMat.update();
+  const arrow = new pc.Entity('landmark-arrow');
+  arrow.addComponent('render', { type: 'box', material: arrowMat, castShadows: true });
+  arrow.setLocalScale(6, 0.6, 1.2);
+  arrow.setPosition(3.5, 13, 0);
+  app.root.addChild(arrow);
+  const tip = new pc.Entity('landmark-tip');
+  tip.addComponent('render', { type: 'cone', material: arrowMat, castShadows: true });
+  tip.setLocalScale(2.4, 2.2, 2.4);
+  tip.setEulerAngles(0, 0, -90);
+  tip.setPosition(7.6, 13, 0);
+  app.root.addChild(tip);
+
   app.start();
 
   return {

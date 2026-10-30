@@ -6,6 +6,7 @@ import { connect, type NetHandle } from './net.ts';
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 const statusEl = $('#status');
 const statsEl = $('#stats');
+const signEl = $('#sign');
 const setStatus = (s: string) => {
   statusEl.textContent = s;
 };
@@ -134,6 +135,7 @@ function collect() {
 
 setInterval(() => {
   const m = collect();
+  signEl.textContent = String(Math.floor((performance.now() - bootStart) / 1000));
   statsEl.textContent =
     `${m.fps} fps  ${m.frameMs} ms  p95 ${m.p95Ms}  worst ${m.worstMs}\n` +
     `${m.drawCalls} draws  ${m.cubes} cubes  ${m.width}x${m.height}@${m.dpr}  ${m.api}\n` +
