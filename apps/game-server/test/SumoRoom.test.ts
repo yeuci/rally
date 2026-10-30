@@ -7,6 +7,7 @@ import type appConfig from '../src/app.config.js';
 import { createAuthenticator } from '../src/auth.js';
 import { setMatchResultSink, type MatchResult } from '../src/results.js';
 import { RallyRoom } from '../src/rooms/RallyRoom.js';
+import { resetRateLimits } from '../src/routes.js';
 import type { SumoRoom } from '../src/rooms/SumoRoom.js';
 import { testServer } from './server.js';
 
@@ -43,6 +44,8 @@ describe('SumoRoom', () => {
   beforeEach(async () => {
     results = [];
     RallyRoom.configureAuth(null);
+    resetRateLimits();
+    colyseus.sdk.auth.token = '';
     await colyseus.cleanup();
   });
 
@@ -62,7 +65,7 @@ describe('SumoRoom', () => {
       await waitFor(() => view(r).players.size === 2, 'both players in state');
       const names: string[] = [];
       view(r).players.forEach((p) => names.push(p.name));
-      assert.deepEqual(names.sort(), ['Alice', 'Bob']);
+      assert.deepEqual(names.sort(), ['guest-Alice', 'guest-Bob'], 'guests are always guest-<name>');
     }
     await waitFor(() => view(alice).phase === 'playing', 'round start');
     assert.equal(view(alice).round, 1);
@@ -131,8 +134,8 @@ describe('SumoRoom', () => {
     assert.deepEqual(
       r.players.map((p) => [p.username, p.placement, p.score, p.guest, p.achievements]),
       [
-        ['Alice', 1, 1, true, ['first_win', 'flawless']],
-        ['Bob', 2, 0, true, []],
+        ['guest-Alice', 1, 1, true, ['first_win', 'flawless']],
+        ['guest-Bob', 2, 0, true, []],
       ],
     );
     assert.ok(Date.parse(r.endedAt) >= Date.parse(r.startedAt));
@@ -178,10 +181,24 @@ describe('SumoRoom', () => {
 
     const byCode = await colyseus.http.get(`/rooms/code/${code.toLowerCase()}`);
     assert.equal((byCode.data as { roomId: string }).roomId, host.roomId);
-    await assert.rejects(colyseus.http.get('/rooms/code/AAAAAA'), (e: { statusCode: number }) => e.statusCode === 404);
+    // Unknown and malformed codes get the same 404.
+    const notFound: unknown[] = [];
+    for (const bad of ['AAAAAA', 'O0O0O0', 'x']) {
+      await assert.rejects(colyseus.http.get(`/rooms/code/${bad}`), (e: { statusCode: number; data: unknown }) => {
+        notFound.push([e.statusCode, e.data]);
+        return true;
+      });
+    }
+    assert.deepEqual(notFound, Array(3).fill([404, { error: 'no room with that code' }]));
     await assert.rejects(colyseus.http.get('/rooms/nope'), (e: { statusCode: number }) => e.statusCode === 404);
 
-    const guest = await colyseus.sdk.joinById(host.roomId, { username: 'Friend' });
+    // joinById into a private room needs its code: knowing the room id is not enough.
+    for (const opts of [{}, { code: 'AAAAAA' }, { code: 42 }]) {
+      await assert.rejects(colyseus.sdk.joinById(host.roomId, { username: 'Snoop', ...opts }), /not found/);
+    }
+    assert.equal(colyseus.getRoomById<SumoRoom>(host.roomId).clients.length, 1, 'nobody got in');
+
+    const guest = await colyseus.sdk.joinById(host.roomId, { username: 'Friend', code: ` ${code.toLowerCase()} ` });
     guest.onMessage('fx', () => {});
     await guest.waitForInitialState();
     await waitFor(() => view(host).players.size === 2, 'friend joined the private room');
@@ -189,6 +206,57 @@ describe('SumoRoom', () => {
     const other = await join('Other', { private: true });
     assert.notEqual(other.roomId, host.roomId);
     assert.notEqual(view(other).code, code);
+    // Public rooms still join by id alone.
+    const byId = await colyseus.sdk.joinById(pub.roomId, { username: 'Direct' });
+    byId.onMessage('fx', () => {});
+    assert.equal(byId.roomId, pub.roomId);
+  });
+
+  it('a dropped player of a private room reconnects without the code', async () => {
+    const host = await join('Host', { private: true });
+    const room = colyseus.getRoomById<SumoRoom>(host.roomId);
+    host.reconnection.enabled = false;
+    const id = host.sessionId;
+    room.clients.get(id)!.leave(CloseCode.MAY_TRY_RECONNECT);
+    await waitFor(() => !room.isConnected(id) && room.seatCount === 1, 'dropped, seat held');
+    const back = await colyseus.sdk.reconnect(host.reconnectionToken);
+    back.onMessage('fx', () => {});
+    assert.equal(back.sessionId, id);
+  });
+
+  it('throttles join-code lookups per client (429), and limits room creation per identity', async () => {
+    let throttled = 0;
+    for (let i = 0; i < 22; i++) {
+      await colyseus.http.get('/rooms/code/AAAAAA').catch((e: { statusCode: number }) => {
+        if (e.statusCode === 429) throttled++;
+      });
+    }
+    assert.equal(throttled, 2, '20 lookups per minute per client');
+    // Another client address (behind a proxy that sets x-forwarded-for) has its own window.
+    await assert.rejects(
+      colyseus.http.get('/rooms/code/AAAAAA', { headers: { 'x-forwarded-for': '203.0.113.9' } }),
+      (e: { statusCode: number }) => e.statusCode === 404,
+    );
+
+    // Five private rooms per minute per guest address; joinOrCreate into a public room is not a creation.
+    for (let i = 0; i < 5; i++) await join(`Host${i}`, { private: true });
+    await assert.rejects(join('Host5', { private: true }), /too many rooms/);
+    await assert.rejects(colyseus.sdk.create('sumo', { username: 'Host6' }), /too many rooms/);
+    await join('Quick');
+    await join('Quick2');
+
+    // Verified players are counted per user id, not per address.
+    const secret = 'test-secret-with-at-least-32-characters!!';
+    RallyRoom.configureAuth(createAuthenticator({ jwtSecret: secret, allowGuests: false }));
+    colyseus.sdk.auth.token = await new SignJWT({ role: 'authenticated' })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setSubject('user-777')
+      .setAudience('authenticated')
+      .setExpirationTime('5m')
+      .sign(new TextEncoder().encode(secret));
+    const mine = await colyseus.sdk.create('sumo', {});
+    mine.onMessage('fx', () => {});
+    assert.equal(colyseus.getRoomById<SumoRoom>(mine.roomId).authOf(mine.sessionId)?.userId, 'user-777');
   });
 
   it('holds a dropped player’s seat (connected = false), restores it on reconnect, frees it after the grace', async () => {
@@ -218,10 +286,42 @@ describe('SumoRoom', () => {
     await waitFor(() => room.metadata.players === 1, 'metadata updated');
   });
 
-  it('verified players get client.auth from the JWT, not from the options', async () => {
+  it('a client kicked for flooding loses its seat at once (no reconnection grace); a stale socket keeps it', async () => {
+    const alice = await join('Alice');
+    const bob = await join('Bob');
+    const room = colyseus.getRoomById<SumoRoom>(alice.roomId);
+    // Stale socket: the same session reconnects while the server still sees it connected. Colyseus closes the old
+    // socket with WITH_ERROR too; that must still be a drop with a grace, so the reconnect succeeds.
+    const again = await colyseus.sdk.reconnect(bob.reconnectionToken);
+    again.onMessage('fx', () => {});
+    assert.equal(again.sessionId, bob.sessionId);
+    await waitFor(() => room.isConnected(bob.sessionId), 'bob reconnected');
+    assert.equal(room.seatCount, 2);
+
+    // Flood: more than maxMessagesPerSecond (60) in one second → kicked, seat freed, token dead.
+    alice.reconnection.enabled = false;
+    const token = alice.reconnectionToken;
+    for (let s = 1; s <= 80; s++) alice.send('input', { x: 0, y: 0, s });
+    await waitFor(() => room.seatCount === 1, 'flooder removed', 3000);
+    await waitFor(() => view(again).players.get(alice.sessionId) === undefined, 'gone from the state', 1000);
+    await assert.rejects(colyseus.sdk.reconnect(token));
+  });
+
+  it('verified players get their name from profiles, never from token metadata or the options', async () => {
     const secret = 'test-secret-with-at-least-32-characters!!';
-    RallyRoom.configureAuth(createAuthenticator({ jwtSecret: secret, allowGuests: false }));
-    const token = await new SignJWT({ role: 'authenticated', user_metadata: { username: 'verified-vic' } })
+    const lookups: string[] = [];
+    RallyRoom.configureAuth(
+      createAuthenticator({
+        jwtSecret: secret,
+        allowGuests: false,
+        profiles: async (userId) => {
+          lookups.push(userId);
+          return { username: 'verified_vic', avatarUrl: null };
+        },
+      }),
+    );
+    // user_metadata is user-writable (supabase.auth.updateUser), so it claims to be someone else here.
+    const token = await new SignJWT({ role: 'authenticated', user_metadata: { username: 'alice' } })
       .setProtectedHeader({ alg: 'HS256' })
       .setSubject('user-123')
       .setAudience('authenticated')
@@ -237,25 +337,40 @@ describe('SumoRoom', () => {
     const room = colyseus.getRoomById<SumoRoom>(vic.roomId);
     assert.deepEqual(room.authOf(vic.sessionId), {
       userId: 'user-123',
-      username: 'verified-vic',
+      username: 'verified_vic',
       avatarUrl: null,
       guest: false,
     });
-    await waitFor(() => view(vic).players.get(vic.sessionId)?.name === 'verified-vic', 'name from the token');
+    assert.deepEqual(lookups, ['user-123']);
+    await waitFor(() => view(vic).players.get(vic.sessionId)?.name === 'verified_vic', 'name from the profile');
     assert.equal(view(vic).players.get(vic.sessionId)!.guest, false);
 
     // The profile message only renames guests.
     sendProfile(vic, 'renamed');
     await room.waitForNextPatch(50);
-    assert.equal(room.match.players.get(vic.sessionId)!.name, 'verified-vic');
+    assert.equal(room.match.players.get(vic.sessionId)!.name, 'verified_vic');
   });
 
   it('guests may set their display name from the launch context (profile message)', async () => {
     const g = await colyseus.sdk.joinOrCreate('sumo', {});
     g.onMessage('fx', () => {});
     await g.waitForInitialState();
-    assert.match(view(g).players.get(g.sessionId)!.name, /^guest-/);
+    assert.match(view(g).players.get(g.sessionId)!.name, /^guest-[a-z0-9]{4}$/);
     sendProfile(g, '  Phone\u0000 Player ');
-    await waitFor(() => view(g).players.get(g.sessionId)!.name === 'Phone Player', 'renamed');
+    await waitFor(() => view(g).players.get(g.sessionId)!.name === 'guest-PhonePlayer', 'renamed');
+    // Still a guest name when asking for a real user's: profile usernames never contain '-'.
+    sendProfile(g, 'alice');
+    await waitFor(() => view(g).players.get(g.sessionId)!.name === 'guest-alice', 'renamed again');
+  });
+
+  it('CORS: no credentials, and an Access-Control-Allow-Origin only for allowed origins (any, under test)', async () => {
+    const res = await colyseus.http.get('/healthz', { headers: { origin: 'http://10.0.0.201:5182' } });
+    assert.equal(res.headers['access-control-allow-origin'], '*');
+    assert.equal(res.headers['access-control-allow-credentials'], undefined);
+    const mm = await colyseus.http.post('/matchmake/joinOrCreate/sumo', {
+      headers: { origin: 'https://evil.test', 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'X' }),
+    });
+    assert.equal(mm.headers['access-control-allow-credentials'], undefined);
   });
 });

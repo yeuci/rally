@@ -54,6 +54,7 @@ export async function roomIdForCode(colyseusHttpUrl: string, code: string): Prom
     throw new HostError('MATCHMAKE_FAILED', `cannot reach ${url}: ${err instanceof Error ? err.message : String(err)}`);
   }
   if (res.status === 404) throw new HostError('MATCHMAKE_FAILED', `no room with code "${code}"`);
+  if (res.status === 429) throw new HostError('MATCHMAKE_FAILED', 'too many join-code attempts; try again in a minute');
   const body = (await res.json().catch(() => null)) as { roomId?: unknown } | null;
   if (!res.ok || typeof body?.roomId !== 'string')
     throw new HostError('MATCHMAKE_FAILED', `${res.status}: bad code lookup`);

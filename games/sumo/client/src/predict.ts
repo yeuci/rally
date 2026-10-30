@@ -1,4 +1,4 @@
-import { DT, SUBSTEPS, integrate, type Body, type Vec2 } from '@rally/game-sumo-server';
+import { DT, SUBSTEPS, integrate, type Body, type Phase, type Vec2 } from '@rally/game-sumo-server';
 
 /**
  * Client-side prediction of the LOCAL puck only — what is and is not predicted:
@@ -19,6 +19,15 @@ export interface OwnSnapshot {
   y: number;
   vx: number;
   vy: number;
+}
+
+/**
+ * Phases in which the server moves pucks from inputs (`SumoMatch.step` runs physics in `waiting` practice, `playing`
+ * and the `roundOver` slide-out). In `countdown` and `matchOver` pucks are frozen, so predicting there would show
+ * our puck sliding away under a held stick and snapping back on every patch.
+ */
+export function shouldPredict(phase: Phase): boolean {
+  return phase === 'waiting' || phase === 'playing' || phase === 'roundOver';
 }
 
 /** Corrections larger than this (units) are snapped, not blended (respawns, round starts). */

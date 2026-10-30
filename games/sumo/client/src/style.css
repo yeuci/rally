@@ -111,8 +111,15 @@ canvas {
 }
 .chip .name {
   max-width: 9em;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.chip .tag {
+  flex: none;
+  margin-left: -2px;
+  color: var(--muted);
+  font-weight: 500;
 }
 .chip .pips {
   letter-spacing: 1px;
@@ -124,16 +131,6 @@ canvas {
 }
 .chip.out {
   opacity: 0.45;
-}
-.chip.off .name::after {
-  content: ' · offline';
-  color: var(--muted);
-  font-weight: 500;
-}
-.chip.spec .name::after {
-  content: ' · next round';
-  color: var(--muted);
-  font-weight: 500;
 }
 .meta {
   flex: none;

@@ -77,7 +77,14 @@ export function createHud(): Hud {
           ]
             .filter(Boolean)
             .join(' ');
-          return `<div class="${cls}" data-id="${esc(id)}" data-name="${esc(p.name)}"><i style="background:${PALETTE[p.color % PALETTE.length]}"></i><span class="name">${esc(p.name)}${id === me ? ' (you)' : ''}</span>${state.phase === 'waiting' ? '' : `<span class="pips">${pips(p.score)}</span>`}</div>`;
+          // Status words sit outside the (ellipsized) name, so a long name never clips them away.
+          const tags = [
+            id === me ? '(you)' : '',
+            !p.connected ? '· offline' : state.phase !== 'waiting' && !p.inRound ? '· next round' : '',
+          ]
+            .filter(Boolean)
+            .join(' ');
+          return `<div class="${cls}" data-id="${esc(id)}" data-name="${esc(p.name)}"><i style="background:${PALETTE[p.color % PALETTE.length]}"></i><span class="name">${esc(p.name)}</span>${tags ? `<span class="tag">${tags}</span>` : ''}${state.phase === 'waiting' ? '' : `<span class="pips">${pips(p.score)}</span>`}</div>`;
         })
         .join('');
       if (html !== lastScores) {

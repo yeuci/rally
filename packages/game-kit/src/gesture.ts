@@ -9,6 +9,8 @@ export interface PointerSample {
 
 export interface PressEvent extends PointerSample {
   pointerType: string;
+  /** `PointerEvent.pointerId` of the tracked pointer (-1 for the keyboard): match it against window-level events. */
+  pointerId: number;
 }
 
 export interface DragEvent extends PointerSample {
@@ -57,7 +59,7 @@ export class GestureTracker {
   down(id: number, type: string, s: PointerSample): boolean {
     if (this.active) return false;
     this.active = { id, type, start: s, last: s, dragging: false };
-    this.h.onPress?.({ ...s, pointerType: type });
+    this.h.onPress?.({ ...s, pointerType: type, pointerId: id });
     return true;
   }
 
@@ -79,7 +81,7 @@ export class GestureTracker {
     if (a.dragging) {
       this.h.onDragEnd?.(this.drag(a.start, a.last, s));
     } else if (s.time - a.start.time <= this.tapMaxMs && Math.hypot(s.x - a.start.x, s.y - a.start.y) <= this.slop) {
-      this.h.onTap?.({ ...s, pointerType: a.type });
+      this.h.onTap?.({ ...s, pointerType: a.type, pointerId: a.id });
     }
   }
 

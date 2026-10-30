@@ -1,14 +1,19 @@
-import { ErrorCode, Room, ServerError, matchMaker, type AuthContext, type Client, type CloseCode } from 'colyseus';
+import { CloseCode, ErrorCode, Room, ServerError, matchMaker, type AuthContext, type Client } from 'colyseus';
 import {
   AuthError,
   cleanUsername,
   createAuthenticator,
   guestIdentity,
+  guestName,
+  isGuestId,
   type Authenticate,
   type RallyAuth,
 } from '../auth.js';
-import { readServerConfig } from '../config.js';
+import { serverConfig } from '../config.js';
 import { uniqueJoinCode } from '../joinCode.js';
+import { createProfileLookup } from '../profiles.js';
+import { clientAddress } from '../rateLimit.js';
+import { isRoomCreation, roomCreationLimit } from '../routes.js';
 import { SERVER_VERSION } from '../version.js';
 
 export type { RallyAuth } from '../auth.js';
@@ -60,12 +65,14 @@ let authenticate: Authenticate | null = null;
  *
  * - **Auth:** static `onAuth` runs during HTTP matchmaking with the `Authorization: Bearer <supabase jwt>` header and
  *   the request body as options. The resulting {@link RallyAuth} travels inside the seat reservation and becomes
- *   `client.auth`, so the game bundle cannot change it (see auth.ts for the policy and guests).
+ *   `client.auth`, so the game bundle cannot change it (see auth.ts for the policy and guests). Room creation is
+ *   rate-limited per identity here.
  * - **Seats and reconnection:** a non-consented drop keeps the seat for `reconnectSeconds` (state shows the player
- *   disconnected via {@link onGameDrop}); the seat is freed after the grace ({@link onGameLeave}).
+ *   disconnected via {@link onGameDrop}); the seat is freed after the grace ({@link onGameLeave}). A client kicked
+ *   for flooding gets no grace.
  * - **Metadata:** `{ gameId, name, players, maxPlayers, private, code?, serverVersion, ...extraMetadata() }`.
- * - **Private rooms:** `setPrivate(true)` (hidden from `joinOrCreate` and listings) plus a join code. Not `lock()`:
- *   Colyseus' `joinById` refuses locked rooms, and joining by id/code is the point of a private room.
+ * - **Private rooms:** `setPrivate(true)` (hidden from `joinOrCreate` and listings) plus a join code, required by
+ *   `joinById` (routes.ts). Not `lock()`: Colyseus' `joinById` refuses locked rooms.
  *
  * Subclasses implement the `onGame*` hooks instead of overriding Colyseus' lifecycle methods. The `onRoom*` /
  * `onPlayer*` hooks are phase-2 integration points (Supabase mirroring, presence) and are no-ops today.
@@ -96,14 +103,23 @@ export abstract class RallyRoom<S extends object = object> extends Room<{
     authenticate = fn;
   }
 
-  static override async onAuth(token: string | undefined, options: unknown, _context: AuthContext): Promise<RallyAuth> {
-    authenticate ??= createAuthenticator(readServerConfig());
+  static override async onAuth(token: string | undefined, options: unknown, context: AuthContext): Promise<RallyAuth> {
+    authenticate ??= defaultAuthenticator();
+    let auth: RallyAuth;
     try {
-      return await authenticate(token, options);
+      auth = await authenticate(token, options);
     } catch (err) {
       const message = err instanceof AuthError ? err.message : 'authentication failed';
       throw new ServerError(ErrorCode.AUTH_FAILED, message);
     }
+    // Room creation is limited per verified user (per client address for guests): see routes.ts.
+    if (isRoomCreation(context)) {
+      const key = isGuestId(auth.userId) ? `ip:${context.ip ?? clientAddress(context.headers)}` : `user:${auth.userId}`;
+      if (!roomCreationLimit.allow(key)) {
+        throw new ServerError(429, 'too many rooms created; try again in a minute');
+      }
+    }
+    return auth;
   }
 
   // ---- game hooks (override these) ----------------------------------------------------------------------------
@@ -154,12 +170,15 @@ export abstract class RallyRoom<S extends object = object> extends Room<{
       cleanUsername(options.name) ??
       `${this.gameId.charAt(0).toUpperCase()}${this.gameId.slice(1)} ${this.roomId.slice(0, 4).toUpperCase()}`;
 
-    // Display name from the launch context, for guests only (signed-in names come from the verified JWT).
+    // Display name from the launch context, for guests only (`guest-<name>`); signed-in players' names come from
+    // their profile, read server-side at matchmaking.
     this.onMessage('profile', (client: RallyClient, message: unknown) => {
       const auth = client.auth;
-      if (!auth?.guest) return;
-      const name = cleanUsername((message as { username?: unknown } | null)?.username);
-      if (!name || name === auth.username) return;
+      if (!auth || !isGuestId(auth.userId)) return;
+      const requested = cleanUsername((message as { username?: unknown } | null)?.username);
+      if (!requested) return;
+      const name = guestName(requested);
+      if (name === auth.username) return;
       auth.username = name;
       const seat = this.seats.get(client.sessionId);
       if (seat) seat.auth = auth;
@@ -180,7 +199,10 @@ export abstract class RallyRoom<S extends object = object> extends Room<{
     await this.onPlayerJoined(client);
   }
 
-  override async onDrop(client: RallyClient, _code?: CloseCode | number) {
+  override async onDrop(client: RallyClient, code?: CloseCode | number) {
+    // Kicked for flooding (Colyseus closes with WITH_ERROR once maxMessagesPerSecond is exceeded): no grace. Returning
+    // without allowReconnection makes Colyseus call onLeave at once, so the seat is freed and the token is dead.
+    if (code === CloseCode.WITH_ERROR && floodKicked(client, this.maxMessagesPerSecond)) return;
     const seat = this.seats.get(client.sessionId);
     if (seat) seat.connected = false;
     await this.onGameDrop(client);
@@ -235,6 +257,25 @@ export abstract class RallyRoom<S extends object = object> extends Room<{
       ...this.extraMetadata(),
     });
   }
+}
+
+function defaultAuthenticator(): Authenticate {
+  const config = serverConfig();
+  const profiles =
+    config.supabaseUrl && config.supabaseAnonKey
+      ? createProfileLookup({ supabaseUrl: config.supabaseUrl, anonKey: config.supabaseAnonKey })
+      : null;
+  return createAuthenticator({ ...config, profiles });
+}
+
+/**
+ * Colyseus' per-client message counter (internal: `_numMessagesLastSecond`) is above the cap only when the client
+ * was closed for flooding. WITH_ERROR alone is not enough: Colyseus also uses it to close a stale socket when the
+ * same session reconnects, which must keep the grace. SumoRoom.test.ts pins this behaviour.
+ */
+function floodKicked(client: RallyClient, maxMessagesPerSecond: number): boolean {
+  const count = (client as unknown as { _numMessagesLastSecond?: unknown })._numMessagesLastSecond;
+  return typeof count === 'number' && count > maxMessagesPerSecond;
 }
 
 function clampInt(value: unknown, min: number, max: number, fallback: number): number {

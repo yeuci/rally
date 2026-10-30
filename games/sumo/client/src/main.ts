@@ -14,7 +14,7 @@ import { ClientMessage, type FxEvent } from '@rally/game-sumo-server';
 import { createControls } from './controls.ts';
 import { createHud } from './hud.ts';
 import { connect, type Net } from './net.ts';
-import { Predictor } from './predict.ts';
+import { Predictor, shouldPredict } from './predict.ts';
 import { createSumoScene } from './scene.ts';
 
 const TELEMETRY_MS = 10_000;
@@ -55,6 +55,8 @@ loading(0.5);
 
 // --- netcode state -------------------------------------------------------------------------------------
 let net: Net | null = null;
+/** Matchmaking + socket join in flight (exit must wait for it, then leave, or the seat is held as a ghost). */
+let joining: Promise<Net> | null = null;
 let me = '';
 let readyMs = -1;
 let exiting = false;
@@ -68,10 +70,21 @@ let lastPhase = '';
 let lastRound = -1;
 let lastCountdown = -1;
 
+/**
+ * Stop our puck on the server now. The frame loop only sends sticks while frames run; a paused or backgrounded
+ * WebView gets none, and the server would keep applying the last held stick until the socket times out.
+ */
+function releaseInput() {
+  const now = performance.now();
+  const sent = net?.releaseStick(now);
+  if (sent) predictor.recordStick(now, sent);
+}
+
 const lifecycle = createLifecycle(rally, app, {
   onPause: () => {
     ui.paused.hidden = false;
     controls.enabled = false;
+    releaseInput();
     audio.suspend();
   },
   onResume: () => {
@@ -83,8 +96,11 @@ const lifecycle = createLifecycle(rally, app, {
   onExitRequested: async () => {
     exiting = true;
     controls.enabled = false;
-    // Consented leave: the seat is freed at once instead of being held for the reconnection grace.
-    await net?.leave().catch(() => {});
+    releaseInput();
+    // Consented leave: the seat is freed at once instead of being held for the reconnection grace. A join still in
+    // flight is awaited first (bounded by the lifecycle's exit timeout; boot() also leaves if it lands later).
+    const joined = net ?? (await joining?.catch(() => null));
+    await joined?.leave().catch(() => {});
     if (!rally.isHosted) hud.setMessage('You left the game', 'Reload to play again');
   },
   onLowMemory: () => {
@@ -93,6 +109,17 @@ const lifecycle = createLifecycle(rally, app, {
   },
 });
 ui.exit.addEventListener('click', () => void lifecycle.exit('button'));
+// Hosted games are not paused on visibility (the shell sends `pause`), but the stick must still stop when the
+// page is hidden or loses focus; the next frame sends whatever is held again.
+const stopInput = () => {
+  controls.release();
+  releaseInput();
+};
+window.addEventListener('blur', stopInput);
+window.addEventListener('pagehide', stopInput);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) stopInput();
+});
 
 // --- server events → sound, shake, flashes -------------------------------------------------------------
 function onFx(fx: FxEvent[]) {
@@ -165,7 +192,7 @@ function frame(dt: number) {
 
   scene.setRadius(st.radius);
   const seen = new Set<string>();
-  const predicting = PREDICT && st.phase !== 'countdown';
+  const predicting = PREDICT && shouldPredict(st.phase);
   st.players.forEach((p, id) => {
     seen.add(id);
     const mine = id === me;
@@ -255,23 +282,35 @@ async function boot() {
   loading(1);
   ui.loading.hidden = true;
 
+  if (exiting) return; // exit requested while loading: never take a seat
   hud.setMessage('Joining…');
-  try {
+  joining = (async () => {
     if (rally.isHosted) {
       // The host matchmakes (with the player's Supabase token) and hands over a seat; the socket is ours.
       const { endpoint, seatReservation } = await rally.session.join();
-      net = await connect(endpoint, { seatReservation });
-    } else {
-      const endpoint = toWs(params.get('colyseus') ?? `ws://${location.hostname || 'localhost'}:2567`);
-      net = await connect(endpoint, {
-        roomName: 'sumo',
-        options: { username, ...(params.has('private') ? { private: true } : {}) },
-      });
+      return connect(endpoint, { seatReservation });
     }
+    const endpoint = toWs(params.get('colyseus') ?? `ws://${location.hostname || 'localhost'}:2567`);
+    return connect(endpoint, {
+      roomName: 'sumo',
+      options: { username, ...(params.has('private') ? { private: true } : {}) },
+    });
+  })();
+  let joined: Net;
+  try {
+    joined = await joining;
   } catch (err) {
+    if (exiting) return;
     hud.setMessage("Couldn't join", err instanceof Error ? err.message : String(err));
     throw err;
   }
+  if (exiting) {
+    // Exit was requested while the join was in flight: give the seat back now instead of leaving a ghost player
+    // (held for the reconnection grace once the page goes away, or forever while it stays open).
+    await joined.leave().catch(() => {});
+    return;
+  }
+  net = joined;
   me = net.sessionId;
   hud.setMessage(null);
   // Guests (no Supabase session, e.g. the dev harness) show the launch-context name; the server ignores this
@@ -314,8 +353,14 @@ if (import.meta.env.DEV) {
     get code() {
       return net?.state.code ?? '';
     },
+    get roomId() {
+      return net?.room.roomId ?? '';
+    },
     get rtt() {
       return net?.rttMs ?? null;
+    },
+    get stick() {
+      return controls.stick;
     },
     names() {
       const out: string[] = [];

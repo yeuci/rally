@@ -15,20 +15,24 @@ pnpm --filter @rally/game-sumo dev            # Vite + dev harness on :5182 (VIT
 
 - **Chrome:** open `http://localhost:5182/?name=Alice`, and another tab or window with `?name=Bob`. You can also type a
   name in the harness panel (bottom right) and press **set name**; it is saved for that browser. Each tab matchmakes
-  through the fake host (`POST /matchmake/joinOrCreate/sumo` with `{ username }`) like the shell does.
+  through the fake host (`POST /matchmake/joinOrCreate/sumo` with `{ username }`) like the shell does. The tabs
+  have no Supabase session, so they are guests and the server shows them as `guest-Alice`, `guest-Bob` (a guest
+  can never take a signed-in player's name).
 - **iPhone, through the Rally shell (signed in, real username):** the catalog play route matchmakes into
   `server.room` from the manifest with your Supabase token and `EXPO_PUBLIC_COLYSEUS_URL`. Point that at
   `http://<pc-ip>:2567`, and register a dev version of Sumo whose `entry_url` is `http://<pc-ip>:5182/index.html`
   (run `publish-game sumo --dry-run`; it prints the `games` upsert and `game_versions` insert, which you can apply in
-  Supabase Studio with that `entry_url`; an `http://` entry skips the hash check). Set `SUPABASE_URL` for the game
-  server (see apps/game-server/README.md) so the token verifies. Quick play then puts the phone in the same public
+  Supabase Studio with that `entry_url`; an `http://` entry skips the hash check). Set `SUPABASE_URL` and
+  `SUPABASE_ANON_KEY` for the game server (see apps/game-server/README.md) so the token verifies and your username
+  is read from your profile. Quick play then puts the phone in the same public
   room as the Chrome tabs. A CDN-published (https) bundle cannot open `ws://` to a LAN server, so this needs the dev
   server until the game server has `wss://`.
 - **iPhone, quickest:** open `http://<pc-ip>:5182/?name=Phone` in Safari. The dev harness runs there too (as a
   guest, with touch controls), so you can test cross-device play without the shell. Note that the shell's Developer
   launcher still matchmakes into `hello` only, so it cannot launch Sumo yet.
 - **Private room:** `?private` creates a fresh private room; the waiting screen shows a 6-character code. Another tab
-  joins with `?code=K7M2PQ`. The shell's UI for codes is phase 2.
+  joins with `?code=K7M2PQ` (the harness resolves it and sends it along with `joinById`: the room id alone does not
+  get anyone into a private room). The shell's UI for codes is phase 2.
 - `?nohost` runs standalone (no bridge): it joins `ws://<host>:2567` directly (or `?colyseus=<url>`).
 - `?predict=0` turns off local prediction of your own puck so you can compare.
 
@@ -37,11 +41,11 @@ With two or more players, a 3-2-1 countdown starts round 1.
 
 ## Controls
 
-| Input              | Effect                                                                                                           |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| Drag (touch/mouse) | Virtual joystick anchored where the finger went down: 56 px of travel = full push. Works anywhere on the screen. |
-| Arrow keys / WASD  | Same stick from the keyboard (game-kit `createDirectionKeys`). Diagonals are normalized.                         |
-| ✕                  | Leave the room (a consented leave frees the seat at once), then `rally.exit()`.                                  |
+| Input              | Effect                                                                                                                                               |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Drag (touch/mouse) | Virtual joystick anchored where the finger went down: 56 px of travel = full push. Works anywhere on the screen. Only that finger's release ends it. |
+| Arrow keys / WASD  | Same stick from the keyboard (game-kit `createDirectionKeys`). Diagonals are normalized.                                                             |
+| ✕                  | Leave the room (a consented leave frees the seat at once), then `rally.exit()`.                                                                      |
 
 ## What is server-authoritative, what is predicted
 
@@ -50,11 +54,13 @@ collisions, falls, the shrinking edge, rounds, scores and the match result. It s
 30 Hz (2 physics sub-steps) from client inputs and patches state to clients at 20 Hz.
 
 - **Inputs:** clients send only a stick direction `{ x, y, s }` (|v| ≤ 1, sequence number), only when it changes and
-  at most 20 per second. The server clamps the vector, drops malformed, stale and out-of-order messages, and applies at
+  at most 20 per second (`client/src/stick.ts`). On pause, blur, a hidden page and exit a zero stick is sent at once
+  (a backgrounded page runs no frames, and the server keeps applying the last stick). The server clamps the vector, drops malformed, stale and out-of-order messages, and applies at
   most 30 per second per client. A dropped client's puck gets no input.
 - **Other players** are drawn 100 ms in the past, interpolated between patches (`SnapshotBuffer` from game-kit).
   Nothing is extrapolated.
-- **Your own puck** is predicted: the client replays the exact server integrator (`integrate`: acceleration, friction,
+- **Your own puck** is predicted in the phases where the server moves pucks (`waiting` practice, `playing`,
+  `roundOver`; not `countdown` or `matchOver`): the client replays the exact server integrator (`integrate`: acceleration, friction,
   speed cap) from the latest authoritative state over one round trip, using the sticks it sent. Collisions,
   knock-back, falling and round resets are **not** predicted. They arrive from the server, and the difference is
   blended out over ~120 ms (a teleport, such as a respawn, snaps). See `client/src/predict.ts`.
@@ -92,9 +98,10 @@ pnpm --filter @rally/game-sumo test:e2e       # Playwright: two Chrome contexts 
 pnpm --filter @rally/publish-game publish-game sumo --dry-run
 ```
 
-The e2e checks that Alice and Bob land in one room and see each other in the HUD, that a round starts and arrow keys
-move a puck on the server, that `?private` / `?code=` work, the harness rename, and that `exitRequested` leaves
-the room. It waits up to 45 s for leftover public rooms from an earlier run (their seats are held for the 30 s
+The e2e checks that Alice and Bob land in one room and see each other in the HUD (as `guest-…`), that a round
+starts and arrow keys move a puck on the server, that `?private` / `?code=` work and a bare `joinById` does not, that
+a long name keeps "(you)" visible, that a second finger does not end the joystick drag, the harness rename, that
+`exitRequested` leaves the room, and that an exit while the socket is still connecting leaves no ghost seat. It waits up to 45 s for leftover public rooms from an earlier run (their seats are held for the 30 s
 reconnection grace).
 
 ## Art

@@ -49,3 +49,20 @@ test('long press is not a tap; second pointer and foreign ids are ignored; cance
   assert.equal(g.isDown, false);
   assert.deepEqual(log, ['press 0,0@0', 'dragstart 0,0', 'drag 30,0 d30,0', 'dragend 30,0']);
 });
+
+test('press and tap carry the tracked pointer id (window-level listeners can ignore other fingers)', () => {
+  const seen: [string, number][] = [];
+  const g = new GestureTracker({
+    onPress: (e) => seen.push(['press', e.pointerId]),
+    onTap: (e) => seen.push(['tap', e.pointerId]),
+  });
+  g.down(7, 'touch', { x: 0, y: 0, time: 0 });
+  g.down(8, 'touch', { x: 9, y: 9, time: 1 }); // second finger: ignored
+  g.up(7, { x: 0, y: 0, time: 50 });
+  g.down(-1, 'keyboard', { x: 0, y: 0, time: 60 });
+  assert.deepEqual(seen, [
+    ['press', 7],
+    ['tap', 7],
+    ['press', -1],
+  ]);
+});

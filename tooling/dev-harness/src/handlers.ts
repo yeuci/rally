@@ -35,7 +35,7 @@ export type JoinTarget =
   | { kind: 'quick' }
   /** `joinOrCreate` with `{ private: true }`: always a fresh private room with a join code. */
   | { kind: 'private' }
-  /** `GET /rooms/code/<code>` → `joinById`. */
+  /** `GET /rooms/code/<code>` → `joinById` with `{ code }`. */
   | { kind: 'code'; code: string }
   | { kind: 'room'; roomId: string };
 
@@ -134,7 +134,11 @@ export function createHarnessHandlers(deps: HarnessHandlerDeps): RequestHandlers
       const opts = deps.matchOptions ?? {};
       const seatReservation =
         join.kind === 'code'
-          ? await matchmake(deps.colyseusUrl, 'joinById', await roomIdForCode(deps.colyseusUrl, join.code), opts)
+          ? // A private room admits joinById only with its code (apps/game-server routes.ts).
+            await matchmake(deps.colyseusUrl, 'joinById', await roomIdForCode(deps.colyseusUrl, join.code), {
+              ...opts,
+              code: join.code,
+            })
           : join.kind === 'room'
             ? await matchmake(deps.colyseusUrl, 'joinById', join.roomId, opts)
             : await matchmake(

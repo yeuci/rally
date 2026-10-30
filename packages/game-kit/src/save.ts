@@ -14,7 +14,11 @@ export interface SaveOptions<T> {
   standaloneKey?: string;
   /** CONFLICT → reload → reapply → retry, this many times. Default 3. */
   maxConflictRetries?: number;
-  /** A write failed for a reason other than CONFLICT / RATE_LIMITED / TIMEOUT (those retry on their own). */
+  /**
+   * A write failed for a reason that will not fix itself (anything but CONFLICT / RATE_LIMITED / TIMEOUT / INTERNAL,
+   * which retry on their own, TIMEOUT / INTERNAL with a doubling backoff up to 60 s). Called once: writing then stops
+   * until the next `update()` or an explicit `flush()`.
+   */
   onError?: (err: unknown) => void;
   /** `data` changed underneath the game (load, or a reload after CONFLICT). */
   onChange?: (data: T) => void;
@@ -85,6 +89,16 @@ export function createSave<T>(
   let timer: ReturnType<typeof setTimeout> | null = null;
   let lastWriteAt = -Infinity;
   let destroyed = false;
+  /** A non-retryable failure was reported: no automatic writes until update() or flush(). */
+  let halted = false;
+  /** Current TIMEOUT / INTERNAL backoff (0 = none). */
+  let backoffMs = 0;
+  /**
+   * The last put failed with TIMEOUT / INTERNAL, so it may have been committed anyway. If the next put then gets a
+   * CONFLICT and the slot holds exactly that write (version `baseVersion + 1`, same JSON), the first `count` ops are
+   * persisted already and must not be re-run on top of it (`played += 1` would count twice).
+   */
+  let inDoubt: { count: number; baseVersion: number; json: string } | null = null;
 
   const rebase = (stored: Stored) => {
     version = stored.version;
@@ -92,13 +106,18 @@ export function createSave<T>(
   };
 
   function schedule(extraDelay = 0) {
-    if (timer || destroyed || !loaded || ops.length === 0) return;
+    if (timer || destroyed || halted || !loaded || ops.length === 0) return;
     const wait = Math.max(debounceMs, lastWriteAt + minIntervalMs - Date.now(), extraDelay);
     timer = setTimeout(() => {
       timer = null;
       void handle.flush();
     }, wait);
   }
+
+  const fail = (err: unknown) => {
+    halted = true;
+    options.onError?.(err);
+  };
 
   async function write(): Promise<void> {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -109,28 +128,48 @@ export function createSave<T>(
         const res = await store.put(snapshot, version);
         version = res.version;
         ops = ops.slice(count);
+        inDoubt = null;
+        backoffMs = 0;
         return;
       } catch (err) {
         const code = errorCode(err);
         if (code === 'CONFLICT') {
+          let stored: Stored;
           try {
-            rebase(await store.get());
-            options.onChange?.(data);
+            stored = await store.get();
           } catch (getErr) {
-            options.onError?.(getErr);
+            fail(getErr);
             return;
+          }
+          const doubt = inDoubt;
+          inDoubt = null;
+          if (doubt && stored.version === doubt.baseVersion + 1 && canonical(stored.data) === doubt.json) {
+            // Our timed-out write did land: those ops are persisted; only the later ones are still pending.
+            ops = ops.slice(doubt.count);
+            rebase(stored);
+            options.onChange?.(data);
+            if (ops.length === 0) return;
+          } else {
+            rebase(stored);
+            options.onChange?.(data);
           }
           continue;
         }
-        if (code === 'RATE_LIMITED' || code === 'TIMEOUT') {
+        if (code === 'RATE_LIMITED') {
           schedule(minIntervalMs);
           return;
         }
-        options.onError?.(err);
+        if (code === 'TIMEOUT' || code === 'INTERNAL') {
+          inDoubt = { count, baseVersion: version, json: canonical(snapshot) };
+          backoffMs = backoffMs ? Math.min(backoffMs * 2, MAX_BACKOFF_MS) : Math.max(minIntervalMs, debounceMs);
+          schedule(backoffMs);
+          return;
+        }
+        fail(err);
         return;
       }
     }
-    options.onError?.(new Error(`save slot "${slot}": still conflicting after ${maxRetries} retries`));
+    fail(new Error(`save slot "${slot}": still conflicting after ${maxRetries} retries`));
   }
 
   const handle: SaveHandle<T> = {
@@ -163,12 +202,14 @@ export function createSave<T>(
       return loading;
     },
     update(fn) {
+      halted = false;
       ops.push(fn);
       data = apply(data, fn);
       schedule();
       return data;
     },
     async flush() {
+      halted = false;
       if (timer) {
         clearTimeout(timer);
         timer = null;
@@ -188,6 +229,21 @@ export function createSave<T>(
     },
   };
   return handle;
+}
+
+const MAX_BACKOFF_MS = 60_000;
+
+/** JSON with object keys sorted (Postgres jsonb does not keep key order), for comparing stored data. */
+function canonical(value: unknown): string {
+  return JSON.stringify(value, (_key, v: unknown) =>
+    isPlainObject(v)
+      ? Object.fromEntries(
+          Object.keys(v)
+            .sort()
+            .map((k) => [k, v[k]]),
+        )
+      : v,
+  );
 }
 
 function apply<T>(current: T, fn: Op<T>): T {

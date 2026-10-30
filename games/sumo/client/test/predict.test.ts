@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DT, SUBSTEPS, integrate, type Body } from '@rally/game-sumo-server';
-import { Predictor } from '../src/predict.ts';
+import { DT, SUBSTEPS, SumoMatch, integrate, type Body, type Phase } from '@rally/game-sumo-server';
+import { Predictor, shouldPredict } from '../src/predict.ts';
 
 test('with no new input the prediction is the server state coasting under friction', () => {
   const p = new Predictor();
@@ -57,4 +57,35 @@ test('stickAt follows the recorded history', () => {
   assert.deepEqual(p.stickAt(50), { x: 0, y: 0 });
   assert.deepEqual(p.stickAt(150), { x: 1, y: 0 });
   assert.deepEqual(p.stickAt(260), { x: 0, y: 1 });
+});
+
+test('predicts only in phases where the server moves pucks (not countdown or matchOver)', () => {
+  assert.deepEqual((['waiting', 'countdown', 'playing', 'roundOver', 'matchOver'] as const).filter(shouldPredict), [
+    'waiting',
+    'playing',
+    'roundOver',
+  ]);
+});
+
+test('the phase rule matches SumoMatch: pucks move under a held stick exactly in the predicted phases', () => {
+  const m = new SumoMatch({ countdownTime: 0.2, roundOverTime: 0.2, matchOverTime: 0.5, winsToMatch: 1 });
+  m.addPlayer('a', 'A');
+  const moved = new Map<Phase, boolean>();
+  for (let i = 0; i < 400 && moved.size < 5; i++) {
+    if (i === 3) m.addPlayer('b', 'B'); // alone first: waiting (practice)
+    // A pushes hard (falls off first), B drifts gently (survives into roundOver).
+    m.setInput('a', { x: 0, y: 1 });
+    if (m.players.has('b')) m.setInput('b', { x: 0.3, y: 0 });
+    const phase = m.phase;
+    const before = new Map([...m.players].map(([id, p]) => [id, { x: p.x, y: p.y, alive: p.alive }]));
+    m.step(DT);
+    if (m.phase !== phase) continue; // transition steps lay pucks out
+    const anyMoved = [...m.players].some(([id, p]) => {
+      const b = before.get(id)!;
+      return b.alive && p.alive && (p.x !== b.x || p.y !== b.y);
+    });
+    if (!moved.has(phase)) moved.set(phase, anyMoved);
+  }
+  for (const [phase, didMove] of moved) assert.equal(shouldPredict(phase), didMove, phase);
+  assert.equal(moved.size, 5, `saw every phase (${[...moved.keys()]})`);
 });

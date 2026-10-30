@@ -1,13 +1,6 @@
 import { Client, type Room } from '@colyseus/sdk';
-import {
-  ClientMessage,
-  INPUT_HZ,
-  ServerMessage,
-  clampStick,
-  type FxEvent,
-  type SumoStateView,
-  type Vec2,
-} from '@rally/game-sumo-server';
+import { ClientMessage, ServerMessage, type FxEvent, type SumoStateView, type Vec2 } from '@rally/game-sumo-server';
+import { StickSender } from './stick.ts';
 
 export interface Net {
   room: Room;
@@ -21,14 +14,15 @@ export interface Net {
    * can feed exactly that to the predictor.
    */
   offerStick(stick: Vec2, now: number): Vec2 | null;
+  /** Send a zero stick right away (pause, hidden page, blur, exit). Returns it when one was sent. */
+  releaseStick(now: number): Vec2 | null;
   onFx(fn: (fx: FxEvent[]) => void): void;
   /** Called with the receive time after every state patch. */
   onPatch(fn: (t: number) => void): void;
-  /** Consented leave (exit button / host exitRequested). */
+  /** Consented leave (exit button / host exitRequested). Idempotent. */
   leave(): Promise<void>;
 }
 
-const MIN_SEND_MS = 1000 / INPUT_HZ;
 const PING_MS = 2000;
 
 /**
@@ -46,9 +40,8 @@ export async function connect(
       : await client.joinOrCreate(join.roomName, join.options);
 
   let rttMs: number | null = null;
-  let seq = 0;
-  let lastSent: Vec2 = { x: 0, y: 0 };
-  let lastSentAt = -Infinity;
+  let leaving: Promise<void> | null = null;
+  const sticks = new StickSender((msg) => room.send(ClientMessage.input, msg));
   const fxHandlers: ((fx: FxEvent[]) => void)[] = [];
   const patchHandlers: ((t: number) => void)[] = [];
 
@@ -76,15 +69,10 @@ export async function connect(
       return rttMs;
     },
     offerStick(raw, now) {
-      const stick = clampStick(Math.round(raw.x * 100) / 100, Math.round(raw.y * 100) / 100) ?? { x: 0, y: 0 };
-      const changed = Math.abs(stick.x - lastSent.x) > 0.02 || Math.abs(stick.y - lastSent.y) > 0.02;
-      const toZero = (stick.x === 0 && stick.y === 0) !== (lastSent.x === 0 && lastSent.y === 0);
-      if (!(changed || toZero) || now - lastSentAt < MIN_SEND_MS) return null;
-      seq++;
-      room.send(ClientMessage.input, { x: stick.x, y: stick.y, s: seq });
-      lastSent = stick;
-      lastSentAt = now;
-      return stick;
+      return leaving ? null : sticks.offer(raw, now);
+    },
+    releaseStick(now) {
+      return leaving ? null : sticks.release(now);
     },
     onFx(fn) {
       fxHandlers.push(fn);
@@ -92,9 +80,9 @@ export async function connect(
     onPatch(fn) {
       patchHandlers.push(fn);
     },
-    async leave() {
+    leave() {
       clearInterval(pingTimer);
-      await room.leave(true);
+      return (leaving ??= room.leave(true).then(() => undefined));
     },
   };
 }

@@ -11,6 +11,7 @@ import {
   type MatchRules,
   type MatchSummary,
 } from '@rally/game-sumo-server';
+import { serverConfig } from '../config.js';
 import { reportMatchResult, type MatchResult } from '../results.js';
 import { RallyRoom, type RallyClient, type RallyCreateOptions } from './RallyRoom.js';
 import { SumoPlayer, SumoState } from './schema/SumoState.js';
@@ -32,7 +33,7 @@ export function sumoAchievements(summary: MatchSummary, playerId: string, player
 }
 
 export interface SumoCreateOptions extends RallyCreateOptions {
-  /** Tests only: shorter matches. Ignored unless NODE_ENV !== 'production'. */
+  /** Tests only: shorter matches. Ignored unless NODE_ENV=test or RALLY_DEV_RULES=1 (config `devRules`). */
   rules?: Partial<MatchRules>;
 }
 
@@ -66,7 +67,7 @@ export class SumoRoom extends RallyRoom<SumoState> {
   };
 
   protected override onGameCreate(options: SumoCreateOptions) {
-    if (options.rules && process.env.NODE_ENV !== 'production') this.match = new SumoMatch(options.rules);
+    if (options.rules && serverConfig().devRules) this.match = new SumoMatch(options.rules);
     this.state.code = this.joinCode ?? '';
     this.state.isPrivate = this.isPrivateRoom;
     this.state.maxPlayers = this.maxClients;

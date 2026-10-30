@@ -10,6 +10,8 @@ export interface Controls {
   /** True once the player has used any control (hides the hint). */
   readonly used: boolean;
   enabled: boolean;
+  /** Drop the current drag (e.g. the window lost focus). Keys release themselves on blur. */
+  release(): void;
   destroy(): void;
 }
 
@@ -19,6 +21,8 @@ export interface Controls {
  */
 export function createControls(canvas: HTMLCanvasElement, stickEl: HTMLElement): Controls {
   let drag: Vec2 | null = null;
+  /** pointerId of the finger/mouse driving the stick; other pointers never end its drag. */
+  let activeId: number | null = null;
   let used = false;
   const knob = stickEl.firstElementChild as HTMLElement | null;
 
@@ -31,6 +35,7 @@ export function createControls(canvas: HTMLCanvasElement, stickEl: HTMLElement):
   };
   const release = () => {
     drag = null;
+    activeId = null;
     stickEl.hidden = true;
     moveKnob({ x: 0, y: 0 });
   };
@@ -40,6 +45,7 @@ export function createControls(canvas: HTMLCanvasElement, stickEl: HTMLElement):
     {
       onPress: (e) => {
         used = true;
+        activeId = e.pointerId;
         drag = { x: 0, y: 0 };
         const r = canvas.getBoundingClientRect();
         show(e.x + r.left, e.y + r.top);
@@ -53,9 +59,13 @@ export function createControls(canvas: HTMLCanvasElement, stickEl: HTMLElement):
     },
     { keyboard: false, tapSlop: 4, tapMaxMs: 10_000 },
   );
-  // A press that ends without a drag or tap (long hold, system cancel) must still release the stick.
-  window.addEventListener('pointerup', release);
-  window.addEventListener('pointercancel', release);
+  // A press that ends without a drag or tap (long hold, system cancel) must still release the stick, but only
+  // when it is that pointer: a second finger lifting elsewhere must not end the joystick drag.
+  const onWindowUp = (ev: PointerEvent) => {
+    if (ev.pointerId === activeId) release();
+  };
+  window.addEventListener('pointerup', onWindowUp);
+  window.addEventListener('pointercancel', onWindowUp);
   const keys: DirectionKeysHandle = createDirectionKeys({
     onChange: () => {
       used = true;
@@ -77,11 +87,12 @@ export function createControls(canvas: HTMLCanvasElement, stickEl: HTMLElement):
       keys.enabled = on;
       if (!on) release();
     },
+    release,
     destroy() {
       input.destroy();
       keys.destroy();
-      window.removeEventListener('pointerup', release);
-      window.removeEventListener('pointercancel', release);
+      window.removeEventListener('pointerup', onWindowUp);
+      window.removeEventListener('pointercancel', onWindowUp);
     },
   };
 }

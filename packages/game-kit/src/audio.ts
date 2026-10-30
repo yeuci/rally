@@ -33,7 +33,8 @@ const UNLOCK_EVENTS = ['pointerdown', 'pointerup', 'touchend', 'keydown', 'click
 /**
  * WebAudio with unlock-on-first-gesture. iOS (and Chrome's autoplay policy) only lets a context start inside a
  * user gesture, so the context is created/resumed from the first pointer/touch/key event and a one-sample silent
- * buffer is played to fully unlock WebKit. Listeners stay attached until the context is actually running.
+ * buffer is played to fully unlock WebKit. Listeners stay attached until the context is actually running, and are
+ * attached again whenever it stops running without our `suspend()` (interruptions, a non-gesture `resume()`).
  */
 export function createAudio(options: { volume?: number; target?: EventTarget } = {}): AudioHandle {
   const target = options.target ?? window;
@@ -76,7 +77,16 @@ export function createAudio(options: { volume?: number; target?: EventTarget } =
     },
     resume() {
       suspended = false;
-      void ctx?.resume().catch(() => {});
+      const c = ctx;
+      if (!c) return;
+      // The host's `resume` arrives through injectJavaScript, not a gesture: WebKit may leave the context suspended
+      // or interrupted, and only a gesture can start it again, so re-arm the unlock listeners in that case.
+      c.resume().then(
+        () => {
+          if (ctx === c && c.state !== 'running') listen();
+        },
+        () => listen(),
+      );
     },
     close() {
       closeContext();
@@ -99,6 +109,12 @@ export function createAudio(options: { volume?: number; target?: EventTarget } =
       master = ctx.createGain();
       master.gain.value = options.volume ?? 0.35;
       master.connect(ctx.destination);
+      const c = ctx;
+      // The system can stop a running context (iOS interruption: a call, Siri, another app's audio). Unless we
+      // suspended it ourselves, wait for the next gesture to start it again.
+      c.onstatechange = () => {
+        if (ctx === c && !suspended && c.state !== 'running') listen();
+      };
     }
     // A one-sample silent buffer started inside the gesture is what finally unlocks WebKit.
     const buf = ctx.createBuffer(1, 1, 22050);
