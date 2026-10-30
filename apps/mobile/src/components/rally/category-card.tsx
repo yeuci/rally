@@ -1,12 +1,13 @@
 import { router } from 'expo-router';
 import { ChevronRightIcon } from 'lucide-react-native';
 import { memo, useCallback } from 'react';
-import { FlatList, Pressable, ScrollView, View, type ListRenderItem } from 'react-native';
+import { FlatList, ScrollView, View, type ListRenderItem } from 'react-native';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Icon } from '@/components/ui/icon';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import { TapPressable } from '@/components/ui/tap-pressable';
 import { Text } from '@/components/ui/text';
 import { playersLabel, type GameCard } from '@/lib/catalog';
 import { categoryCardHeight, gamesCountLabel, type GenreGroup } from '@/lib/dashboard';
@@ -33,7 +34,7 @@ export const CategoryCard = memo(function CategoryCard({
 }) {
   const count = gamesCountLabel(group.games.length);
   return (
-    <Pressable
+    <TapPressable
       onPress={() => onPress(group)}
       accessibilityRole="button"
       accessibilityLabel={`${group.label}, ${count}`}
@@ -58,7 +59,7 @@ export const CategoryCard = memo(function CategoryCard({
           <Text className="text-[13px] font-medium leading-[18px] text-white/80">{count}</Text>
         </View>
       </GameCover>
-    </Pressable>
+    </TapPressable>
   );
 });
 
@@ -188,7 +189,7 @@ function SheetGameRow({ game, onPress }: { game: GameCard; onPress: () => void }
     .filter(Boolean)
     .join(' · ');
   return (
-    <Pressable
+    <TapPressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`${game.title}, ${meta}`}
@@ -213,6 +214,6 @@ function SheetGameRow({ game, onPress }: { game: GameCard; onPress: () => void }
         <Text>{game.age_rating}</Text>
       </Badge>
       <Icon as={ChevronRightIcon} className="text-muted-foreground size-4" />
-    </Pressable>
+    </TapPressable>
   );
 }

@@ -1,5 +1,5 @@
 import type { LaunchContext } from '@rally/protocol';
-import type { FriendJoinTarget, JoinTarget, OriginJoin } from '../lib/join-target';
+import { normalizeJoinCode, type FriendJoinTarget, type JoinTarget, type OriginJoin } from '../lib/join-target';
 import { HostError, type RequestHandlers } from './bridge';
 import { matchmake, mayAttachToken, serverVersion, type MatchmakeMethod } from './matchmake';
 import type { ProgressStore } from './progress';
@@ -21,8 +21,13 @@ export interface MatchmakingTarget {
   minServerVersion?: number;
   /** `friend_join_target(friend)` for `join: 'friend'`; rejects (or throws a HostError) when it is not joinable. */
   resolveFriend?: (friendId: string) => Promise<FriendJoinTarget>;
-  /** After every successful matchmaking. `roomId` is read defensively from the reservation (null if it has none). */
-  onJoined?: (info: { roomId: string | null; gameId: string }) => void;
+  /**
+   * After every successful matchmaking. `roomId` is read defensively from the reservation (null if it has none).
+   * `code` (present only when known) is the private room's join code: from the reservation (`reservationCode`, e.g.
+   * a room this session created) or the code the target joined with (room / friend / resume). Read-only: the bridge
+   * and the game never see it; the play route shows it with a Share action.
+   */
+  onJoined?: (info: { roomId: string | null; gameId: string; code?: string }) => void;
   /** The rejoin journal (§4): written on `session.reportReconnection`, read by `join: 'resume'`. Absent: nothing kept. */
   rejoin?: RejoinJournal | null;
   /**
@@ -290,6 +295,23 @@ export function reservationRoomId(res: Record<string, unknown>): string | null {
 }
 
 /**
+ * A private room's join code carried by the reservation, normalised (`K7M2PQ`), else null. Read defensively from
+ * `code`, `metadata.code` or `room.metadata.code` (Colyseus ≤ 0.15 put the room listing, metadata included, under
+ * `room`). Colyseus 0.16+ `buildSeatReservation` sends only `{ name, sessionId, roomId, processId }`, so with the
+ * current game server this is null until the server adds the code to the reservation it answers for `create`.
+ */
+export function reservationCode(res: Record<string, unknown>): string | null {
+  const meta = (v: unknown) =>
+    v && typeof v === 'object' ? (v as { metadata?: unknown }).metadata : undefined;
+  const codeOf = (v: unknown) => (v && typeof v === 'object' ? (v as { code?: unknown }).code : undefined);
+  for (const candidate of [res.code, codeOf(meta(res)), codeOf(meta(res.room))]) {
+    const code = normalizeJoinCode(candidate);
+    if (code) return code;
+  }
+  return null;
+}
+
+/**
  * `reconnect` answers a plain seat reservation; the game's `consumeSeatReservation` forwards `reconnectionToken`
  * when the reservation has one, so the host adds it (games need no code change).
  */
@@ -315,7 +337,8 @@ async function joinRoom(
     state.code = code;
     // Joining another room gives up whatever match the journal remembered.
     if (roomId) void mm.rejoin?.clear((r) => r.roomId !== roomId);
-    mm.onJoined?.({ roomId, gameId });
+    const shownCode = reservationCode(res) ?? code;
+    mm.onJoined?.(shownCode ? { roomId, gameId, code: shownCode } : { roomId, gameId });
     return res;
   };
 

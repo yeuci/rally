@@ -1,8 +1,8 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { UserXIcon } from 'lucide-react-native';
 import { useHeaderHeight } from 'expo-router/react-navigation';
-import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
+import { useRef, useState } from 'react';
+import { KeyboardAvoidingView, Platform, ScrollView, View, type LayoutChangeEvent, type ScrollViewInstance } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EmptyState } from '@/components/rally/empty-state';
 import { ErrorText, FormField } from '@/components/rally/form-field';
@@ -52,6 +52,15 @@ export default function EditProfileScreen() {
 }
 
 function EditProfileForm({ profile, privacy }: { profile: Profile; privacy: PrivacySettings | null }) {
+  // `?section=privacy` (Settings → Profile privacy): scroll the Privacy section into view once it is laid out.
+  const { section } = useLocalSearchParams<{ section?: string }>();
+  const scrollRef = useRef<ScrollViewInstance>(null);
+  const scrolledToSection = useRef(false);
+  const onPrivacyLayout = (e: LayoutChangeEvent) => {
+    if (section !== 'privacy' || scrolledToSection.current) return;
+    scrolledToSection.current = true;
+    scrollRef.current?.scrollTo({ y: Math.max(0, e.nativeEvent.layout.y - 12), animated: true });
+  };
   const insets = useSafeAreaInsets();
   const column = useColumnPadding();
   // The opaque stack header sits above this view; KeyboardAvoidingView measures from its own frame, so tell it.
@@ -92,6 +101,7 @@ function EditProfileForm({ profile, privacy }: { profile: Profile; privacy: Priv
       keyboardVerticalOffset={headerHeight}
     >
       <ScrollView
+        ref={scrollRef}
         contentContainerClassName="gap-5 pt-6"
         contentContainerStyle={[column, { paddingBottom: insets.bottom + 24 }]}
         keyboardShouldPersistTaps="handled"
@@ -125,7 +135,7 @@ function EditProfileForm({ profile, privacy }: { profile: Profile; privacy: Priv
             placeholder="A line about you"
           />
         </FormField>
-        <View className="gap-4 pt-2">
+        <View className="gap-4 pt-2" onLayout={onPrivacyLayout}>
           <View className="gap-1">
             <Text className="text-[17px] font-bold leading-[22px] tracking-tight" role="heading">
               Privacy

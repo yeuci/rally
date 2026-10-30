@@ -5,6 +5,7 @@ import { Pressable, View, type TextStyle } from 'react-native';
 import { Icon } from '@/components/ui/icon';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton, SkeletonText } from '@/components/ui/skeleton';
+import { TapPressable } from '@/components/ui/tap-pressable';
 import { Text } from '@/components/ui/text';
 import { memberSince, playsLabel, timeAgo } from '@/lib/format';
 import { coverUriFor } from '@/lib/game-art';
@@ -45,13 +46,14 @@ export function ProfileHeader({
             {p.display_name || p.username}
           </Text>
           <Text className="text-muted-foreground text-[15px] font-medium leading-6">@{p.username}</Text>
-          <Text className="text-muted-foreground text-[13px] leading-[18px]">{memberSince(p.created_at)}</Text>
+          {/* Quieter than the handle: smaller, dimmed, a hair apart. Same 18 pt box as its skeleton line. */}
+          <Text className="text-muted-foreground mt-0.5 text-xs leading-[18px] opacity-75">{memberSince(p.created_at)}</Text>
         </View>
       ) : (
         <View className="items-center">
           <SkeletonText lineHeight={32} width={176} barClassName="rounded-lg" />
           <SkeletonText lineHeight={24} width={104} />
-          <SkeletonText lineHeight={18} width={132} />
+          <SkeletonText lineHeight={18} width={132} className="mt-0.5" />
         </View>
       )}
       {p?.bio ? <Text className="text-secondary-foreground max-w-sm text-center leading-6">{p.bio}</Text> : null}
@@ -109,9 +111,9 @@ function Stat({
   );
   const box = 'bg-card border-border flex-1 items-center gap-1 rounded-2xl border px-2 py-3';
   return onPress && !loading ? (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={a11y} className={cn(box, 'active:opacity-70')}>
+    <TapPressable onPress={onPress} accessibilityRole="button" accessibilityLabel={a11y} className={cn(box, 'active:opacity-70')}>
       {body}
-    </Pressable>
+    </TapPressable>
   ) : (
     <View className={box} accessible accessibilityLabel={loading ? undefined : a11y}>
       {body}
@@ -183,7 +185,7 @@ function PlayedGameRow({ game: g }: { game: PlayedGame }) {
   const meta = [playsLabel(g.plays), g.bestScore !== null ? `Best ${formatScore(g.bestScore)}` : null].filter(Boolean).join(' · ');
   const when = timeAgo(g.lastPlayedAt);
   return (
-    <Pressable
+    <TapPressable
       accessibilityRole="button"
       accessibilityLabel={[g.title, meta, when && `last played ${when}`].filter(Boolean).join(', ')}
       onPress={() => router.push({ pathname: '/game/[id]', params: { id: g.gameId } })}
@@ -200,7 +202,7 @@ function PlayedGameRow({ game: g }: { game: PlayedGame }) {
       </View>
       {when ? <Text className="text-muted-foreground text-[12px]">{when}</Text> : null}
       <Icon as={ChevronRightIcon} className="text-muted-foreground size-4" />
-    </Pressable>
+    </TapPressable>
   );
 }
 
@@ -315,7 +317,7 @@ export function LinkRow({
   onPress: () => void;
 }) {
   return (
-    <Pressable
+    <TapPressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={[label, value, badge && `${badge} new`].filter(Boolean).join(', ')}
@@ -336,6 +338,6 @@ export function LinkRow({
         </Text>
       ) : null}
       <Icon as={ChevronRightIcon} className="text-muted-foreground size-4" />
-    </Pressable>
+    </TapPressable>
   );
 }

@@ -5,10 +5,10 @@ import {
   AccessibilityInfo,
   ActivityIndicator,
   FlatList,
-  Pressable,
   StyleSheet,
   View,
   type AccessibilityActionEvent,
+  type LayoutChangeEvent,
   type ListRenderItem,
 } from 'react-native';
 import { useReducedMotion } from 'react-native-reanimated';
@@ -17,9 +17,11 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { Skeleton } from '@/components/ui/skeleton';
+import { TapPressable } from '@/components/ui/tap-pressable';
 import { Text } from '@/components/ui/text';
 import { playersLabel, type GameCard } from '@/lib/catalog';
 import { genreLabel, HERO_AUTO_ADVANCE_MS, heroAutoAdvances, nextHeroPage } from '@/lib/dashboard';
+import { DRAWER_EDGE_WIDTH } from '@/lib/drawer';
 import { coverUriFor } from '@/lib/game-art';
 import { pageIndex } from '@/lib/layout';
 import { useAppDrawer } from '@/lib/use-app-drawer';
@@ -27,11 +29,12 @@ import { usePalette } from '@/lib/use-palette';
 import { cn } from '@/lib/utils';
 import { GameCover } from './game-cover';
 import { useSvgId } from './logo';
+import { PageDots } from './page-dots';
 
 type Pad = { left: number; right: number };
 
-/** Space under the content for the page dots (they sit on the hero's bottom edge). */
-const DOTS_SPACE = 30;
+/** Space under the content for the page dots (a 20 pt pill 8 pt above the hero's bottom edge). */
+const DOTS_SPACE = 38;
 const CONTENT_BOTTOM = 14;
 
 /** Content column width over a wide hero: the left ≈ 48 % (the side scrim fades the art there). */
@@ -47,6 +50,11 @@ function wideColumn(width: number) {
  * `HERO_AUTO_ADVANCE_MS` (lib/dashboard.ts `heroAutoAdvances`: not under reduced motion or a screen reader, not while
  * touched, not while the dashboard is covered or the drawer is open). The list is keyed on its size, so a rotation
  * re-lays it out at the same page.
+ *
+ * The drawer's edge swipe owns the left `DRAWER_EDGE_WIDTH` points: a strip over the art there (a sibling above the
+ * pager, so the pager's native scroll never sees touches that start in it) keeps the pager from fighting the swipe;
+ * a tap on it still opens the game. It stops at the text block (measured per page) so Play and the title keep their
+ * whole hit area.
  */
 export function DashboardHero({
   games,
@@ -71,6 +79,8 @@ export function DashboardHero({
   const listRef = useRef<FlatList<GameCard>>(null);
   const [page, setPage] = useState(0);
   const [touching, setTouching] = useState(false);
+  // Top of each page's text block (from its layout), so the edge strip covers only the art above it.
+  const [contentTops, setContentTops] = useState<Record<string, number>>({});
   const screenReader = useScreenReaderEnabled();
   const reducedMotion = useReducedMotion();
   const focused = useIsFocused();
@@ -95,6 +105,10 @@ export function DashboardHero({
     setPage(next);
   };
 
+  const onContentTop = useCallback((id: string, top: number) => {
+    setContentTops((prev) => (prev[id] === top ? prev : { ...prev, [id]: top }));
+  }, []);
+
   const renderItem = useCallback<ListRenderItem<GameCard>>(
     ({ item }) => (
       <HeroSlide
@@ -109,10 +123,26 @@ export function DashboardHero({
         resolving={resolvingId === item.id}
         notice={notice?.gameId === item.id ? notice.message : null}
         spinnerColor={palette.primaryForeground}
+        onContentTop={onContentTop}
       />
     ),
-    [width, height, wide, pad, count, palette.background, palette.primaryForeground, onPlay, resolvingId, notice],
+    [
+      width,
+      height,
+      wide,
+      pad,
+      count,
+      palette.background,
+      palette.primaryForeground,
+      onPlay,
+      resolvingId,
+      notice,
+      onContentTop,
+    ],
   );
+  const currentGame = games[current];
+  // Until the text block is measured: the top half, always clear of it.
+  const stripHeight = Math.max(0, Math.round((currentGame && contentTops[currentGame.id]) ?? height * 0.5));
   const getItemLayout = useCallback(
     (_: ArrayLike<GameCard> | null | undefined, index: number) => ({ length: width, offset: width * index, index }),
     [width],
@@ -144,9 +174,18 @@ export function DashboardHero({
           setPage(pageIndex(e.nativeEvent.contentOffset.x, width, count));
         }}
       />
+      {currentGame && stripHeight > 0 ? (
+        <TapPressable
+          onPress={() => router.push({ pathname: '/game/[id]', params: { id: currentGame.id } })}
+          className="absolute left-0 top-0"
+          style={{ width: DRAWER_EDGE_WIDTH, height: stripHeight }}
+          accessible={false}
+          importantForAccessibility="no"
+        />
+      ) : null}
       {count > 1 && (
         <View
-          className="absolute bottom-2.5 left-0 right-0 flex-row justify-center gap-1.5"
+          className="absolute bottom-2 left-0 right-0 flex-row justify-center"
           accessible
           accessibilityRole="adjustable"
           accessibilityLabel="Featured games"
@@ -157,13 +196,7 @@ export function DashboardHero({
           }
           pointerEvents="box-none"
         >
-          {games.map((g, i) => (
-            <View
-              key={g.id}
-              pointerEvents="none"
-              className={cn('h-1.5 rounded-full', i === current ? 'bg-foreground w-5' : 'bg-muted-foreground w-1.5')}
-            />
-          ))}
+          <PageDots count={count} index={current} />
         </View>
       )}
     </View>
@@ -185,6 +218,7 @@ const HeroSlide = memo(function HeroSlide({
   resolving,
   notice,
   spinnerColor,
+  onContentTop,
 }: {
   game: GameCard;
   width: number;
@@ -197,8 +231,10 @@ const HeroSlide = memo(function HeroSlide({
   resolving: boolean;
   notice: string | null;
   spinnerColor: string;
+  onContentTop: (id: string, top: number) => void;
 }) {
   const details = () => router.push({ pathname: '/game/[id]', params: { id: game.id } });
+  const measure = (e: LayoutChangeEvent) => onContentTop(game.id, e.nativeEvent.layout.y);
   const genre = game.genres[0];
   return (
     <View style={{ width, height }}>
@@ -213,11 +249,17 @@ const HeroSlide = memo(function HeroSlide({
         style={{ width, height }}
       />
       <HeroScrim width={width} height={height} wide={wide} color={background} />
-      <Pressable onPress={details} style={StyleSheet.absoluteFill} accessible={false} importantForAccessibility="no" />
+      <TapPressable
+        onPress={details}
+        style={StyleSheet.absoluteFill}
+        accessible={false}
+        importantForAccessibility="no"
+      />
       <View
         className="absolute bottom-0 left-0 right-0"
         style={{ paddingLeft: pad.left, paddingRight: pad.right, paddingBottom: dots ? DOTS_SPACE : CONTENT_BOTTOM }}
         pointerEvents="box-none"
+        onLayout={measure}
       >
         <View
           className="gap-3"

@@ -12,6 +12,8 @@ import { useUniwind } from 'uniwind';
 import { IntroOverlay, introPending } from '@/components/rally/intro-overlay';
 import { config } from '@/config';
 import { useSession } from '@/lib/auth/session';
+// Loaded at startup on purpose: reading the stored preferences applies the chosen appearance (Settings) early.
+import '@/lib/prefs';
 import { queryClient } from '@/lib/query-client';
 import { NAV_THEME } from '@/lib/theme';
 

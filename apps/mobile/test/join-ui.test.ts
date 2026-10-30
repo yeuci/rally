@@ -9,6 +9,8 @@ import {
   extractJoinCode,
   formatJoinCode,
   spokenJoinCode,
+  ROOM_CODE_PILL_MS,
+  roomCodeShareMessage,
 } from '../src/lib/join-code-input';
 import {
   formatCountdown,
@@ -222,4 +224,12 @@ test('isGameScreen and rejoinTitle', () => {
   assert.equal(isGameScreen('/'), false);
   assert.equal(rejoinTitle('Sumo'), 'Rejoin your Sumo match?');
   assert.equal(rejoinTitle(null), 'Rejoin your match?');
+});
+
+// --- room code pill (play screen) --------------------------------------------------------------------------------
+
+test('room code pill: share text with the dashed code, gone after 8 s', () => {
+  assert.equal(roomCodeShareMessage('Sumo', 'K7M2PQ'), 'Join my Sumo room on Rally with the code K7M-2PQ');
+  assert.equal(roomCodeShareMessage('  ', 'K7M2PQ'), 'Join my room on Rally with the code K7M-2PQ');
+  assert.equal(ROOM_CODE_PILL_MS, 8000);
 });

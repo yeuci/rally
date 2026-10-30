@@ -94,6 +94,7 @@ export default function Dashboard() {
   const name = profile.data ? profile.data.display_name || profile.data.username : null;
   const openCategory = (group: GenreGroup<GameCard>) => setSheet({ group, open: true });
   const glow = Math.max(width, 360) * 1.4;
+  const playFeatured = (game: GameCard) => launcher.launch(game, { join: 'quick' });
 
   // The top bar turns solid once the hero has scrolled behind it (UI thread); without a hero it is solid from the start.
   const scrollY = useSharedValue(0);
@@ -164,7 +165,9 @@ export default function Dashboard() {
               height={heroHeight}
               wide={wide}
               pad={pad}
-              onPlay={launcher.launch}
+              // Quick play for multiplayer games (the play route ignores the target for solo ones), like the game
+              // page's Quick play; spelled out rather than relying on the route's default.
+              onPlay={playFeatured}
               resolvingId={launcher.resolvingId}
               notice={launcher.notice}
             />

@@ -5,6 +5,7 @@ import { Pressable, View } from 'react-native';
 import { Badge } from '@/components/ui/badge';
 import { Icon } from '@/components/ui/icon';
 import { Skeleton, SkeletonText } from '@/components/ui/skeleton';
+import { TapPressable } from '@/components/ui/tap-pressable';
 import { Text } from '@/components/ui/text';
 import { playersLabel, type GameCard as GameCardData } from '@/lib/catalog';
 import { coverUriFor } from '@/lib/game-art';
@@ -120,7 +121,7 @@ export const GameTile = memo(function GameTile({
   const meta = subtitle || (game.genres[0] ? capitalize(game.genres[0]) : playersLabel(game));
   return (
     <Link href={{ pathname: '/game/[id]', params: { id: game.id } }} asChild>
-      <Pressable
+      <TapPressable
         accessibilityRole="button"
         accessibilityLabel={`${game.title}, ${meta}`}
         className={cn('gap-2 active:opacity-80', className)}
@@ -139,7 +140,7 @@ export const GameTile = memo(function GameTile({
             {meta}
           </Text>
         </View>
-      </Pressable>
+      </TapPressable>
     </Link>
   );
 });
@@ -185,7 +186,7 @@ export const GameListRow = memo(function GameListRow({ game }: { game: GameCardD
   const meta = [game.genres[0] && capitalize(game.genres[0]), playersLabel(game)].filter(Boolean).join(' · ');
   return (
     <Link href={{ pathname: '/game/[id]', params: { id: game.id } }} asChild>
-      <Pressable accessibilityRole="button" accessibilityLabel={`${game.title}, ${meta}`} className={cn(LIST_ROW, 'active:bg-accent')}>
+      <TapPressable accessibilityRole="button" accessibilityLabel={`${game.title}, ${meta}`} className={cn(LIST_ROW, 'active:bg-accent')}>
         <GameCover
           id={game.id}
           title={game.title}
@@ -205,7 +206,7 @@ export const GameListRow = memo(function GameListRow({ game }: { game: GameCardD
           <Text>{game.age_rating}</Text>
         </Badge>
         <Icon as={ChevronRightIcon} className="text-muted-foreground size-4" />
-      </Pressable>
+      </TapPressable>
     </Link>
   );
 });

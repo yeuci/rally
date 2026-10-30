@@ -1,22 +1,13 @@
 import { router } from 'expo-router';
-import {
-  ChevronRightIcon,
-  GaugeIcon,
-  LifeBuoyIcon,
-  LogOutIcon,
-  PencilIcon,
-  Trash2Icon,
-  UsersIcon,
-  WrenchIcon,
-  type LucideIcon,
-} from 'lucide-react-native';
+import { LifeBuoyIcon, LogOutIcon, PencilIcon, SettingsIcon, Trash2Icon, UsersIcon, WrenchIcon } from 'lucide-react-native';
 import { useState } from 'react';
-import { Alert, Linking, Pressable, RefreshControl, ScrollView, View, useWindowDimensions } from 'react-native';
+import { RefreshControl, ScrollView, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ErrorText } from '@/components/rally/form-field';
 import { Glow } from '@/components/rally/glow';
 import { LogoMark } from '@/components/rally/logo';
 import { LinkRow, PlayedGamesSection, ProfileHeader, StatsStrip } from '@/components/rally/profile-sections';
+import { SettingsGroup, SettingsRow } from '@/components/rally/settings-rows';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,20 +21,17 @@ import {
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { Separator } from '@/components/ui/separator';
-import { Switch } from '@/components/ui/switch';
 import { Text } from '@/components/ui/text';
 import { config } from '@/config';
-import { describeAuthError } from '@/lib/auth/errors';
-import { signOut } from '@/lib/auth/providers';
 import { useFriendRequests, usePublicGames } from '@/lib/friends';
 import { usePublicStats } from '@/lib/game-progress';
-import { prefs, usePrefs } from '@/lib/prefs';
 import { useProfile } from '@/lib/profile';
 import { formatScore } from '@/lib/progress-format';
 import { countBadge } from '@/lib/social';
+import { openSupportMail } from '@/lib/support';
 import { usePalette } from '@/lib/use-palette';
 import { useColumnPadding } from '@/lib/use-layout';
-import { cn } from '@/lib/utils';
+import { useSignOut } from '@/lib/use-sign-out';
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
@@ -52,10 +40,8 @@ export default function ProfileScreen() {
   const column = useColumnPadding();
   const glow = Math.min(width, 700) * 1.1;
   const profile = useProfile();
-  const { showFps } = usePrefs();
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [signingOut, setSigningOut] = useState(false);
-  const [signOutError, setSignOutError] = useState<string | null>(null);
+  const { signingOut, error: signOutError, signOut } = useSignOut();
   const p = profile.data;
   const palette = usePalette();
   const stats = usePublicStats(p?.id);
@@ -73,27 +59,7 @@ export default function ProfileScreen() {
     }
   }
   const openFriends = (tab?: 'requests') => router.push({ pathname: '/friends', params: tab ? { tab } : {} });
-
-  async function onSignOut() {
-    if (signingOut) return;
-    setSigningOut(true);
-    setSignOutError(null);
-    try {
-      await signOut(); // success: the root layout's session gate swaps to the welcome screen
-    } catch (err) {
-      setSignOutError(describeAuthError(err));
-    } finally {
-      setSigningOut(false);
-    }
-  }
-
-  const mail = (subject: string) => {
-    const body = p ? `Username: ${p.username}\n\n` : '';
-    // Rejects when nothing can handle mailto: (no mail app set up, simulators).
-    Linking.openURL(`mailto:${config.supportEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`).catch(
-      () => Alert.alert('No email app', `Write to ${config.supportEmail} from any email app.`),
-    );
-  };
+  const mail = (subject: string) => openSupportMail(subject, p?.username);
 
   return (
     <ScrollView
@@ -133,30 +99,31 @@ export default function ProfileScreen() {
 
       <PlayedGamesSection games={games.data} loading={!p || games.isLoading} error={games.isError} own />
 
-      <View className="bg-card border-border overflow-hidden rounded-2xl border">
-        <ToggleRow icon={GaugeIcon} label="Show FPS in games" value={showFps} onChange={(showFps) => prefs.update({ showFps })} />
-      </View>
-
-      <View className="bg-card border-border overflow-hidden rounded-2xl border">
+      <SettingsGroup>
+        {/* Appearance, Show FPS in games and the privacy shortcut live on the Settings screen. */}
+        <SettingsRow icon={SettingsIcon} label="Settings" onPress={() => router.push('/settings')} />
+        <Separator className="ml-16" />
         {config.devTools && (
           <>
-            <Row icon={WrenchIcon} label="Developer" onPress={() => router.push('/dev')} />
+            <SettingsRow icon={WrenchIcon} label="Developer" onPress={() => router.push('/dev')} />
             <Separator className="ml-16" />
           </>
         )}
-        <Row icon={LifeBuoyIcon} label="Help & support" onPress={() => mail('Rally support')} />
+        <SettingsRow icon={LifeBuoyIcon} label="Help & support" onPress={() => mail('Rally support')} />
         <Separator className="ml-16" />
-        <Row
+        <SettingsRow
           icon={LogOutIcon}
           label={signingOut ? 'Signing out…' : 'Sign out'}
-          onPress={() => void onSignOut()}
+          onPress={signOut}
+          disabled={signingOut}
+          chevron={false}
         />
-      </View>
+      </SettingsGroup>
       <ErrorText>{signOutError}</ErrorText>
 
-      <View className="bg-card border-border overflow-hidden rounded-2xl border">
-        <Row icon={Trash2Icon} label="Delete account" destructive onPress={() => setDeleteOpen(true)} />
-      </View>
+      <SettingsGroup>
+        <SettingsRow icon={Trash2Icon} label="Delete account" destructive onPress={() => setDeleteOpen(true)} />
+      </SettingsGroup>
 
       <View className="flex-row items-center justify-center gap-1.5 opacity-70">
         <LogoMark size={16} />
@@ -185,34 +152,5 @@ export default function ProfileScreen() {
         </AlertDialogContent>
       </AlertDialog>
     </ScrollView>
-  );
-}
-
-function ToggleRow({ icon, label, value, onChange }: { icon: LucideIcon; label: string; value: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <Pressable
-      onPress={() => onChange(!value)}
-      accessibilityRole="switch"
-      accessibilityState={{ checked: value }}
-      className="active:bg-accent flex-row items-center gap-3.5 px-4 py-3"
-    >
-      <View className="bg-muted size-9 items-center justify-center rounded-xl">
-        <Icon as={icon} className="text-secondary-foreground size-[18px]" />
-      </View>
-      <Text className="flex-1 text-[15px] font-medium">{label}</Text>
-      <Switch checked={value} onCheckedChange={onChange} />
-    </Pressable>
-  );
-}
-
-function Row({ icon, label, onPress, destructive }: { icon: LucideIcon; label: string; onPress: () => void; destructive?: boolean }) {
-  return (
-    <Pressable onPress={onPress} accessibilityRole="button" className="active:bg-accent flex-row items-center gap-3.5 px-4 py-3">
-      <View className={cn('size-9 items-center justify-center rounded-xl', destructive ? 'bg-destructive-soft' : 'bg-muted')}>
-        <Icon as={icon} className={cn('size-[18px]', destructive ? 'text-destructive' : 'text-secondary-foreground')} />
-      </View>
-      <Text className={cn('flex-1 text-[15px] font-medium', destructive && 'text-destructive')}>{label}</Text>
-      {!destructive && <Icon as={ChevronRightIcon} className="text-muted-foreground size-4" />}
-    </Pressable>
   );
 }

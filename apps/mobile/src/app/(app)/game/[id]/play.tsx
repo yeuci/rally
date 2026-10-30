@@ -1,8 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Redirect, router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
+import { RoomCodePill } from '@/components/rally/room-code-pill';
 import { config, toWsUrl } from '@/config';
 import { HostError } from '@/game-host/bridge';
 import { GameHost, type GameHostResult } from '@/game-host/GameHost';
@@ -41,7 +42,9 @@ import { showToast } from '@/lib/toast';
  * achievements (m3-phase2 §3). `session.join` follows the join target in the search params (`?join=quick|create|
  * room|friend|resume`, see lib/join-target.ts; malformed → back to the game page), and the game's reconnection
  * reports go to the rejoin journal (§4). On exit the same queries refresh. `join=resume` without a live record for
- * this game says "That match has ended" and goes back without loading the game.
+ * this game says "That match has ended" and goes back without loading the game. When a join knows the private
+ * room's code (`onJoined` → `code`: the reservation's, or the code joined with), a "Room code · Share" pill shows over
+ * the game for 8 s (components/rally/room-code-pill.tsx); the bridge and the game are not involved.
  */
 
 type PlayParams = { id: string; join?: string; name?: string; room?: string; code?: string; friend?: string };
@@ -69,6 +72,8 @@ export default function PlayScreen() {
   const plan = usePlaySessionPlan(id);
   const consent = useGameConsent(id);
   const profile = useProfile();
+  // The private room's join code, once a join learns it (shown with Share over the game).
+  const [roomCode, setRoomCode] = useState<string | null>(null);
 
   const target = useMemo(() => parseJoinTarget({ join, name, room: roomParam, code, friend }), [join, name, roomParam, code, friend]);
   const rejoin = useMemo(() => (userId ? createRejoinJournal(AsyncStorage, userId) : null), [userId]);
@@ -103,6 +108,7 @@ export default function PlayScreen() {
             getAccessToken: async () => (await supabase.auth.getSession()).data.session?.access_token,
             // The JWT only goes over https/wss; dev builds may also use a LAN game server over http.
             allowPrivateHttp: __DEV__,
+            onJoined: ({ code: joinedCode }) => setRoomCode(joinedCode ?? null),
           }
         : null,
     [room, target, minServerVersion, rejoin],
@@ -155,23 +161,26 @@ export default function PlayScreen() {
   const record = target.join === 'resume' ? resumeRecord.data : null;
 
   return (
-    <GameHost
-      key={p.game.id}
-      bundleUrl={p.entryUrl}
-      entrySha256={p.entrySha256}
-      game={{ id: p.game.id, version: p.version }}
-      user={{ id: me.id, username: me.username, avatarUrl: resolveAvatarUrl(me.avatar_url) }}
-      intent={!p.room ? 'solo' : record ? intentFor(record.join) : target.join === 'resume' ? 'quick' : intentFor(target.join)}
-      resume={record ? { reconnectionToken: record.token } : undefined}
-      orientation={p.orientation}
-      saves={saves}
-      progress={progress}
-      // Multiplayer results are written by the room (architecture §8), never client-reported.
-      soloScores={!p.manifest.server}
-      playSessions={p.manifest.server ? null : playSessions}
-      matchmaking={matchmaking}
-      onExit={onExit}
-      onPlayRecorded={onPlayRecorded}
-    />
+    <View className="flex-1 bg-[#0A0A0A]">
+      <GameHost
+        key={p.game.id}
+        bundleUrl={p.entryUrl}
+        entrySha256={p.entrySha256}
+        game={{ id: p.game.id, version: p.version }}
+        user={{ id: me.id, username: me.username, avatarUrl: resolveAvatarUrl(me.avatar_url) }}
+        intent={!p.room ? 'solo' : record ? intentFor(record.join) : target.join === 'resume' ? 'quick' : intentFor(target.join)}
+        resume={record ? { reconnectionToken: record.token } : undefined}
+        orientation={p.orientation}
+        saves={saves}
+        progress={progress}
+        // Multiplayer results are written by the room (architecture §8), never client-reported.
+        soloScores={!p.manifest.server}
+        playSessions={p.manifest.server ? null : playSessions}
+        matchmaking={matchmaking}
+        onExit={onExit}
+        onPlayRecorded={onPlayRecorded}
+      />
+      {roomCode ? <RoomCodePill key={roomCode} code={roomCode} gameTitle={p.game.title} /> : null}
+    </View>
   );
 }

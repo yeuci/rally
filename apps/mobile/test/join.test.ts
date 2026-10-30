@@ -7,6 +7,7 @@ import {
   MATCH_ENDED_EXIT,
   createHostHandlers,
   createJoinState,
+  reservationCode,
   reservationRoomId,
   type HostHandlerDeps,
   type MatchmakingTarget,
@@ -278,9 +279,10 @@ test('session.join friend: resolved once through friend_join_target, then sticky
   assert.deepEqual(resolved, ['f-1']);
   assert.deepEqual(paths(), ['POST /matchmake/joinById/priv7', 'POST /matchmake/joinById/priv7']);
   assert.deepEqual(calls[1]!.body, { code: 'K7M2PQ' });
+  // The code the friend's room was joined with rides along (the play route's "Room code · Share" pill).
   assert.deepEqual(joined, [
-    { roomId: 'priv7', gameId: 'spike' },
-    { roomId: 'priv7', gameId: 'spike' },
+    { roomId: 'priv7', gameId: 'spike', code: 'K7M2PQ' },
+    { roomId: 'priv7', gameId: 'spike', code: 'K7M2PQ' },
   ]);
 
   // A friend in another game, or not joinable: refused before any matchmaking.
@@ -305,6 +307,39 @@ test('session.join is sticky: a second join repeats quick / create', async () =>
     assert.deepEqual(paths(), ['POST /matchmake/joinOrCreate/arena', 'POST /matchmake/joinOrCreate/arena']);
     assert.deepEqual(calls[0]!.body, calls[1]!.body);
   }
+});
+
+test('reservationCode reads a private room code defensively (code, metadata.code, room.metadata.code)', () => {
+  assert.equal(reservationCode({ code: 'k7m-2pq' }), 'K7M2PQ');
+  assert.equal(reservationCode({ metadata: { code: 'K7M2PQ' } }), 'K7M2PQ');
+  assert.equal(reservationCode({ room: { roomId: 'r', metadata: { code: 'abc 234' } } }), 'ABC234');
+  // Colyseus 0.16+ reservations carry no metadata; junk is never shown as a code.
+  assert.equal(reservationCode({ name: 'arena', roomId: 'r', sessionId: 's', processId: 'p' }), null);
+  assert.equal(reservationCode({ code: 'O0I1L1' }), null);
+  assert.equal(reservationCode({ code: 42, metadata: null, room: 'x' }), null);
+});
+
+test('onJoined: create surfaces the code from the reservation; quick play and code-less reservations carry none', async () => {
+  okServer({ 'POST /matchmake/joinOrCreate/': (c) => seat('priv9', (c.body as { private?: boolean }).private ? { metadata: { code: 'Q7M2PK' } } : {}) });
+  const joined: { roomId: string | null; gameId: string; code?: string }[] = [];
+  const create = setup(target({ join: 'create' }, { onJoined: (info) => joined.push(info) }));
+  await create.call('ready', { sdkVersion: '1' });
+  assert.equal((await create.call('session.join')).error, undefined);
+  const quick = setup(target({ join: 'quick' }, { onJoined: (info) => joined.push(info) }));
+  await quick.call('ready', { sdkVersion: '1' });
+  assert.equal((await quick.call('session.join')).error, undefined);
+  assert.deepEqual(joined, [
+    { roomId: 'priv9', gameId: 'spike', code: 'Q7M2PK' },
+    { roomId: 'priv9', gameId: 'spike' },
+  ]);
+  // Today's server (Colyseus 0.18 reservations without metadata): a created room has no code to show.
+  calls = [];
+  okServer();
+  const plainJoined: unknown[] = [];
+  const plain = setup(target({ join: 'create' }, { onJoined: (info) => plainJoined.push(info) }));
+  await plain.call('ready', { sdkVersion: '1' });
+  assert.equal((await plain.call('session.join')).error, undefined);
+  assert.deepEqual(plainJoined, [{ roomId: 'r1', gameId: 'spike' }]);
 });
 
 test('reservationRoomId reads roomId defensively', () => {

@@ -1,5 +1,4 @@
 import { useQueryClient } from '@tanstack/react-query';
-import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { useSession } from '@/lib/auth/session';
@@ -33,7 +32,7 @@ export function useLaunchGame() {
 
   async function launch(game: LaunchableGame, target?: JoinTarget) {
     if (!userId || pending) return;
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    // No haptic here: every Play is a Button, whose press already gives the shell's one light tap.
     setNotice(null);
     setPending({ gameId: game.id, join: target?.join ?? 'quick' });
     try {

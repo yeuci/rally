@@ -14,7 +14,7 @@ pnpm dev:mobile:go                    # Metro for Expo Go (email sign-in + Devel
 
 pnpm --filter @rally/mobile typecheck # app + tests
 pnpm --filter @rally/mobile lint      # expo lint (React Compiler rules), zero warnings
-pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects/anonymous plan, bridge + nav gate, handlers (saves, leaderboards, achievements, join limits, token policy), join targets + rejoin journal (target → matchmaking calls, sticky / resume-once, reportReconnection room check, journal expiry, minVersion refusal, room lookups), controller (play sessions, playtime across reloads, diagnostics), session journal, storage reset, progress formatting, cover art, social (friendship buttons, people ranking, privacy, requests), dashboard (hero / category geometry, genre rows, hero auto-advance rules), drawer (width, swipe routes, items), join UI (code input normalisation and lookup copy, room rows, rejoin countdown and offer rules)
+pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects/anonymous plan, bridge + nav gate, handlers (saves, leaderboards, achievements, join limits, token policy), join targets + rejoin journal (target → matchmaking calls, sticky / resume-once, reportReconnection room check, journal expiry, minVersion refusal, room lookups), controller (play sessions, playtime across reloads, diagnostics), session journal, storage reset, progress formatting, cover art, social (friendship buttons, people ranking, privacy, requests), dashboard (hero / category geometry, genre rows, hero auto-advance rules), drawer (width, swipe routes, edge width, items), press guard (drawer swipe / drag vs tap), preferences (FPS, appearance), join UI (code input normalisation and lookup copy, room rows, rejoin countdown and offer rules, room code share text)
 node scripts/generate-brand-assets.cjs  # (from apps/mobile) app icon, adaptive icon layers, splash, favicon from src/lib/brand.ts; needs Playwright
 ```
 
@@ -104,7 +104,8 @@ when they do surface (profile edits go through PostgREST, which passes them on).
 | `/game/:id` | `src/app/(app)/game/[id]/index.tsx` | game page: screenshot gallery (else cover art), details (+ "Best" for solo games), favorite, Play → consent sheet (multiplayer: Quick play, Rooms, Private → Create room / Join with code), leaderboard, achievements |
 | `/game/:id/rooms` | `src/app/(app)/game/[id]/rooms.tsx` | server browser for multiplayer games with the `browser` mode (see Multiplayer below) |
 | `/game/:id/play` | `src/app/(app)/game/[id]/play.tsx` | full-screen `GameHost` for the published version; multiplayer games take `?join=quick\|create\|room\|friend\|resume` (see Multiplayer below) |
-| `/profile`, `/profile/edit` | `src/app/(app)/profile/…` | profile (stats strip, Friends row with request badge, games played), edit (display name, username, bio, Privacy: games played / friends list → Everyone / Friends / Only me, read with `my_privacy`), sign out, delete-account request |
+| `/profile`, `/profile/edit` | `src/app/(app)/profile/…` | profile (stats strip, Friends row with request badge, games played, Settings row), edit (display name, username, bio, Privacy: games played / friends list → Everyone / Friends / Only me, read with `my_privacy`; `?section=privacy` scrolls to it), sign out, delete-account request |
+| `/settings` | `src/app/(app)/settings.tsx` | Appearance (System / Dark / Light: `prefs.appearance` → `Uniwind.setTheme`), Show FPS in games, Profile privacy (summary → Edit profile's Privacy section), Help & support, Sign out, app version |
 | `/u/:username` | `src/app/(app)/u/[username].tsx` | public profile: avatar, names, bio, member since, friendship button (`friendship_with`), games played · achievements · friends (`public_profile_stats`), games played (`public_profile_games`), friends row (`public_friends`), unlocked achievements; Block / Unblock in the ⋯ menu; your own username redirects to `/profile` |
 | `/dev`, `/dev/play` | `src/app/dev/…` | Developer launcher (M0 spike path: direct bundle + Colyseus URL, room type `hello` / `sumo`, join mode quick / create / code / room id, last-run metrics) |
 
@@ -115,11 +116,22 @@ redirect also reaches the router; `src/app/+native-intent.tsx` drops it while an
 **Drawer.** `(app)/_layout.tsx` wraps its stack in `AppDrawer` (`components/rally/app-drawer.tsx`):
 `react-native-drawer-layout`, the component expo-router's own `Drawer` navigator renders, used directly so the stack
 keeps its push / back behaviour (expo-router's `Drawer` would turn every route into a drawer screen). Header (avatar,
-display name, @username → Profile), Home, Search, Friends (incoming-request badge), Profile, Settings (opens Profile,
-where "Show FPS in games" lives), Developer (dev tools only), then Sign out and the app version. ≈78 % of the window,
-at most 340 pt (`lib/drawer.ts`). It opens from the dashboard's menu button or an edge swipe **on the dashboard
-only** (`drawerSwipeEnabled`): pushed screens use that edge for back, the game host is full screen, and the auth
-screens are outside `(app)`. Android back closes it first. Pure JS on gesture-handler + Reanimated (both in Expo Go).
+display name, @username → Profile), Home, Search, Friends (incoming-request badge), Profile, Settings (`/settings`),
+Developer (dev tools only), then Sign out and the app version; an item for the screen already showing just closes it.
+≈78 % of the window, at most 340 pt (`lib/drawer.ts`). It opens from the dashboard's menu button or an edge swipe
+**on the dashboard only** (`drawerSwipeEnabled`; the strip is `DRAWER_EDGE_WIDTH` = 28 pt): pushed screens use that
+edge for back, the game host is full screen, and the auth screens are outside `(app)`. Android back closes it first.
+Pure JS on gesture-handler + Reanimated (both in Expo Go).
+
+**Swipes vs taps.** The drawer's pan has gesture-handler's `cancelsJSResponder` on, which asks React Native to cancel
+the press under the finger when the pan activates; that is best effort, and on device a swipe from the edge also
+opened the hero / tile / search under it. So the shell's pressables (`components/ui/tap-pressable.tsx`: `Button`,
+the dashboard hero, top bar, search pill, tiles, category cards, drawer rows, profile and settings rows, room rows)
+drop a press when the drawer's pan activated during it (`Drawer onGestureStart` bumps `drawerGesture`), when the
+touch travelled more than 8 pt, or when it began in the edge strip and moved right by the pan's 5 pt
+(`lib/press-guard.ts`). The hero's pager does not start in the edge strip either (a sibling strip over the art, above
+the text block, takes those touches; a tap on it opens the game). The presses that go through give one light tap
+haptic (`lib/haptics.ts`: light impact on iOS, the system "virtual key" click on Android); scrolling never does.
 
 **Dashboard.** The hero pages through the featured games (`coverUriFor(game, 'feature')` under a scrim that shades
 the top bar and fades into the page), with dots, Play (same plan → consent → host steps as the game page,
@@ -221,8 +233,10 @@ per board, every key unlocks) and no play-session service, so `/dev/play` never 
   session, across in-page and overlay reloads: a second `session.join` repeats it; `friend` becomes `room` once
   resolved; `resume` is used once, then becomes `room` with the same id and code. While the game's latest
   `session.reportReconnection` is within its grace, a repeated `session.join` first tries `reconnect` with it (a
-  WebView crash or reload keeps the seat), then the sticky target. `onJoined({ roomId, gameId })` runs after each
-  join (`roomId` read defensively from the reservation: `roomId`, else `room.roomId`).
+  WebView crash or reload keeps the seat), then the sticky target. `onJoined({ roomId, gameId, code? })` runs after
+  each join (`roomId` read defensively from the reservation: `roomId`, else `room.roomId`; `code` from the reservation's
+  `code` / `metadata.code` / `room.metadata.code` (`reservationCode`), else the code the target joined with). The play
+  route shows a known code as a "Room code K7M-2PQ · Share" pill under the safe area for 8 s (native share sheet).
 - **Server version.** `session.join` refuses with `MATCHMAKE_FAILED "game server is updating"` while `GET /versions`
   (cached 60 s) reports a `serverVersion` below `manifest.server.minVersion`; an unreachable `/versions` lets the
   matchmaking request answer.
@@ -266,8 +280,9 @@ per board, every key unlocks) and no play-session service, so `/dev/play` never 
   run, and it closes itself when the countdown ends.
 - **"That match has ended"** (a failed or impossible resume) is a toast (`lib/toast.ts` `showToast`, `ToastHost` in
   `(app)/_layout.tsx`): one line under the status bar for 3.5 s, announced to screen readers.
-- Not yet: a share button for the private room's code (the shell does not learn the code of a room it created;
-  the game shows it), friend Join buttons (step 6).
+- Not yet: the code of a room the shell **created** (`join=create`): Colyseus 0.18's seat reservation is
+  `{ name, sessionId, roomId, processId }` with no metadata, so the pill only appears for room / friend / resume joins
+  until the game server adds the code to the reservation it answers for `create`. Friend Join buttons (step 6).
 
 **Game page.** Below the details: a **Leaderboard** section (boards from `leaderboards`, in manifest order, with a
 segmented picker when there are several; Global / Friends toggle with a note that friends arrive in M4; top 10 from

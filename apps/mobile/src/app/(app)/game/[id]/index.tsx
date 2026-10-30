@@ -42,6 +42,7 @@ import { CoverScrim, GameCover } from '@/components/rally/game-cover';
 import { Image } from '@/components/rally/image';
 import { JoinCodeSheet } from '@/components/rally/join-code-sheet';
 import { LeaderboardSection, LeaderboardSectionSkeleton } from '@/components/rally/leaderboard';
+import { PageDots } from '@/components/rally/page-dots';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
@@ -406,10 +407,13 @@ function Gallery({ shots, width, height, dotsClassName }: { shots: string[]; wid
         ))}
       </ScrollView>
       {shots.length > 1 && (
-        <View className={cn('absolute w-full flex-row justify-center gap-1.5', dotsClassName)} pointerEvents="none">
-          {shots.map((uri, i) => (
-            <View key={uri} className={cn('h-1.5 rounded-full', i === page ? 'bg-foreground w-5' : 'bg-muted-foreground w-1.5')} />
-          ))}
+        <View className={cn('absolute w-full flex-row justify-center', dotsClassName)} pointerEvents="none">
+          <PageDots
+            count={shots.length}
+            index={page}
+            accessible
+            accessibilityLabel={`Screenshot ${page + 1} of ${shots.length}`}
+          />
         </View>
       )}
     </>

@@ -9,12 +9,13 @@ import {
   ZapIcon,
 } from 'lucide-react-native';
 import { useState, type ReactElement } from 'react';
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, View } from 'react-native';
+import { ActivityIndicator, FlatList, RefreshControl, View } from 'react-native';
 import { LaunchConsentDialog } from '@/components/rally/consent-dialog';
 import { EmptyState } from '@/components/rally/empty-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
+import { TapPressable } from '@/components/ui/tap-pressable';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton, SkeletonText } from '@/components/ui/skeleton';
 import { Text } from '@/components/ui/text';
@@ -229,7 +230,7 @@ function RoomListRow({
   onPress: () => void;
 }) {
   return (
-    <Pressable
+    <TapPressable
       onPress={onPress}
       disabled={disabled || !row.joinable}
       accessibilityRole="button"
@@ -265,7 +266,7 @@ function RoomListRow({
           <Icon as={ChevronRightIcon} className="text-muted-foreground size-4" />
         </View>
       ) : null}
-    </Pressable>
+    </TapPressable>
   );
 }
 

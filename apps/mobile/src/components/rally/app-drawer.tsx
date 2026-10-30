@@ -10,21 +10,22 @@ import {
   type LucideIcon,
 } from 'lucide-react-native';
 import { useEffect, useState, type ReactNode } from 'react';
-import { BackHandler, Pressable, ScrollView, View } from 'react-native';
+import { BackHandler, ScrollView, View } from 'react-native';
 import { Drawer } from 'react-native-drawer-layout';
 import { Icon } from '@/components/ui/icon';
 import { Separator } from '@/components/ui/separator';
 import { SkeletonText } from '@/components/ui/skeleton';
+import { TapPressable } from '@/components/ui/tap-pressable';
 import { Text } from '@/components/ui/text';
 import { config } from '@/config';
-import { describeAuthError } from '@/lib/auth/errors';
-import { signOut } from '@/lib/auth/providers';
-import { drawerItems, drawerSwipeEnabled, drawerWidth, type DrawerItemKey } from '@/lib/drawer';
+import { DRAWER_EDGE_WIDTH, drawerItems, drawerSwipeEnabled, drawerWidth, type DrawerItemKey } from '@/lib/drawer';
 import { useFriendRequests } from '@/lib/friends';
 import { useProfile } from '@/lib/profile';
+import { drawerGesture } from '@/lib/press-guard';
 import { countBadge } from '@/lib/social';
 import { AppDrawerContext } from '@/lib/use-app-drawer';
 import { useLayout } from '@/lib/use-layout';
+import { useSignOut } from '@/lib/use-sign-out';
 import { cn } from '@/lib/utils';
 import { LogoMark } from './logo';
 import { ProfileAvatar, ProfileAvatarSkeleton } from './profile-avatar';
@@ -44,7 +45,7 @@ const PATHS: Record<DrawerItemKey, string> = {
   search: '/search',
   friends: '/friends',
   profile: '/profile',
-  settings: '/profile',
+  settings: '/settings',
   developer: '/dev',
 };
 
@@ -53,6 +54,9 @@ const PATHS: Record<DrawerItemKey, string> = {
  * own Drawer navigator renders; used directly so the stack keeps its push / back semantics). Opens from the
  * dashboard's menu button (`useAppDrawer().openDrawer`) or an edge swipe on the dashboard only (lib/drawer.ts
  * `drawerSwipeEnabled`: never on pushed screens, never over a running game). Android back closes it first.
+ *
+ * Each activation of the drawer's pan bumps `drawerGesture` (lib/press-guard.ts): a press that was under the finger
+ * when the swipe began (hero, tile, search pill) is then dropped by `TapPressable` instead of opening too.
  */
 export function AppDrawer({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -80,7 +84,8 @@ export function AppDrawer({ children }: { children: ReactNode }) {
         drawerType="front"
         // Swiping it shut always works; swiping it open only where lib/drawer.ts allows.
         swipeEnabled={swipe || open}
-        swipeEdgeWidth={28}
+        swipeEdgeWidth={DRAWER_EDGE_WIDTH}
+        onGestureStart={drawerGesture.mark}
         drawerStyle={{ width: drawerWidth(width), backgroundColor: 'transparent' }}
         overlayStyle={OVERLAY}
         overlayAccessibilityLabel="Close menu"
@@ -101,15 +106,16 @@ function DrawerPanel({ pathname, onClose }: { pathname: string; onClose: () => v
   const requests = useFriendRequests();
   const incoming = countBadge(requests.data?.incoming.length);
   const items = drawerItems({ devTools: config.devTools, incomingRequests: incoming });
-  const [signingOut, setSigningOut] = useState(false);
-  const [signOutError, setSignOutError] = useState<string | null>(null);
+  const { signingOut, error: signOutError, signOut } = useSignOut();
   const p = profile.data;
 
   function open(key: DrawerItemKey) {
     onClose();
+    // Already showing it: just close (no second copy of the screen on the stack).
+    if (PATHS[key] === pathname) return;
     switch (key) {
       case 'home':
-        if (pathname !== '/') router.dismissTo('/');
+        router.dismissTo('/');
         return;
       case 'search':
         router.push('/search');
@@ -118,25 +124,14 @@ function DrawerPanel({ pathname, onClose }: { pathname: string; onClose: () => v
         router.push({ pathname: '/friends', params: incoming ? { tab: 'requests' } : {} });
         return;
       case 'profile':
-      case 'settings':
         router.push('/profile');
+        return;
+      case 'settings':
+        router.push('/settings');
         return;
       case 'developer':
         router.push('/dev');
         return;
-    }
-  }
-
-  async function onSignOut() {
-    if (signingOut) return;
-    setSigningOut(true);
-    setSignOutError(null);
-    try {
-      await signOut(); // success: the session gate in (app)/_layout.tsx swaps to the welcome screen
-    } catch (err) {
-      setSignOutError(describeAuthError(err));
-    } finally {
-      setSigningOut(false);
     }
   }
 
@@ -152,7 +147,7 @@ function DrawerPanel({ pathname, onClose }: { pathname: string; onClose: () => v
         }}
         showsVerticalScrollIndicator={false}
       >
-        <Pressable
+        <TapPressable
           onPress={() => open('profile')}
           accessibilityRole="button"
           accessibilityLabel={p ? `${p.display_name || p.username}, @${p.username}` : 'Profile'}
@@ -177,7 +172,7 @@ function DrawerPanel({ pathname, onClose }: { pathname: string; onClose: () => v
               </>
             )}
           </View>
-        </Pressable>
+        </TapPressable>
 
         <Separator className="bg-sidebar-border my-4" />
 
@@ -189,7 +184,7 @@ function DrawerPanel({ pathname, onClose }: { pathname: string; onClose: () => v
               label={item.label}
               badge={item.badge}
               hint={item.hint}
-              active={item.key !== 'settings' && PATHS[item.key] === pathname}
+              active={PATHS[item.key] === pathname}
               onPress={() => open(item.key)}
             />
           ))}
@@ -201,7 +196,7 @@ function DrawerPanel({ pathname, onClose }: { pathname: string; onClose: () => v
         <DrawerRow
           icon={LogOutIcon}
           label={signingOut ? 'Signing out…' : 'Sign out'}
-          onPress={() => void onSignOut()}
+          onPress={signOut}
           disabled={signingOut}
         />
         {signOutError ? <Text className="text-destructive px-3 pt-1 text-[13px]">{signOutError}</Text> : null}
@@ -234,7 +229,7 @@ function DrawerRow({
   onPress: () => void;
 }) {
   return (
-    <Pressable
+    <TapPressable
       onPress={onPress}
       disabled={disabled}
       accessibilityRole="menuitem"
@@ -259,6 +254,6 @@ function DrawerRow({
           <Text className="text-primary-foreground text-[11px] font-bold leading-3">{badge}</Text>
         </View>
       ) : null}
-    </Pressable>
+    </TapPressable>
   );
 }

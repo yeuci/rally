@@ -111,3 +111,12 @@ export async function checkJoinCode(
   }
   return { ok: false, problem, message: codeProblemMessage(problem) };
 }
+
+/** How long the play screen's "Room code · Share" pill stays up after a join that knows the room's code. */
+export const ROOM_CODE_PILL_MS = 8000;
+
+/** The share-sheet text for a private room's code: "Join my Sumo room on Rally with the code K7M-2PQ". */
+export function roomCodeShareMessage(gameTitle: string, code: string): string {
+  const title = gameTitle.trim();
+  return `Join my ${title ? `${title} ` : ''}room on Rally with the code ${formatJoinCode(code)}`;
+}

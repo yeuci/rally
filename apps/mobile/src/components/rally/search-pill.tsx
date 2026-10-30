@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { Icon } from '@/components/ui/icon';
 import { Input } from '@/components/ui/input';
+import { TapPressable } from '@/components/ui/tap-pressable';
 import { Text } from '@/components/ui/text';
 import { cn } from '@/lib/utils';
 
@@ -69,7 +70,7 @@ export function SearchPill({
  */
 export function SearchPillButton({ label = 'Search games and players', onPress }: { label?: string; onPress: () => void }) {
   return (
-    <Pressable
+    <TapPressable
       accessibilityRole="search"
       accessibilityLabel={label}
       accessibilityHint="Opens search"
@@ -80,6 +81,6 @@ export function SearchPillButton({ label = 'Search games and players', onPress }
       <Text className="text-muted-foreground shrink text-base" numberOfLines={1}>
         {label}
       </Text>
-    </Pressable>
+    </TapPressable>
   );
 }

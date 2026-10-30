@@ -1,9 +1,10 @@
 import { Link } from 'expo-router';
 import { MenuIcon } from 'lucide-react-native';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import Animated, { useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
 import { Icon } from '@/components/ui/icon';
 import { SkeletonText } from '@/components/ui/skeleton';
+import { TapPressable } from '@/components/ui/tap-pressable';
 import { Text } from '@/components/ui/text';
 import type { Profile } from '@/lib/profile';
 import { ProfileAvatar, ProfileAvatarSkeleton } from './profile-avatar';
@@ -51,7 +52,7 @@ export function DashboardTopBar({
         style={{ paddingTop: topInset, paddingLeft: pad.left, paddingRight: pad.right }}
         pointerEvents="box-none"
       >
-        <Pressable
+        <TapPressable
           onPress={onMenu}
           accessibilityRole="button"
           accessibilityLabel="Menu"
@@ -69,7 +70,7 @@ export function DashboardTopBar({
           <Animated.View style={[StyleSheet.absoluteFill, solid]} className="items-center justify-center">
             <Icon as={MenuIcon} className="text-foreground size-[22px]" />
           </Animated.View>
-        </Pressable>
+        </TapPressable>
 
         <View className="shrink grow justify-center" pointerEvents="none">
           {loading ? (
@@ -100,7 +101,7 @@ export function DashboardTopBar({
         </View>
 
         <Link href="/profile" asChild>
-          <Pressable
+          <TapPressable
             accessibilityRole="button"
             accessibilityLabel={badge ? `Profile, ${badge} friend requests` : 'Profile'}
             hitSlop={8}
@@ -111,7 +112,7 @@ export function DashboardTopBar({
             ) : (
               <ProfileAvatar profile={profile} size="md" ring badge={badge} />
             )}
-          </Pressable>
+          </TapPressable>
         </Link>
       </View>
     </View>

@@ -1,7 +1,8 @@
 import { TextClassContext } from '@/components/ui/text';
 import { cn } from '@/lib/utils';
 import { cva, type VariantProps } from 'class-variance-authority';
-import { Platform, Pressable } from 'react-native';
+import { Platform } from 'react-native';
+import { TapPressable, type TapPressableProps } from '@/components/ui/tap-pressable';
 
 const buttonVariants = cva(
   cn(
@@ -88,14 +89,14 @@ const buttonTextVariants = cva(
   }
 );
 
-type ButtonProps = React.ComponentProps<typeof Pressable> &
-  React.RefAttributes<typeof Pressable> &
-  VariantProps<typeof buttonVariants>;
+// Rally: a TapPressable (tap haptic, and no press when the touch was a drawer swipe or a drag); `haptic={false}`
+// opts out.
+type ButtonProps = TapPressableProps & VariantProps<typeof buttonVariants>;
 
 function Button({ className, variant, size, ...props }: ButtonProps) {
   return (
     <TextClassContext.Provider value={buttonTextVariants({ variant, size })}>
-      <Pressable
+      <TapPressable
         className={cn(props.disabled && 'opacity-50', buttonVariants({ variant, size }), className)}
         role="button"
         {...props}

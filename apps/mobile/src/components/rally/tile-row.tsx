@@ -1,6 +1,7 @@
 import { useCallback, type ReactNode } from 'react';
-import { FlatList, Pressable, View, type ListRenderItem } from 'react-native';
+import { FlatList, View, type ListRenderItem } from 'react-native';
 import { SkeletonText } from '@/components/ui/skeleton';
+import { TapPressable } from '@/components/ui/tap-pressable';
 import { Text } from '@/components/ui/text';
 import type { GameCard } from '@/lib/catalog';
 import { ROW_GAP, snapInterval } from '@/lib/layout';
@@ -90,7 +91,7 @@ export function TileRow({
 /** "See all" header accessory. */
 export function SeeAll({ label, onPress }: { label: string; onPress: () => void }) {
   return (
-    <Pressable
+    <TapPressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`See all ${label}`}
@@ -98,7 +99,7 @@ export function SeeAll({ label, onPress }: { label: string; onPress: () => void 
       className="active:opacity-70"
     >
       <Text className="text-muted-foreground text-[15px] font-semibold">See all</Text>
-    </Pressable>
+    </TapPressable>
   );
 }
 
