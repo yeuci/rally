@@ -164,6 +164,11 @@ describe('SumoRoom', () => {
     const room = colyseus.getRoomById<SumoRoom>(host.roomId);
     assert.equal(room.metadata.code, code);
     assert.equal(room.metadata.private, true);
+    // The seat reservation of a freshly created private room carries its code (the shell shows and shares it).
+    const reservation = await colyseus.http.post('/matchmake/joinOrCreate/sumo', { body: { private: true } });
+    const reserved = reservation.data as { roomId: string; code?: string };
+    assert.match(reserved.code ?? '', /^[A-HJKMNP-Z2-9]{6}$/);
+    assert.equal(colyseus.getRoomById<SumoRoom>(reserved.roomId).metadata.code, reserved.code);
 
     const list = await colyseus.http.get('/rooms/sumo');
     const rooms = (

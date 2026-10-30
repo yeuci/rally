@@ -121,8 +121,20 @@ export function installMatchmakingGuards(): void {
     const effective = method === 'joinOrCreate' && wantsPrivate ? 'create' : method;
     if (effective === 'create' && authOptions) creationRequests.add(authOptions);
     if (effective === 'joinById') await checkPrivateJoin(roomName, opts.code, authOptions);
-    return invoke(effective, roomName, clientOptions, authOptions);
+    const reservation = await invoke(effective, roomName, clientOptions, authOptions);
+    // A freshly created private room: hand its join code back with the seat reservation, so the shell can show
+    // and share it (Colyseus' reservation is only { name, sessionId, roomId, processId }).
+    if (effective === 'create' && wantsPrivate) return withJoinCode(reservation);
+    return reservation;
   };
+}
+
+async function withJoinCode<T extends { roomId?: string }>(reservation: T): Promise<T & { code?: string }> {
+  const roomId = reservation?.roomId;
+  if (!roomId) return reservation;
+  const room = ((await matchMaker.query({ roomId })) as unknown as CachedRoom[])[0];
+  const code = room?.metadata?.code;
+  return typeof code === 'string' ? { ...reservation, code } : reservation;
 }
 
 async function checkPrivateJoin(roomId: string, code: unknown, context: AuthContext | undefined) {
