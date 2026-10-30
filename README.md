@@ -1,6 +1,6 @@
 # Rally
 
-One app, many games. See [`idea.md`](idea.md) for the product and [`docs/architecture.md`](docs/architecture.md)
+One app, many games. See [`idea.md`](idea.md) for the product and [`docs/architecture.md`](docs/architecture.md); new developers start at [`docs/onboarding.md`](docs/onboarding.md)
 for the design; decisions are recorded in [`docs/decisions/`](docs/decisions/).
 
 **Status: M0 spike** (architecture §10). This repo currently contains the minimal monorepo needed to prove
