@@ -1,6 +1,6 @@
 import { defineServer, monitor, playground, createRouter, createEndpoint } from 'colyseus';
 import { adminGuard } from './admin.js';
-import { describeConfig, serverConfig } from './config.js';
+import { configWarnings, describeConfig, serverConfig } from './config.js';
 import { rooms } from './registry.js';
 import { installCors, installMatchmakingGuards, listRooms, roomByCode } from './routes.js';
 import { SERVER_VERSION } from './version.js';
@@ -10,6 +10,7 @@ export { SERVER_VERSION } from './version.js';
 // Fail fast on a bad config (e.g. SUPABASE_URL without SUPABASE_ANON_KEY) instead of at the first join.
 const config = serverConfig();
 console.info(`[rally] game server v${SERVER_VERSION}, ${describeConfig(config)}`);
+for (const warning of configWarnings(config)) console.warn(`[rally] ⚠ ${warning}`);
 
 installMatchmakingGuards();
 installCors(config.corsOrigins);

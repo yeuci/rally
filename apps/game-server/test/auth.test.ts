@@ -341,6 +341,7 @@ describe('auth', () => {
       supabaseUrl: undefined,
       supabaseAnonKey: undefined,
       jwtSecret: undefined,
+      supabaseServiceRoleKey: undefined,
       allowGuests: true,
       devRules: false,
       corsOrigins: '*',
@@ -349,7 +350,11 @@ describe('auth', () => {
     // NODE_ENV unset (e.g. `node build/index.js` without the ecosystem file) is production: no guests, so the
     // missing SUPABASE_URL is fatal.
     assert.throws(() => readServerConfig({}), /SUPABASE_URL is required/);
-    const env = { SUPABASE_URL: 'https://abc.supabase.co/', SUPABASE_ANON_KEY: 'anon' };
+    const env = {
+      SUPABASE_URL: 'https://abc.supabase.co/',
+      SUPABASE_ANON_KEY: 'anon',
+      SUPABASE_SERVICE_ROLE_KEY: 'sb_secret_test',
+    };
     const unset = readServerConfig(env);
     assert.equal(unset.mode, 'production');
     assert.equal(unset.allowGuests, false);

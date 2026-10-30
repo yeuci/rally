@@ -168,6 +168,7 @@ export class SumoRoom extends RallyRoom<SumoState> {
       matchId: `${this.roomId}:${this.matchCount}`,
       gameId: this.gameId,
       roomId: this.roomId,
+      private: this.isPrivateRoom,
       winnerUserId: winner?.userId ?? null,
       startedAt: this.matchStartedAt.toISOString(),
       endedAt: endedAt.toISOString(),
@@ -187,7 +188,6 @@ export class SumoRoom extends RallyRoom<SumoState> {
       }),
       details: {
         reason: summary.reason,
-        private: this.isPrivateRoom,
         kos: Object.fromEntries(summary.standings.map((st) => [st.name, st.kos])),
       },
     };

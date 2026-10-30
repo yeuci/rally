@@ -9,6 +9,7 @@ import {
 } from 'jose';
 import type { ServerConfig } from './config.js';
 import type { ProfileLookup } from './profiles.js';
+import type { SanctionStatus, ServiceApi } from './supabase.js';
 
 /**
  * Who a client is, as `client.auth` in every Rally room. Built by `RallyRoom.onAuth` at matchmaking time (the HTTP
@@ -26,6 +27,11 @@ export interface RallyAuth {
   avatarUrl: string | null;
   /** True for guests and for Supabase anonymous users: results are not recorded for them. */
   guest: boolean;
+  /**
+   * Present (true) only while the player has an active mute (`user_sanctions`, checked at matchmaking): rooms with
+   * chat must not relay their messages. Reconnects keep the value from the original join.
+   */
+  muted?: true;
 }
 
 export class AuthError extends Error {
@@ -183,6 +189,63 @@ export function isGuestId(userId: string): boolean {
   return userId.startsWith('guest:');
 }
 
+// ---- sanctions (design §5) ------------------------------------------------------------------------------------------
+
+/** A user's sanctions, or null when they could not be read (the caller fails open). Never throws. */
+export type SanctionLookup = (userId: string) => Promise<SanctionStatus | null>;
+
+export interface SanctionLookupOptions {
+  /** How long a user's status is reused. Default 60 s (an admin's new ban applies within a minute). */
+  ttlMs?: number;
+  /** Users kept at most. Default 5000. */
+  maxEntries?: number;
+  now?: () => number;
+  log?: (msg: string) => void;
+}
+
+/**
+ * `server_sanction_status` through the service role, cached per user for `ttlMs`. Failures are logged and not
+ * cached, and return null: a Supabase outage must not lock everyone out (bans are also enforced by `heartbeat` and
+ * `server_record_match`).
+ */
+export function createSanctionLookup(
+  api: Pick<ServiceApi, 'sanctionStatus'>,
+  opts: SanctionLookupOptions = {},
+): SanctionLookup {
+  const ttlMs = opts.ttlMs ?? 60_000;
+  const maxEntries = opts.maxEntries ?? 5000;
+  const now = opts.now ?? Date.now;
+  const log = opts.log ?? ((m: string) => console.warn(m));
+  const cache = new Map<string, { status: SanctionStatus; expires: number }>();
+  return async (userId) => {
+    const hit = cache.get(userId);
+    if (hit && hit.expires > now()) return hit.status;
+    cache.delete(userId);
+    let status: SanctionStatus;
+    try {
+      status = await api.sanctionStatus(userId);
+    } catch (err) {
+      log(
+        `[auth] sanction check for ${userId} failed, admitting (${err instanceof Error ? err.message : String(err)})`,
+      );
+      return null;
+    }
+    if (cache.size >= maxEntries) {
+      const oldest = cache.keys().next().value;
+      if (oldest !== undefined) cache.delete(oldest);
+    }
+    cache.set(userId, { status, expires: now() + ttlMs });
+    return status;
+  };
+}
+
+/** `AUTH_FAILED` message for a ban: `account suspended until 2026-11-02T14:00:00Z` (or `until further notice`). */
+export function suspensionMessage(bannedUntil: number): string {
+  return Number.isFinite(bannedUntil)
+    ? `account suspended until ${new Date(bannedUntil).toISOString().replace(/\.\d{3}Z$/, 'Z')}`
+    : 'account suspended until further notice';
+}
+
 export type Authenticate = (token: string | undefined, options: unknown) => Promise<RallyAuth>;
 
 /**
@@ -190,9 +253,11 @@ export type Authenticate = (token: string | undefined, options: unknown) => Prom
  * `profiles`, else `user-<4 chars of id>`; anonymous users are flagged `guest`); no token or an invalid one → a guest
  * when guests are allowed, otherwise an `AuthError` (the matchmaking request fails with AUTH_FAILED). `options` are
  * the matchmaking body the shell or dev harness sent (`{ username? }`): only a guest's requested name is read.
+ * With `sanctions`, a verified user with an active ban is refused (`account suspended until …`) and an active mute
+ * sets `muted`; a failed lookup admits the player (fail open).
  */
 export function createAuthenticator(
-  config: { allowGuests: boolean; profiles?: ProfileLookup | null } & Partial<
+  config: { allowGuests: boolean; profiles?: ProfileLookup | null; sanctions?: SanctionLookup | null } & Partial<
     Pick<ServerConfig, 'supabaseUrl' | 'jwtSecret'>
   >,
   verifierOptions: Omit<VerifierOptions, 'supabaseUrl' | 'jwtSecret'> = {},
@@ -215,13 +280,23 @@ export function createAuthenticator(
         log(`[auth] token rejected (${reason}); joining as a guest`);
         return guestIdentity(options);
       }
-      const profile = config.profiles ? await config.profiles(claims.sub, token).catch(() => null) : null;
-      return {
+      const [profile, sanctions] = await Promise.all([
+        config.profiles ? config.profiles(claims.sub, token).catch(() => null) : null,
+        config.sanctions ? config.sanctions(claims.sub).catch(() => null) : null,
+      ]);
+      const now = Date.now();
+      // A verified but banned player is refused, never downgraded to a guest.
+      if (sanctions?.bannedUntil != null && sanctions.bannedUntil > now) {
+        throw new AuthError(suspensionMessage(sanctions.bannedUntil));
+      }
+      const auth: RallyAuth = {
         userId: claims.sub,
         username: profile?.username ?? fallbackUsername(claims.sub),
         avatarUrl: profile?.avatarUrl ?? null,
         guest: claims.anonymous,
       };
+      if (sanctions?.mutedUntil != null && sanctions.mutedUntil > now) auth.muted = true;
+      return auth;
     }
     if (!config.allowGuests) throw new AuthError('missing token');
     return guestIdentity(options);

@@ -11,9 +11,14 @@ The single Colyseus deployment (architecture §6). One Room class per game, regi
 pnpm dev:server                          # tsx watch src/dev.ts (NODE_ENV=development), http://localhost:2567
                                          # playground at /, monitor at /monitor (localhost only, see below)
 pnpm --filter @rally/game-server test    # mocha + @colyseus/testing
-pnpm --filter @rally/game-server build   # -> build/, what Colyseus Cloud runs via ecosystem.config.cjs
-npx @colyseus/cloud deploy               # deploy (needs a Colyseus Cloud app + token)
+pnpm --filter @rally/game-server build   # -> build/, what pm2 runs via ecosystem.config.cjs
+pm2 startOrReload ecosystem.config.cjs   # on the VPS (design docs/m3-phase2.md §6)
 ```
+
+**One process** (`instances: 1` in `ecosystem.config.cjs`): the matchmaker (no Redis driver or presence), the
+join-code lookup, the rate limits and the `game_rooms` mirror are all in memory. A second process would run a second
+matchmaker that cannot see the first one's rooms (`joinById` and `reconnect` into them fail) and would double every
+limit. Scaling out needs `@colyseus/redis-driver` + `redis-presence` first.
 
 Matchmaking is done by the Rally shell over HTTP (`POST /matchmake/joinOrCreate/<room>`, with
 `Authorization: Bearer <supabase access token>`). The game bundle receives the seat reservation through the bridge
@@ -26,16 +31,17 @@ then loads `src/index.ts`; mocha sets `NODE_ENV=test` (`test/env.ts`); `ecosyste
 **Any other value, including unset, gets the production defaults**, so a deployment that forgets `NODE_ENV` is
 locked down rather than open.
 
-| Variable                 | Default                                | Meaning                                                                                                                                                                                                                                                                                         |
-| ------------------------ | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SUPABASE_URL`           | unset                                  | Project URL. Tokens are verified against `<SUPABASE_URL>/auth/v1/.well-known/jwks.json` (RS256/ES256, 60 s clock tolerance, cached 10 min, refetched at most every 30 s when a token has an unknown `kid`). **Required in production** unless guests are allowed.                               |
-| `SUPABASE_ANON_KEY`      | unset                                  | The project's public anon key (same value as the app's `EXPO_PUBLIC_SUPABASE_ANON_KEY`). **Required whenever `SUPABASE_URL` is set** (the server refuses to start otherwise): a signed-in player's username and avatar are read from `profiles` with it and the player's own token (see below). |
-| `SUPABASE_JWT_SECRET`    | unset                                  | Legacy projects only: accept HS256 tokens signed with this secret.                                                                                                                                                                                                                              |
-| `RALLY_ALLOW_GUESTS`     | `1` in development and test, `0` else  | `1`: a missing or invalid token joins as a guest (`guest:<random>` id, `guest-<name>` display name). `0`: the matchmaking request fails with `AUTH_FAILED`.                                                                                                                                     |
-| `RALLY_DEV_RULES`        | `0` (`1` under `NODE_ENV=test`)        | `1`: rooms honour client-supplied match `rules` (Sumo's shorter matches). Never set it on a server other people use.                                                                                                                                                                            |
-| `RALLY_CORS_ORIGINS`     | `*` in development and test, none else | `*` or a comma-separated list of origins that get `Access-Control-Allow-Origin` (never with credentials). The shell's native fetch needs no CORS; browsers do (the dev harness on another port).                                                                                                |
-| `RALLY_MONITOR_PASSWORD` | unset                                  | Mounts `/monitor` and the playground behind HTTP basic auth (any user name, this password), in any environment. Unset: localhost only in development, not mounted otherwise.                                                                                                                    |
-| `PORT`                   | `2567`                                 | From `@colyseus/tools`.                                                                                                                                                                                                                                                                         |
+| Variable                    | Default                                | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| --------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SUPABASE_URL`              | unset                                  | Project URL. Tokens are verified against `<SUPABASE_URL>/auth/v1/.well-known/jwks.json` (RS256/ES256, 60 s clock tolerance, cached 10 min, refetched at most every 30 s when a token has an unknown `kid`). **Required in production** unless guests are allowed.                                                                                                                                                                                                                                                                                                                                                                         |
+| `SUPABASE_ANON_KEY`         | unset                                  | The project's public anon key (same value as the app's `EXPO_PUBLIC_SUPABASE_ANON_KEY`). **Required whenever `SUPABASE_URL` is set** (the server refuses to start otherwise): a signed-in player's username and avatar are read from `profiles` with it and the player's own token (see below).                                                                                                                                                                                                                                                                                                                                           |
+| `SUPABASE_JWT_SECRET`       | unset                                  | Legacy projects only: accept HS256 tokens signed with this secret.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `SUPABASE_SERVICE_ROLE_KEY` | unset                                  | **Server-only secret** (a `sb_secret_…` key, or the legacy `service_role` JWT; never the anon/publishable key, which is refused). Mirrors rooms into `game_rooms`, checks `user_sanctions` and (step 3) writes match results through the `server_*` RPCs. **Required in production whenever `SUPABASE_URL` is set** (the server refuses to start). Optional in development: without it the server prints one warning, the mirror only logs (`[mirror] (no service key) …`), sanctions are not checked and results are only logged. Ignored without `SUPABASE_URL`. Never commit it: on the VPS it lives in `.env.production` (chmod 600). |
+| `RALLY_ALLOW_GUESTS`        | `1` in development and test, `0` else  | `1`: a missing or invalid token joins as a guest (`guest:<random>` id, `guest-<name>` display name). `0`: the matchmaking request fails with `AUTH_FAILED`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `RALLY_DEV_RULES`           | `0` (`1` under `NODE_ENV=test`)        | `1`: rooms honour client-supplied match `rules` (Sumo's shorter matches). Never set it on a server other people use.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `RALLY_CORS_ORIGINS`        | `*` in development and test, none else | `*` or a comma-separated list of origins that get `Access-Control-Allow-Origin` (never with credentials). The shell's native fetch needs no CORS; browsers do (the dev harness on another port).                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `RALLY_MONITOR_PASSWORD`    | unset                                  | Mounts `/monitor` and the playground behind HTTP basic auth (any user name, this password), in any environment. Unset: localhost only in development, not mounted otherwise.                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `PORT`                      | `2567`                                 | From `@colyseus/tools`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
 Variables come from the shell, from `.env.local` in this folder (gitignored, loaded by `src/env.ts`, never overrides),
 then `.env.<NODE_ENV>` (`@colyseus/tools`). On Windows, put `SUPABASE_URL=https://<ref>.supabase.co` and
@@ -77,9 +83,17 @@ Every Rally room extends `RallyRoom<State>` and implements `onGame*` hooks inste
   `guest-<requested name, letters/digits/_ ≤ 12>` (profile usernames match `^[A-Za-z0-9_]{3,20}$`, so a guest can
   never pose as a user), with no avatar; they may rename themselves in the room with a `profile` message (the
   launch-context name, same rule); signed-in players may not.
+- **Sanctions.** After the token is verified, `onAuth` reads `server_sanction_status` (service role, cached 60 s per
+  user, `createSanctionLookup` in `src/auth.ts`). An active ban refuses the matchmaking request with `AUTH_FAILED`
+  `account suspended until <ISO date>` (or `until further notice`); a verified banned player is never downgraded to a
+  guest. An active mute sets `client.auth.muted = true` for future room chat. A failed lookup is logged and admits the
+  player (fail open: bans are also enforced by `heartbeat` and `server_record_match`). Reconnects skip `onAuth`, and
+  players already seated are not kicked by a new ban.
 - **Seats and reconnection.** A non-consented drop calls `onGameDrop` (mark the player disconnected) and holds the
-  seat for `reconnectSeconds` (30). A client kicked by the flood cap gets no grace: its seat is freed at once. `onGameReconnect` runs on return (same sessionId). `onGameLeave` runs when the
-  seat is really gone. `maxClients` and `gameId` come from the room definition in registry.ts (definition options
+  seat for `reconnectSeconds` (**60**, so the shell's rejoin sheet can `POST /matchmake/reconnect/<roomId>` with
+  `{ reconnectionToken }`: the SDK's `<roomId>:<token>` split on its first `:`). A client kicked by the flood cap
+  gets no grace: its seat is freed at once. `onGameReconnect` runs on return (same sessionId). `onGameLeave` runs
+  when the seat is really gone. `maxClients` and `gameId` come from the room definition in registry.ts (definition options
   override client options).
 - **Metadata.** `{ gameId, name, players, maxPlayers, private, code?, serverVersion, ...extraMetadata() }`, kept current
   on join/leave (Sumo adds `phase`, `round`).
@@ -88,8 +102,33 @@ Every Rally room extends `RallyRoom<State>` and implements `onGame*` hooks inste
   refuses locked rooms. Private rooms are hidden from `joinOrCreate` and from `GET /rooms/<name>`.
 - **Flood cap.** `maxMessagesPerSecond = 60` (Colyseus disconnects above it, without a reconnection grace). Games
   rate-limit their own messages lower (Hello's `ping`: 10/s, `{ t: <finite number> }` only).
-- **Phase-2 hooks (no-ops today):** `onRoomCreated`, `onRoomDisposed`, `onPlayerJoined`, `onPlayerLeft`, for
-  `game_rooms` mirroring and presence.
+- **Room mirror.** `onRoomCreated`, `onPlayerJoined`, `onPlayerLeft` and `syncMetadata()` (so phase changes show)
+  push `mirrorSnapshot()` to the process's `RoomMirror` (`src/mirror.ts`); `onRoomDisposed` removes the row. A
+  subclass that overrides one of these hooks must call `super`. See below.
+
+## Room mirror and presence (`src/mirror.ts`, `src/supabase.ts`)
+
+`game_rooms` (one row per live room, service-role only) is what lets presence show a friend as _in game_ only when
+the room confirms the seat, and what the catalog's live counts sum. Each snapshot is:
+
+```text
+{ roomId, gameId, roomName, name, private, code, clients, maxClients, locked, phase, serverVersion, playerIds }
+```
+
+`clients` counts seats, including players inside their reconnection grace; `playerIds` lists the non-guest ones
+(Supabase user ids; guests and anonymous users are left out).
+
+- **Coalesced:** at most one `server_upsert_game_room` per room every 2 s; the first goes out at once, later changes
+  in the window are merged into one write with the newest snapshot.
+- **Keep-alive:** one 30 s interval calls `server_touch_game_rooms` with every live room id (rows count as live for
+  60 s; the RPC deletes rows untouched for 10 min, e.g. after a crash).
+- **Dispose:** `server_remove_game_room`, after any write still in flight; nothing is written for the room afterwards.
+- **Best effort:** the room never waits for Supabase. Failures are logged once per outage (and on recovery) and
+  retried on the next 30 s tick; a failed touch re-upserts the rooms on the next tick.
+
+All service-role calls (RPC names and argument shapes) are in `src/supabase.ts`: `createServiceRpc` posts to
+`<SUPABASE_URL>/rest/v1/rpc/<name>` with `apikey: <key>` (plus `Authorization: Bearer <key>` for a legacy JWT key
+only; 3 s timeout), and `createServiceApi` holds the typed calls. Tests fake the RPC function (`test/fakes.ts`).
 
 ## Match results (`src/results.ts`)
 

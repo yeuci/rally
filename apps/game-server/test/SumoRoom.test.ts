@@ -127,6 +127,7 @@ describe('SumoRoom', () => {
     assert.equal(r.gameId, 'sumo');
     assert.equal(r.roomId, alice.roomId);
     assert.equal(r.matchId, `${alice.roomId}:1`);
+    assert.equal(r.private, false);
     assert.equal(r.winnerUserId, aliceAuth.userId);
     assert.match(aliceAuth.userId, /^guest:/);
     assert.equal(r.rounds, 1);

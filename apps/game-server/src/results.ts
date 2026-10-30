@@ -25,6 +25,8 @@ export interface MatchResult {
   matchId: string;
   gameId: string;
   roomId: string;
+  /** Played in a private room (`server_record_match` needs it: private matches with < 2 players skip the boards). */
+  private: boolean;
   /** Winner's userId, or null for no winner. */
   winnerUserId: string | null;
   startedAt: string;

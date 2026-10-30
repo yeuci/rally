@@ -1,0 +1,109 @@
+import assert from 'node:assert/strict';
+import { mock } from 'node:test';
+import type { ColyseusTestServer } from '@colyseus/testing';
+import { CloseCode, ErrorCode } from 'colyseus';
+import type appConfig from '../src/app.config.js';
+import type { HelloRoom } from '../src/rooms/HelloRoom.js';
+import { RallyRoom } from '../src/rooms/RallyRoom.js';
+import { resetRateLimits } from '../src/routes.js';
+import { testServer } from './server.js';
+
+/** Wait without timers (setTimeout is mocked while the grace runs). */
+async function until(cond: () => boolean, what: string) {
+  for (let i = 0; i < 2000; i++) {
+    if (cond()) return;
+    await new Promise((r) => setImmediate(r));
+  }
+  throw new Error(`timed out waiting for ${what}`);
+}
+
+/**
+ * What the shell's `resume` target does (design §4): split the SDK's `<roomId>:<token>` on its first `:` and
+ * `POST /matchmake/reconnect/<roomId>` with `{ reconnectionToken }`; the game bundle consumes the reservation.
+ */
+function splitReconnectionToken(full: string): { roomId: string; reconnectionToken: string } {
+  const i = full.indexOf(':');
+  assert.ok(i > 0, `token "${full}" has the <roomId>:<token> shape`);
+  return { roomId: full.slice(0, i), reconnectionToken: full.slice(i + 1) };
+}
+
+describe('reconnection grace (60 s)', () => {
+  let colyseus: ColyseusTestServer<typeof appConfig>;
+
+  before(async () => {
+    colyseus = await testServer();
+  });
+  beforeEach(async () => {
+    RallyRoom.configureAuth(null);
+    resetRateLimits();
+    colyseus.sdk.auth.token = '';
+    await colyseus.cleanup();
+  });
+  afterEach(() => {
+    // Run what is still queued on the mocked setTimeout (e.g. the room's auto-dispose) before restoring it, so a
+    // failed test does not leave a room that can never dispose.
+    try {
+      mock.timers.runAll();
+    } catch {
+      // not enabled
+    }
+    mock.timers.reset();
+  });
+
+  it('POST /matchmake/reconnect/<roomId> gets the seat back 59 s after a drop; after 60 s the seat is gone', async () => {
+    const alice = await colyseus.sdk.joinOrCreate('hello', { username: 'Alice' });
+    const bob = await colyseus.sdk.joinOrCreate('hello', { username: 'Bob' });
+    for (const r of [alice, bob]) r.onMessage('hello', () => {});
+    assert.equal(bob.roomId, alice.roomId);
+    const room = colyseus.getRoomById<HelloRoom>(alice.roomId);
+    assert.equal(room.reconnectSeconds, 60, 'every Rally room defaults to a 60 s grace');
+    alice.reconnection.enabled = false; // the shell resumes over HTTP, not the SDK's auto-reconnect
+    const id = alice.sessionId;
+    const target = splitReconnectionToken(alice.reconnectionToken);
+    assert.equal(target.roomId, alice.roomId);
+
+    // Drop, then let 59 s pass on the grace timer. Only setTimeout is mocked (Colyseus' grace and auto-dispose timers),
+    // and it stays mocked until every timer it holds has run, so the room can still dispose afterwards.
+    mock.timers.enable({ apis: ['setTimeout'] });
+    room.clients.get(id)!.leave(CloseCode.MAY_TRY_RECONNECT);
+    await until(() => !room.isConnected(id), 'alice dropped');
+    mock.timers.tick(59_000);
+    await until(() => true, 'a turn');
+    assert.equal(room.seatCount, 2, 'the seat is still held at 59 s');
+
+    const res = await colyseus.http.post(`/matchmake/reconnect/${target.roomId}`, {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ reconnectionToken: target.reconnectionToken }),
+    });
+    const reservation = res.data as { sessionId: string; name: string; roomId: string };
+    assert.equal(reservation.sessionId, id);
+    assert.equal(reservation.roomId, alice.roomId);
+    const back = await colyseus.sdk.consumeSeatReservation({
+      ...(res.data as object),
+      reconnectionToken: target.reconnectionToken,
+    } as Parameters<typeof colyseus.sdk.consumeSeatReservation>[0]);
+    back.onMessage('hello', () => {});
+    assert.equal(back.sessionId, id, 'same seat');
+    await until(() => room.isConnected(id), 'alice back');
+
+    // Drop again and let the whole grace run out: the seat is freed and the token is dead.
+    back.reconnection.enabled = false;
+    const again = splitReconnectionToken(back.reconnectionToken);
+    room.clients.get(id)!.leave(CloseCode.MAY_TRY_RECONNECT);
+    await until(() => !room.isConnected(id), 'alice dropped again');
+    mock.timers.tick(60_001);
+    await until(() => room.seatCount === 1, 'seat freed after 60 s');
+    await assert.rejects(
+      colyseus.http.post(`/matchmake/reconnect/${again.roomId}`, {
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reconnectionToken: again.reconnectionToken }),
+      }),
+      (e: { statusCode: number; data: { code: number } }) => {
+        assert.equal(e.data.code, ErrorCode.MATCHMAKE_EXPIRED);
+        return true;
+      },
+    );
+    mock.timers.runAll();
+    mock.timers.reset();
+  });
+});

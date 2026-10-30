@@ -3,6 +3,7 @@ import {
   AuthError,
   cleanUsername,
   createAuthenticator,
+  createSanctionLookup,
   guestIdentity,
   guestName,
   isGuestId,
@@ -11,9 +12,11 @@ import {
 } from '../auth.js';
 import { serverConfig } from '../config.js';
 import { uniqueJoinCode } from '../joinCode.js';
+import { createDefaultMirror, type RoomMirror } from '../mirror.js';
 import { createProfileLookup } from '../profiles.js';
 import { clientAddress } from '../rateLimit.js';
 import { isRoomCreation, roomCreationLimit } from '../routes.js';
+import { isUuid, serviceApi, type GameRoomSnapshot } from '../supabase.js';
 import { SERVER_VERSION } from '../version.js';
 
 export type { RallyAuth } from '../auth.js';
@@ -22,8 +25,8 @@ export type { RallyAuth } from '../auth.js';
 export type RallyClient = Client<{ auth: RallyAuth }>;
 
 /**
- * Matchmaking metadata of every Rally room, returned by `GET /rooms/<name>` (the shell's server browser) and,
- * in phase 2, mirrored into `game_rooms`.
+ * Matchmaking metadata of every Rally room, returned by `GET /rooms/<name>` (the shell's server browser) and
+ * mirrored into `game_rooms` (see {@link RallyRoom.mirrorSnapshot}).
  */
 export interface RallyRoomMetadata {
   gameId: string;
@@ -59,13 +62,21 @@ interface Seat {
 }
 
 let authenticate: Authenticate | null = null;
+/** `undefined` = not built yet (built from the environment on first use); `null` = no mirroring. */
+let mirror: RoomMirror | null | undefined;
+
+function roomMirror(): RoomMirror | null {
+  if (mirror === undefined) mirror = createDefaultMirror(serverConfig(), serviceApi());
+  return mirror;
+}
 
 /**
  * Base class of every Rally room (architecture §6).
  *
  * - **Auth:** static `onAuth` runs during HTTP matchmaking with the `Authorization: Bearer <supabase jwt>` header and
  *   the request body as options. The resulting {@link RallyAuth} travels inside the seat reservation and becomes
- *   `client.auth`, so the game bundle cannot change it (see auth.ts for the policy and guests). Room creation is
+ *   `client.auth`, so the game bundle cannot change it (see auth.ts for the policy and guests). A verified user with
+ *   an active ban is refused (`user_sanctions`, cached 60 s, fail open); reconnects skip `onAuth`. Room creation is
  *   rate-limited per identity here.
  * - **Seats and reconnection:** a non-consented drop keeps the seat for `reconnectSeconds` (state shows the player
  *   disconnected via {@link onGameDrop}); the seat is freed after the grace ({@link onGameLeave}). A client kicked
@@ -74,16 +85,23 @@ let authenticate: Authenticate | null = null;
  * - **Private rooms:** `setPrivate(true)` (hidden from `joinOrCreate` and listings) plus a join code, required by
  *   `joinById` (routes.ts). Not `lock()`: Colyseus' `joinById` refuses locked rooms.
  *
- * Subclasses implement the `onGame*` hooks instead of overriding Colyseus' lifecycle methods. The `onRoom*` /
- * `onPlayer*` hooks are phase-2 integration points (Supabase mirroring, presence) and are no-ops today.
+ * - **Mirror:** the `onRoom*` / `onPlayer*` hooks and {@link syncMetadata} push a snapshot to the process's
+ *   {@link RoomMirror} (`game_rooms`, for presence and live counts); writes are coalesced and best effort, so the
+ *   room never waits for Supabase.
+ *
+ * Subclasses implement the `onGame*` hooks instead of overriding Colyseus' lifecycle methods; a subclass that
+ * overrides an `onRoom*` / `onPlayer*` hook must call `super`.
  */
 export abstract class RallyRoom<S extends object = object> extends Room<{
   state: S;
   metadata: RallyRoomMetadata;
   client: RallyClient;
 }> {
-  /** Seconds a dropped client keeps its seat. */
-  reconnectSeconds = 30;
+  /**
+   * Seconds a dropped client keeps its seat (architecture §5e: 60 s, so a phone that switched apps or lost the
+   * network for a moment can rejoin through the shell's rejoin sheet, design §4).
+   */
+  reconnectSeconds = 60;
   /** Rally game id (games/<slug>), from the room definition. */
   gameId = '';
   /** Display name of the room. */
@@ -97,10 +115,20 @@ export abstract class RallyRoom<S extends object = object> extends Room<{
   override maxMessagesPerSecond = 60;
 
   private readonly seats = new Map<string, Seat>();
+  /** Set on dispose: no mirror update after the row was removed. */
+  private mirrorClosed = false;
 
   /** Replace the authentication policy (tests). By default it is built from the environment on first use. */
   static configureAuth(fn: Authenticate | null): void {
     authenticate = fn;
+  }
+
+  /**
+   * Replace the process's room mirror (tests): `null` disables mirroring, `undefined` goes back to the default built
+   * from the environment (Supabase with a service key, a logging dry run in development, else none).
+   */
+  static configureMirror(next: RoomMirror | null | undefined): void {
+    mirror = next;
   }
 
   static override async onAuth(token: string | undefined, options: unknown, context: AuthContext): Promise<RallyAuth> {
@@ -142,19 +170,32 @@ export abstract class RallyRoom<S extends object = object> extends Room<{
     return {};
   }
 
-  // ---- phase-2 integration hooks (no-ops for now) ---------------------------------------------------------------
+  // ---- integration hooks: `game_rooms` mirror (design §2) ------------------------------------------------------
 
-  /** TODO(M3 phase 2): upsert `game_rooms` (id, game_id, metadata, players, private, code) with the service role. */
-  protected onRoomCreated(): void | Promise<void> {}
-  /** TODO(M3 phase 2): delete or close the `game_rooms` row. */
-  protected onRoomDisposed(): void | Promise<void> {}
+  /** The room exists: mirror it. */
+  protected onRoomCreated(): void | Promise<void> {
+    this.pushMirror();
+  }
+  /** The room is gone: delete its `game_rooms` row. */
+  protected onRoomDisposed(): void | Promise<void> {
+    this.mirrorClosed = true;
+    try {
+      roomMirror()?.remove(this.roomId);
+    } catch (err) {
+      console.warn(`[mirror] remove ${this.roomId} failed`, err);
+    }
+  }
   /**
-   * TODO(M3 phase 2): throttled `game_rooms` player-count update, and presence: the shell's heartbeat
-   * (`in_game, game_id, room_id, joinable`) is the source of truth; the room only confirms the seat.
+   * A seat was taken: mirror the new count and `player_ids`. Presence itself comes from the shell's heartbeat; the
+   * mirror only confirms the seat.
    */
-  protected onPlayerJoined(_client: RallyClient): void | Promise<void> {}
-  /** TODO(M3 phase 2): same as {@link onPlayerJoined}, on the way out. */
-  protected onPlayerLeft(_client: RallyClient): void | Promise<void> {}
+  protected onPlayerJoined(_client: RallyClient): void | Promise<void> {
+    this.pushMirror();
+  }
+  /** A seat was freed (not on a drop: a player inside the grace still holds it). */
+  protected onPlayerLeft(_client: RallyClient): void | Promise<void> {
+    this.pushMirror();
+  }
 
   // ---- Colyseus lifecycle (do not override in games) ------------------------------------------------------------
 
@@ -244,7 +285,43 @@ export abstract class RallyRoom<S extends object = object> extends Room<{
     return this.seats.get(sessionId)?.auth;
   }
 
-  /** Rebuild and publish the metadata (call after game-specific fields in `extraMetadata()` change). */
+  /** What the mirror writes to `game_rooms`. `playerIds`: non-guest seats with a Supabase user id. */
+  mirrorSnapshot(): GameRoomSnapshot {
+    const playerIds = new Set<string>();
+    for (const { auth } of this.seats.values()) {
+      if (!auth.guest && isUuid(auth.userId)) playerIds.add(auth.userId.toLowerCase());
+    }
+    const phase = this.metadata?.phase;
+    return {
+      roomId: this.roomId,
+      gameId: this.gameId,
+      roomName: this.roomName,
+      name: this.roomTitle,
+      private: this.isPrivateRoom,
+      code: this.joinCode,
+      clients: this.seats.size,
+      maxClients: this.maxClients,
+      locked: this.locked,
+      phase: typeof phase === 'string' ? phase : null,
+      serverVersion: SERVER_VERSION,
+      playerIds: [...playerIds],
+    };
+  }
+
+  /** Hand the current snapshot to the mirror (coalesced there; never blocks or throws). */
+  protected pushMirror(): void {
+    if (this.mirrorClosed) return;
+    try {
+      roomMirror()?.update(this.mirrorSnapshot());
+    } catch (err) {
+      console.warn(`[mirror] update ${this.roomId} failed`, err);
+    }
+  }
+
+  /**
+   * Rebuild and publish the metadata (call after game-specific fields in `extraMetadata()` change), and mirror it so
+   * phase changes show in `game_rooms`.
+   */
   protected async syncMetadata(): Promise<void> {
     await this.setMetadata({
       gameId: this.gameId,
@@ -256,6 +333,7 @@ export abstract class RallyRoom<S extends object = object> extends Room<{
       serverVersion: SERVER_VERSION,
       ...this.extraMetadata(),
     });
+    this.pushMirror();
   }
 }
 
@@ -265,7 +343,9 @@ function defaultAuthenticator(): Authenticate {
     config.supabaseUrl && config.supabaseAnonKey
       ? createProfileLookup({ supabaseUrl: config.supabaseUrl, anonKey: config.supabaseAnonKey })
       : null;
-  return createAuthenticator({ ...config, profiles });
+  const api = serviceApi();
+  const sanctions = api ? createSanctionLookup(api) : null;
+  return createAuthenticator({ ...config, profiles, sanctions });
 }
 
 /**
