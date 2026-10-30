@@ -20,6 +20,71 @@ export type PrivacyLevel = "public" | "friends" | "private";
 
 /**
  * Shape of `profiles.privacy` (owner-updatable, never client-readable). `games` gates `public_profile_games`
- * and `public_profile_stats.games_played`; `friends` gates `public_friends`. Other keys are unchecked.
+ * and `public_profile_stats.games_played`; `friends` gates `public_friends`; `presence` (M3 phase 2; absent means
+ * `friends`, not `public`) gates `friends_presence`, `public_presence` and `friend_join_target`. Other keys are
+ * unchecked.
  */
-export type ProfilePrivacy = { games?: PrivacyLevel; friends?: PrivacyLevel } & { [key: string]: Json | undefined };
+export type ProfilePrivacy = { games?: PrivacyLevel; friends?: PrivacyLevel; presence?: PrivacyLevel } & {
+  [key: string]: Json | undefined;
+};
+
+// ---- M3 phase 2 (20261031000000_m3_phase2.sql): presence, game_rooms mirror, match results, sanctions ----------
+
+/** A live presence as reported by `friends_presence` / `public_presence`. Offline users have no row (or `null`). */
+export type PresenceStatus = "online" | "in_game";
+
+/** `heartbeat(p_status)`: `offline` deletes the caller's row (sign-out). */
+export type HeartbeatStatus = PresenceStatus | "offline";
+
+/** `heartbeat` result. `ok: false` = rate limited (or banned); nothing was written. Send again after `interval_s`. */
+export type HeartbeatResult = { ok: boolean; ttl_s: number; interval_s: number };
+
+/** `public_presence(p_user_id)`: `null` when hidden (privacy, block, ban) or offline. Never a room id. */
+export type PublicPresence = { status: PresenceStatus; game_id: string | null; game_title: string | null } | null;
+
+/** `friend_join_target(p_friend_id)`: join with `joinById/<room_id>` and `{ code }` (null for public rooms). */
+export type FriendJoinTarget = { game_id: string; room_id: string; code: string | null };
+
+/**
+ * `server_upsert_game_room(p_room)` (service role): the RallyRoom snapshot. `roomId` and `gameId` are required;
+ * `playerIds` lists non-guest seats (non-uuids are dropped, capped at 64).
+ */
+export type GameRoomSnapshot = {
+  roomId: string;
+  gameId: string;
+  roomName?: string;
+  name?: string;
+  private?: boolean;
+  code?: string | null;
+  clients?: number;
+  maxClients?: number;
+  locked?: boolean;
+  phase?: string | null;
+  serverVersion?: number;
+  playerIds?: string[];
+};
+
+/**
+ * `server_sanction_status(p_user_id)` (service role): end of the active ban / mute as an ISO timestamp,
+ * `"infinity"` for a permanent one, `null` when none.
+ */
+export type SanctionStatus = { banned_until: string | null; muted_until: string | null };
+
+/** One eligible player in a `server_record_match` result. */
+export type RecordedMatchPlayer = {
+  /** game_stats totals after this match. */
+  wins: number;
+  losses: number;
+  /** Every board of the game where the player has an entry for the match's period. */
+  boards: Record<string, { score: number; rank: number }>;
+  /** Achievements newly unlocked by this match. */
+  unlocked: { key: string; title: string; icon: string | null }[];
+};
+
+/**
+ * `server_record_match(p_match)` (service role). `duplicate: true` = this matchId was already recorded (nothing
+ * written). `players` holds eligible players only (linked, unbanned accounts); guests and skipped players are absent.
+ */
+export type RecordedMatch =
+  | { duplicate: true }
+  | { duplicate: false; players: Record<string, RecordedMatchPlayer> };

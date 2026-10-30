@@ -8,8 +8,14 @@ import {
   PROFILE_COLUMNS,
   type Database,
   type Enums,
+  type FriendJoinTarget,
   type FriendshipState,
+  type GameRoomSnapshot,
+  type HeartbeatResult,
   type ProfilePrivacy,
+  type PublicPresence,
+  type RecordedMatch,
+  type SanctionStatus,
   type Json,
   type Tables,
   type TablesInsert,
@@ -74,9 +80,45 @@ test('Database type drives supabase-js inference', async () => {
   assertType<Equal<GameRow['plays'], number>>();
   assertType<Equal<Tables<'friendships'>['status'], Enums<'friendship_status'>>>();
   const state: FriendshipState = 'incoming';
-  const privacy: ProfilePrivacy = { games: 'friends', friends: 'private', online: false };
+  const privacy: ProfilePrivacy = { games: 'friends', friends: 'private', presence: 'public', online: false };
   assert.equal(state, 'incoming');
   assert.equal(privacy.games, 'friends');
+
+  // M3 phase 2: presence, live counts, join targets, service-role RPCs.
+  const _hb = client.rpc('heartbeat', { p_status: 'in_game', p_game_id: 'sumo', p_room_id: 'r1' });
+  assertType<Equal<Awaited<typeof _hb>['data'], Json>>();
+  const _fp = client.rpc('friends_presence');
+  type FpRow = NonNullable<Awaited<typeof _fp>['data']>[number];
+  assertType<Equal<keyof FpRow, 'user_id' | 'status' | 'game_id' | 'game_title' | 'room_id' | 'joinable'>>();
+  assertType<Equal<FpRow['joinable'], boolean>>();
+  const _counts = client.rpc('game_live_counts');
+  type CountRow = NonNullable<Awaited<typeof _counts>['data']>[number];
+  assertType<Equal<CountRow, { game_id: string; players: number; rooms: number }>>();
+  const _jt = client.rpc('friend_join_target', { p_friend_id: '00000000-0000-0000-0000-000000000000' });
+  assertType<Equal<Awaited<typeof _jt>['data'], Json>>();
+  const _pp = client.rpc('public_presence', { p_user_id: '00000000-0000-0000-0000-000000000000' });
+  assertType<Equal<Awaited<typeof _pp>['data'], Json>>();
+  const snapshot: GameRoomSnapshot = { roomId: 'r1', gameId: 'sumo', clients: 2, maxClients: 8, playerIds: [] };
+  const _up = client.rpc('server_upsert_game_room', { p_room: snapshot });
+  assertType<Equal<Awaited<typeof _up>['data'], undefined | null>>();
+  const _touch = client.rpc('server_touch_game_rooms', { p_room_ids: ['r1'] });
+  assertType<Equal<NonNullable<Awaited<typeof _touch>['data']>, number>>();
+  const _rec = client.rpc('server_record_match', { p_match: { matchId: 'r1:1' } });
+  assertType<Equal<Awaited<typeof _rec>['data'], Json>>();
+  assertType<Equal<Tables<'game_rooms'>['player_ids'], string[]>>();
+  assertType<Equal<Tables<'presence'>['room_id'], string | null>>();
+  assertType<Equal<Tables<'user_sanctions'>['expires_at'], string | null>>();
+  assertType<Equal<Tables<'match_results'>['winner_id'], string | null>>();
+  const hb: HeartbeatResult = { ok: true, ttl_s: 90, interval_s: 45 };
+  const pres: PublicPresence = { status: 'in_game', game_id: 'sumo', game_title: 'Sumo' };
+  const target: FriendJoinTarget = { game_id: 'sumo', room_id: 'r1', code: null };
+  const sanctions: SanctionStatus = { banned_until: 'infinity', muted_until: null };
+  const recorded: RecordedMatch = { duplicate: false, players: { u: { wins: 1, losses: 0, boards: {}, unlocked: [] } } };
+  assert.equal(hb.interval_s, 45);
+  assert.equal(pres?.status, 'in_game');
+  assert.equal(target.code, null);
+  assert.equal(sanctions.banned_until, 'infinity');
+  assert.equal(recorded.duplicate, false);
 
   // The selectable profile columns parse into a typed row.
   const _profile = client.from('profiles').select(PROFILE_COLUMNS);

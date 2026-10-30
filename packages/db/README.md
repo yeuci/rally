@@ -326,6 +326,69 @@ signal; the test `signup without birth_date metadata is refused` pins that behav
   block once the extension is enabled. Avatar files of deleted users are not removed: SQL can delete only the
   `storage.objects` row, not the file behind it (that needs the Storage API, e.g. a scheduled Edge Function).
   Anonymous users cannot upload any, so their purge leaves nothing behind.
+- `20261031000000_m3_phase2.sql` (M3 phase 2: presence, the `game_rooms` mirror, server-written match results,
+  sanctions; `docs/m3-phase2.md` §2, §3, §5, §8; pinned by `test/m3-phase2.test.ts`):
+
+  | Object | Who reads | Who writes |
+  |---|---|---|
+  | `game_rooms` (`room_id` PK, `game_id`, `room_name`, `name`, `private`, `code`, `clients`, `max_clients`, `locked`, `phase`, `server_version`, `player_ids` uuid[] ≤ 64, `created_at`, `updated_at`) | nobody directly (holds codes and seated user ids): `friends_presence`, `friend_join_target`, `game_live_counts` | game server: `server_upsert_game_room` / `server_remove_game_room` / `server_touch_game_rooms` |
+  | `presence` (`user_id` PK, `status` online/in_game, `game_id`, `room_id`, `updated_at`) | nobody directly: `friends_presence`, `public_presence` | `heartbeat` |
+  | `match_results` (`match_id` PK, `game_id`, `room_id`, `private`, `started_at`, `ended_at`, `duration_s`, `rounds`, `winner_id`, `payload`, `recorded_at`) | service role | `server_record_match` |
+  | `user_sanctions` (`id`, `user_id`, `kind` ban/mute, `reason`, `created_by`, `created_at`, `expires_at` null = permanent, `revoked_at`) | authenticated: own rows; game server: `server_sanction_status` | admins in Studio (service role) |
+  | `profiles.privacy.presence`: `public` / `friends` (default when absent) / `private` | owner via `my_privacy()` | owner; checked by `profiles_validate_privacy` |
+  | schema `private`: `active_sanction(user, kind)` (`'infinity'` = permanent, null = none), `presence_of(user)` | nobody | helpers |
+
+  Liveness is computed at read time: a `game_rooms` row is live while `updated_at > now() - 60 s`, a `presence` row
+  while `updated_at > now() - 90 s` (otherwise the user is offline). `in_game` is shown only when a live `game_rooms`
+  row has the user in `player_ids` for the room the heartbeat named, else it reads as `online` (a heartbeat cannot
+  claim a seat). `joinable` = live, `clients < max_clients`, not locked.
+
+  ```ts
+  // Shell (linked accounts; ANONYMOUS_FORBIDDEN otherwise). Every 45 s and on change; 'offline' on sign-out.
+  // → {ok, ttl_s: 90, interval_s: 45}; ok:false (no raise, nothing written) when rate limited (10, +1 per 6 s) or banned.
+  await supabase.rpc('heartbeat', { p_status: 'in_game', p_game_id: 'sumo', p_room_id: roomId });
+  // Accepted friends who are online / in a game (offline friends are absent), minus privacy.presence = 'private',
+  // blocks and bans: {user_id, status, game_id, game_title, room_id, joinable}[]
+  await supabase.rpc('friends_presence');
+  // {status, game_id, game_title} | null (hidden, banned or offline). Never a room id. Anon key OK.
+  await supabase.rpc('public_presence', { p_user_id });
+  // {game_id, room_id, code} (code: private rooms only) → joinById/<room_id> { code }. NOT_FOUND unless the caller is
+  // an accepted friend, the friend's presence is visible to friends, and the mirror seats them in a joinable live room.
+  await supabase.rpc('friend_join_target', { p_friend_id });
+  // Catalog: {game_id, players, rooms}[] for published games with a live room (private seats counted, private rooms
+  // not). Anon key OK.
+  await supabase.rpc('game_live_counts');
+  ```
+
+  Game server (service role only; every `server_*` function is revoked from `anon` and `authenticated`):
+
+  ```ts
+  // Snapshot in RallyRoom metadata shape (camelCase). roomId and gameId required; an unknown gameId writes nothing.
+  await rpc('server_upsert_game_room', { p_room: { roomId, gameId, roomName, name, private, code, clients, maxClients,
+    locked, phase, serverVersion, playerIds } });
+  await rpc('server_remove_game_room', { p_room_id });             // onRoomDisposed
+  await rpc('server_touch_game_rooms', { p_room_ids: [...] });     // every 30 s → rows touched; drops rows idle 10 min
+  await rpc('server_sanction_status', { p_user_id });              // {banned_until, muted_until}: ISO | "infinity" | null
+  await rpc('server_record_match', { p_match: { ...matchResult, private } });
+  // → {duplicate: true} | {duplicate: false, players: {<uuid>: {wins, losses, boards: {<key>: {score, rank}}, unlocked: [{key, title, icon}]}}}
+  ```
+
+  `server_record_match` is one transaction, idempotent on `matchId` (a repeat returns `{duplicate: true}` and writes
+  nothing). Eligible players: `guest: false`, a uuid with a profile, not anonymous, no active ban, first 64; others
+  are skipped (absent from `players`). Per eligible player: `game_stats.plays + 1`, `wins + 1` for the winner,
+  `losses + 1` when someone else (a guest included) won, ties neither, `playtime_s += clamp(durationSec, 0, 7200)`,
+  `last_played_at = max(current, least(endedAt, now()))`. `leaderboardDeltas[key][userId]` (integers 1..10, existing
+  boards, eligible players) are added with `source = 'server'` in `period_key(board.period, least(endedAt, now()))`,
+  except for matches under 20 s or private matches with fewer than 2 eligible players, and at most 60 board writes per
+  player per hour (`server_board` bucket). Known achievement keys in `players[].achievements` are unlocked. `boards`
+  in the result lists every board of the game where the player has an entry for the match's period;
+  `unlocked` lists only what this match unlocked. Malformed input is `INVALID` (`private` must be a boolean), an
+  unknown game `NOT_FOUND`; the payload is stored in `match_results` (purged after 180 days).
+
+  Multiplayer stats are server-written only: `start_play_session`, `record_play` and `unlock_achievement` raise
+  `INVALID: <game> is not a solo game` for games without the `solo` mode (as `submit_solo_score` already did).
+  `private.purge_stale_rows()` (job `purge-stale-play-sessions`) also deletes presence rows idle for a day,
+  `game_rooms` rows idle for 10 minutes and `match_results` older than 180 days.
 - The word filter matches whole words, case-insensitively; see the header of `seed.sql` for what that
   does and does not catch.
 

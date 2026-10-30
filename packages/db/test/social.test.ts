@@ -591,19 +591,20 @@ describe('profile privacy: public_friends, public_profile_games, public_profile_
     await a.setPrivacy(olive, {});
   });
 
+  // presence (default 'friends') since 20261031000000_m3_phase2.sql.
   test('my_privacy: the caller\'s own settings with defaults; anonymous sessions too; signed out refused', async () => {
     const mine = (uid: string) =>
       asUser(db, uid, async () => (await db.query<{ v: unknown }>(`select public.my_privacy() as v`)).rows[0]!.v);
-    assert.deepEqual(await mine(stan), { games: 'public', friends: 'public' });
+    assert.deepEqual(await mine(stan), { games: 'public', friends: 'public', presence: 'friends' });
     await a.setPrivacy(stan, { games: 'private' });
-    assert.deepEqual(await mine(stan), { games: 'private', friends: 'public' });
-    await a.setPrivacy(stan, { games: 'friends', friends: 'private', online: false });
-    assert.deepEqual(await mine(stan), { games: 'friends', friends: 'private', online: false });
-    assert.deepEqual(await mine(fred), { games: 'public', friends: 'public' }); // own row only
+    assert.deepEqual(await mine(stan), { games: 'private', friends: 'public', presence: 'friends' });
+    await a.setPrivacy(stan, { games: 'friends', friends: 'private', presence: 'private', online: false });
+    assert.deepEqual(await mine(stan), { games: 'friends', friends: 'private', presence: 'private', online: false });
+    assert.deepEqual(await mine(fred), { games: 'public', friends: 'public', presence: 'friends' }); // own row only
     await a.setPrivacy(stan, {});
     assert.deepEqual(
       await asAnonymousUser(db, ghost, async () => (await db.query<{ v: unknown }>(`select public.my_privacy() as v`)).rows[0]!.v),
-      { games: 'public', friends: 'public' },
+      { games: 'public', friends: 'public', presence: 'friends' },
     );
     await asUser(db, '', async () => {
       await assert.rejects(db.query(`select public.my_privacy()`), unauthenticated);

@@ -1,4 +1,4 @@
-// Hand-written to match `supabase gen types typescript` output for supabase/migrations (M1 + M2 + M4 social).
+// Hand-written to match `supabase gen types typescript` output for supabase/migrations (M1 + M2 + M4 social + M3 phase 2).
 // Regenerate against a real project with `pnpm --filter @rally/db gen:types` once one is linked;
 // keep this file in that exact shape so the swap is a no-op for consumers.
 export type Json =
@@ -222,6 +222,65 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      game_rooms: {
+        Row: {
+          clients: number
+          code: string | null
+          created_at: string
+          game_id: string
+          locked: boolean
+          max_clients: number
+          name: string
+          phase: string | null
+          player_ids: string[]
+          private: boolean
+          room_id: string
+          room_name: string
+          server_version: number
+          updated_at: string
+        }
+        Insert: {
+          clients?: number
+          code?: string | null
+          created_at?: string
+          game_id: string
+          locked?: boolean
+          max_clients: number
+          name?: string
+          phase?: string | null
+          player_ids?: string[]
+          private?: boolean
+          room_id: string
+          room_name: string
+          server_version?: number
+          updated_at?: string
+        }
+        Update: {
+          clients?: number
+          code?: string | null
+          created_at?: string
+          game_id?: string
+          locked?: boolean
+          max_clients?: number
+          name?: string
+          phase?: string | null
+          player_ids?: string[]
+          private?: boolean
+          room_id?: string
+          room_name?: string
+          server_version?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "game_rooms_game_id_fkey"
+            columns: ["game_id"]
+            isOneToOne: false
+            referencedRelation: "games"
             referencedColumns: ["id"]
           },
         ]
@@ -511,6 +570,56 @@ export type Database = {
           },
         ]
       }
+      match_results: {
+        Row: {
+          duration_s: number
+          ended_at: string
+          game_id: string
+          match_id: string
+          payload: Json
+          private: boolean
+          recorded_at: string
+          room_id: string
+          rounds: number
+          started_at: string
+          winner_id: string | null
+        }
+        Insert: {
+          duration_s: number
+          ended_at: string
+          game_id: string
+          match_id: string
+          payload: Json
+          private: boolean
+          recorded_at?: string
+          room_id: string
+          rounds?: number
+          started_at: string
+          winner_id?: string | null
+        }
+        Update: {
+          duration_s?: number
+          ended_at?: string
+          game_id?: string
+          match_id?: string
+          payload?: Json
+          private?: boolean
+          recorded_at?: string
+          room_id?: string
+          rounds?: number
+          started_at?: string
+          winner_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "match_results_game_id_fkey"
+            columns: ["game_id"]
+            isOneToOne: false
+            referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       play_sessions: {
         Row: {
           ended_at: string | null
@@ -551,6 +660,45 @@ export type Database = {
             foreignKeyName: "play_sessions_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      presence: {
+        Row: {
+          game_id: string | null
+          room_id: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          game_id?: string | null
+          room_id?: string | null
+          status: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          game_id?: string | null
+          room_id?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "presence_game_id_fkey"
+            columns: ["game_id"]
+            isOneToOne: false
+            referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "presence_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
@@ -654,6 +802,47 @@ export type Database = {
           },
         ]
       }
+      user_sanctions: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          expires_at: string | null
+          id: string
+          kind: string
+          reason: string
+          revoked_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string | null
+          id?: string
+          kind: string
+          reason: string
+          revoked_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string | null
+          id?: string
+          kind?: string
+          reason?: string
+          revoked_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_sanctions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -666,7 +855,31 @@ export type Database = {
         Args: { p_playtime_s?: number; p_session_id: string }
         Returns: undefined
       }
+      friend_join_target: { Args: { p_friend_id: string }; Returns: Json }
+      friends_presence: {
+        Args: never
+        Returns: {
+          game_id: string
+          game_title: string
+          joinable: boolean
+          room_id: string
+          status: string
+          user_id: string
+        }[]
+      }
       friendship_with: { Args: { p_user_id: string }; Returns: string }
+      game_live_counts: {
+        Args: never
+        Returns: {
+          game_id: string
+          players: number
+          rooms: number
+        }[]
+      }
+      heartbeat: {
+        Args: { p_game_id?: string; p_room_id?: string; p_status: string }
+        Returns: Json
+      }
       leaderboard_top: {
         Args: {
           p_board_key: string
@@ -720,6 +933,7 @@ export type Database = {
           username: string
         }[]
       }
+      public_presence: { Args: { p_user_id: string }; Returns: Json }
       public_profile_games: {
         Args: { p_limit?: number; p_user_id: string }
         Returns: {
@@ -764,6 +978,20 @@ export type Database = {
         }[]
       }
       send_friend_request: { Args: { p_user_id: string }; Returns: string }
+      server_record_match: { Args: { p_match: Json }; Returns: Json }
+      server_remove_game_room: {
+        Args: { p_room_id: string }
+        Returns: undefined
+      }
+      server_sanction_status: { Args: { p_user_id: string }; Returns: Json }
+      server_touch_game_rooms: {
+        Args: { p_room_ids: string[] }
+        Returns: number
+      }
+      server_upsert_game_room: {
+        Args: { p_room: Json }
+        Returns: undefined
+      }
       start_play_session: {
         Args: { p_game_id: string; p_version?: string }
         Returns: string
