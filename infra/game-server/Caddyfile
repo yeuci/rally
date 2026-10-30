@@ -1,0 +1,34 @@
+# Rally game server edge (ADR 0006): Caddy terminates TLS for https:// matchmaking and wss:// room sockets and
+# proxies both to the single Colyseus process on 127.0.0.1:2567 (never exposed: ufw allows 22/80/443 only).
+#
+# provision.sh installs this file unchanged as /etc/caddy/Caddyfile and puts the two values below in a systemd
+# drop-in (/etc/systemd/system/caddy.service.d/rally.conf), so nothing in the repository names a real host.
+#   RALLY_GAME_DOMAIN  e.g. game.<your-domain>, or <ip-with-dashes>.sslip.io until a domain exists
+#   RALLY_ACME_EMAIL   contact address for Let's Encrypt / ZeroSSL expiry notices
+# Check by hand: sudo env RALLY_GAME_DOMAIN=... RALLY_ACME_EMAIL=... caddy validate --config /etc/caddy/Caddyfile
+
+{
+	email {$RALLY_ACME_EMAIL}
+}
+
+{$RALLY_GAME_DOMAIN} {
+	# Automatic HTTPS: certificate issued and renewed by Caddy (needs 80 and 443 reachable), http -> https redirect.
+	# WebSocket upgrades are proxied by reverse_proxy without extra configuration.
+	reverse_proxy 127.0.0.1:2567 {
+		# The server keys its rate limits on the first hop of x-real-ip, then x-forwarded-for, then x-client-ip
+		# (apps/game-server/src/rateLimit.ts). Caddy is the edge, so overwrite X-Real-IP with the peer address and
+		# drop X-Client-IP: a client cannot choose its own address. (X-Forwarded-For is already rewritten by Caddy,
+		# which ignores incoming values unless trusted_proxies is set.)
+		header_up X-Real-IP {remote_host}
+		header_up -X-Client-IP
+
+		# A config reload (systemctl reload caddy) would otherwise close every open room socket at once.
+		stream_close_delay 5m
+	}
+
+	# The monitor and playground are mounted only when RALLY_MONITOR_PASSWORD is set (basic auth, src/admin.ts).
+	# To keep /monitor off the internet while it is mounted, uncomment the two lines below and reach it through
+	# ssh -L 2567:127.0.0.1:2567 <box> at http://localhost:2567/monitor (still asks for the password):
+	# @monitor path /monitor /monitor/*
+	# respond @monitor 404
+}

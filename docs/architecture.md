@@ -12,7 +12,7 @@ Decisions:
 | Game runtime | Each game is a self-contained HTML5/WebGL bundle running full-screen in a WebView (WKWebView / Android Chromium WebView), talking to the shell via a Rally SDK bridge |
 | 3D engine | PlayCanvas (engine-only via npm + Vite + TS). 2D MVP games also use PlayCanvas; Phaser allowed later because the SDK is engine-agnostic |
 | Backend | Supabase (auth, Postgres, storage, Realtime, Edge Functions) + Colyseus (game rooms, matchmaking, state sync, reconnection) |
-| Hosting | Managed: Supabase Cloud, Colyseus Cloud, Expo EAS, Supabase Storage CDN for bundles |
+| Hosting | Managed: Supabase Cloud, Colyseus on a small VPS (Colyseus Cloud later, ADR 0006), Expo EAS, Supabase Storage CDN for bundles |
 | Team / pace | Solo full-time developer. Fewest moving parts; make each new game cheap |
 | Rooms | 2–8 players, server-authoritative, ~20 Hz, one region to start |
 | Audience | 13+. Age gate, block/mute/report, profanity filter. No COPPA / Kids Category |
@@ -47,7 +47,7 @@ Decisions:
 │   └───────────────────────────────────────────────┼──┘       │
 └──────────────────────────────────────────────────┼───────────┘
                                                    │
-   Supabase Cloud                        Colyseus Cloud (1 deployment)
+   Supabase Cloud                        Colyseus on a VPS (1 process)   
    • Auth (email + Apple + Google)       • One Room class per game
    • Postgres + RLS (source of truth)    • Built-in /matchmake/* routes +
    • Realtime: user:<id>, party:<id>       custom /party/* routes
@@ -214,11 +214,12 @@ Who owns what: **Postgres + Realtime** = social truth (presence, parties, chat, 
 
 ## 6. Colyseus server design
 
-- **One Colyseus Cloud app, one Room class per game**, registered in `apps/game-server/src/registry.ts` (generated from `games/*/game.json`): `defineRoom('arena', ArenaRoom).filterBy(['mode', 'region'])`. Per-game deployments are not worth the cost/ops at this scale; nothing prevents splitting a churn-heavy game out later.
+- **One Colyseus deployment, one Room class per game**, registered in `apps/game-server/src/registry.ts` (generated from `games/*/game.json`): `defineRoom('arena', ArenaRoom).filterBy(['mode', 'region'])`. Per-game deployments are not worth the cost/ops at this scale; nothing prevents splitting a churn-heavy game out later.
 - **`RallyRoom<State>` base class (`@rally/game-kit/server`):** JWKS `onAuth` (+ `user_sanctions` check), metadata (`gameId`, `mode`, `region`, `ownerId`, `partyId`, `inviteCode`, `phase`, `serverVersion`), `game_rooms` mirroring (throttled upsert on create/join/leave/metadata/dispose), reconnection window, `setSimulationInterval` at 20 Hz, per-client input rate limits, in-room chat filtering (same word list as Postgres), `onBeforeShutdown` drain, and `reportMatchResult()` writing `game_stats` / `leaderboard_entries` / `user_achievements` with the service role.
 - **Versioning:** `serverVersion` in metadata; the manifest's `server.minVersion` is checked against `GET /versions` before matchmaking; mismatch → "game updated, reloading" and a bundle refresh.
 - **Netcode:** clients send intents only (sequence-numbered, ≤ 30 Hz); server clamps ranges, drops stale sequences, runs the sim and sends snapshots; clients interpolate with `@rally/game-kit` helpers. Deterministic sim code lives in `games/<slug>/shared` so client prediction can be added per game later (Colyseus 0.18 has built-in prediction helpers).
 - **Deploys:** one process means a deploy restarts every room. Mitigate: CI deploys `game-server` only when `apps/game-server/**` or `games/*/{server,shared}/**` change (client publishes never touch it); graceful shutdown with a drain window; deploy in low-traffic windows.
+- **Hosting ([ADR 0006](decisions/0006-game-server-hosting.md), amends 0004):** one Hetzner CX22-class VPS, Caddy (auto-TLS for `https://` matchmaking and `wss://` rooms on `game.<your-domain>`, real client IP in `X-Real-IP`) → pm2 `instances: 1` → node on `127.0.0.1:2567`; ufw 22/80/443 only; runbook and scripts in `infra/game-server/`. The server stays Colyseus Cloud-ready (`pnpm --filter @rally/game-server bundle` builds a self-contained upload); moving, or running more than one process, needs the env in the Cloud dashboard, a CSP republish if the URL changes, and Redis-backed matchmaker/presence plus shared join-code and rate-limit state.
 
 ---
 

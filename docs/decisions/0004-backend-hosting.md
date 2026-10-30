@@ -1,6 +1,6 @@
 # ADR 0004 — Backend and hosting: Supabase + Colyseus, fully managed
 
-**Status:** Accepted · 2026-10
+**Status:** Accepted · 2026-10 · hosting of the game server amended by [ADR 0006](0006-game-server-hosting.md) (VPS now, Colyseus Cloud kept as the later path)
 
 ## Context
 

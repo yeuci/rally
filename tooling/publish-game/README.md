@@ -102,10 +102,17 @@ connect-src 'self' <cdn> <colyseus origins>; worker-src 'self' blob:; media-src 
 Chromium), and the asset pipeline's Draco/Basis/KTX2 decoders are WebAssembly. It does not allow `eval`.
 
 **The room socket is pinned.** The shell hands the game its Colyseus endpoint at runtime (`session.join` →
-`endpoint`, from the app's `EXPO_PUBLIC_COLYSEUS_URL`), so the bundle's CSP must already list it: put **every**
-endpoint any app build will hand this version (dev LAN server, staging, production; and any per-process
-`publicAddress` the server advertises) into `RALLY_COLYSEUS_URL`, comma-separated, or repeat `--colyseus`. An endpoint
-missing from the list is refused by the WebView. With no URL at all, a game that declares a `server` falls back to
+`endpoint`, from the app's `EXPO_PUBLIC_COLYSEUS_URL`, set per EAS profile in `apps/mobile/eas.json`), so the bundle's
+CSP must already list it: put **every** endpoint a published build of the app will hand this version into
+`RALLY_COLYSEUS_URL`, comma-separated, or repeat `--colyseus`. Today that is the one VPS origin,
+`https://game.<your-domain>` (preview and production builds; ADR 0006). Add a staging server's origin if one exists,
+any per-process `publicAddress` the server advertises (only with more than one process), and both the old and the new
+origin while moving hosts (e.g. to Colyseus Cloud). An endpoint missing from the list is refused by the WebView, and
+changing the list means republishing every live version.
+
+**Never a LAN address.** Development uses `http://<pc-ip>:2567` with the Vite dev entry (no publisher CSP), so the LAN
+origin never belongs in a published CSP: it would let a production bundle talk to whatever answers on that private
+address, and an https page cannot open its `ws://` socket anyway. With no URL at all, a game that declares a `server` falls back to
 `ws: wss:` (any host: no exfiltration control) and the publisher prints a `!!! WARNING`; a game without a `server` gets
 no socket source. Changing the list changes the entry document, so it needs a new version (or `--force`).
 
@@ -144,7 +151,8 @@ the exact `games` / `game_versions` / `leaderboards` / `achievements` rows. Vali
 ## Credentials
 
 Copy [`.env.example`](.env.example) to `tooling/publish-game/.env` (gitignored) or export the variables:
-`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `RALLY_COLYSEUS_URL`. The tool uses the **service-role key only**
+`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `RALLY_COLYSEUS_URL` (the deployed origin(s) above, e.g.
+`https://game.<your-domain>`; the `.env.example` placeholder shows the Colyseus Cloud form). The tool uses the **service-role key only**
 and refuses anon/publishable keys. Per architecture §1 (trust boundaries), CI is the only place the
 service-role key should live for real publishes; a local `.env` is for publishing to a local
 `supabase start` stack. `--dry-run` needs no credentials (without `SUPABASE_URL` it plans against

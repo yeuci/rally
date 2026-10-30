@@ -12,6 +12,7 @@
     "dev": "tsx watch --conditions=rally-source src/dev.ts",
     "start": "node build/index.js",
     "build": "rimraf build && tsc -p tsconfig.build.json",
+    "bundle": "pnpm --filter @rally/game-server... run build && node bundle.config.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "mocha -r tsx -r ./test/env.ts test/**/*.test.ts --exit --timeout 15000",
     "lint": "eslint . --max-warnings 0"
@@ -30,6 +31,7 @@
     "@types/express": "^5.0.6",
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.20.5",
+    "esbuild": "~0.28.2",
     "mocha": "^11.7.5",
     "rimraf": "^6.0.1",
     "tsx": "^4.21.0",
