@@ -25,6 +25,9 @@ export default defineConfig({
     },
   },
   // 5180 to stay clear of other Vite projects on the default 5173. Override with `vite --port <n>`.
-  server: { port: 5180 },
+  // VITE_NO_HMR=1 disables the hot-reload client. Its reconnect after iOS suspends the app (~5 s in the
+  // background) forces a full page reload, which looks like the game "restarting" when testing pause/resume
+  // on a phone. Production bundles have no HMR client, so this is dev-server-only behaviour.
+  server: { port: 5180, hmr: process.env.VITE_NO_HMR ? false : undefined },
   preview: { port: 5180 },
 });
