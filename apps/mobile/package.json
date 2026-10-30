@@ -53,6 +53,7 @@
     "lucide-react-native": "^1.64.0",
     "react": "19.3.0",
     "react-native": "0.88.1",
+    "react-native-drawer-layout": "^4.2.12",
     "react-native-gesture-handler": "~3.3.0",
     "react-native-reanimated": "4.7.1",
     "react-native-safe-area-context": "~5.10.1",

@@ -1,0 +1,418 @@
+import { router, useIsFocused } from 'expo-router';
+import { InfoIcon, PlayIcon, UsersIcon } from 'lucide-react-native';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import {
+  AccessibilityInfo,
+  ActivityIndicator,
+  FlatList,
+  Pressable,
+  StyleSheet,
+  View,
+  type AccessibilityActionEvent,
+  type ListRenderItem,
+} from 'react-native';
+import { useReducedMotion } from 'react-native-reanimated';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Icon } from '@/components/ui/icon';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Text } from '@/components/ui/text';
+import { playersLabel, type GameCard } from '@/lib/catalog';
+import { genreLabel, HERO_AUTO_ADVANCE_MS, heroAutoAdvances, nextHeroPage } from '@/lib/dashboard';
+import { coverUriFor } from '@/lib/game-art';
+import { pageIndex } from '@/lib/layout';
+import { useAppDrawer } from '@/lib/use-app-drawer';
+import { usePalette } from '@/lib/use-palette';
+import { cn } from '@/lib/utils';
+import { GameCover } from './game-cover';
+import { useSvgId } from './logo';
+
+type Pad = { left: number; right: number };
+
+/** Space under the content for the page dots (they sit on the hero's bottom edge). */
+const DOTS_SPACE = 30;
+const CONTENT_BOTTOM = 14;
+
+/** Content column width over a wide hero: the left ≈ 48 % (the side scrim fades the art there). */
+function wideColumn(width: number) {
+  return Math.max(Math.round(width * 0.48), 320);
+}
+
+/**
+ * The dashboard's full-bleed featured hero: one page per featured game, the window's full width, from the top of the
+ * window (under the status bar and the floating top bar). Cover art (`coverUriFor(game, 'feature')`, else generated
+ * art) under a scrim that shades the top for the bar and fades into the page background, then the Featured chip,
+ * title, meta chips and Play / Details. Several games page horizontally with dots and advance on their own every
+ * `HERO_AUTO_ADVANCE_MS` (lib/dashboard.ts `heroAutoAdvances`: not under reduced motion or a screen reader, not while
+ * touched, not while the dashboard is covered or the drawer is open). The list is keyed on its size, so a rotation
+ * re-lays it out at the same page.
+ */
+export function DashboardHero({
+  games,
+  width,
+  height,
+  wide,
+  pad,
+  onPlay,
+  resolvingId,
+  notice,
+}: {
+  games: GameCard[];
+  width: number;
+  height: number;
+  wide: boolean;
+  pad: Pad;
+  onPlay: (game: GameCard) => void;
+  resolvingId: string | null;
+  notice: { gameId: string; message: string } | null;
+}) {
+  const palette = usePalette();
+  const listRef = useRef<FlatList<GameCard>>(null);
+  const [page, setPage] = useState(0);
+  const [touching, setTouching] = useState(false);
+  const screenReader = useScreenReaderEnabled();
+  const reducedMotion = useReducedMotion();
+  const focused = useIsFocused();
+  const drawer = useAppDrawer();
+  const count = games.length;
+  const current = Math.min(page, Math.max(0, count - 1));
+
+  const auto = heroAutoAdvances({ count, reducedMotion, screenReader, touching, focused, drawerOpen: drawer.isOpen });
+  useEffect(() => {
+    if (!auto) return;
+    const timer = setTimeout(() => {
+      const next = nextHeroPage(current, count);
+      listRef.current?.scrollToOffset({ offset: next * width, animated: true });
+      setPage(next);
+    }, HERO_AUTO_ADVANCE_MS);
+    return () => clearTimeout(timer);
+  }, [auto, current, count, width]);
+
+  const goTo = (target: number) => {
+    const next = ((target % count) + count) % count;
+    listRef.current?.scrollToOffset({ offset: next * width, animated: !reducedMotion });
+    setPage(next);
+  };
+
+  const renderItem = useCallback<ListRenderItem<GameCard>>(
+    ({ item }) => (
+      <HeroSlide
+        game={item}
+        width={width}
+        height={height}
+        wide={wide}
+        pad={pad}
+        dots={count > 1}
+        background={palette.background}
+        onPlay={onPlay}
+        resolving={resolvingId === item.id}
+        notice={notice?.gameId === item.id ? notice.message : null}
+        spinnerColor={palette.primaryForeground}
+      />
+    ),
+    [width, height, wide, pad, count, palette.background, palette.primaryForeground, onPlay, resolvingId, notice],
+  );
+  const getItemLayout = useCallback(
+    (_: ArrayLike<GameCard> | null | undefined, index: number) => ({ length: width, offset: width * index, index }),
+    [width],
+  );
+
+  return (
+    <View style={{ width, height }}>
+      <FlatList
+        // Re-keyed on the hero's size: a rotation remounts the pager at the same page with fresh page offsets.
+        key={`${width}x${height}`}
+        ref={listRef}
+        horizontal
+        pagingEnabled
+        data={games}
+        keyExtractor={(g) => g.id}
+        renderItem={renderItem}
+        getItemLayout={getItemLayout}
+        initialScrollIndex={current}
+        initialNumToRender={2}
+        windowSize={3}
+        showsHorizontalScrollIndicator={false}
+        bounces={count > 1}
+        onTouchStart={() => setTouching(true)}
+        onTouchEnd={() => setTouching(false)}
+        onTouchCancel={() => setTouching(false)}
+        onScrollBeginDrag={() => setTouching(true)}
+        onMomentumScrollEnd={(e) => {
+          setTouching(false);
+          setPage(pageIndex(e.nativeEvent.contentOffset.x, width, count));
+        }}
+      />
+      {count > 1 && (
+        <View
+          className="absolute bottom-2.5 left-0 right-0 flex-row justify-center gap-1.5"
+          accessible
+          accessibilityRole="adjustable"
+          accessibilityLabel="Featured games"
+          accessibilityValue={{ text: `${current + 1} of ${count}` }}
+          accessibilityActions={ADJUST_ACTIONS}
+          onAccessibilityAction={(e: AccessibilityActionEvent) =>
+            goTo(e.nativeEvent.actionName === 'increment' ? current + 1 : current - 1)
+          }
+          pointerEvents="box-none"
+        >
+          {games.map((g, i) => (
+            <View
+              key={g.id}
+              pointerEvents="none"
+              className={cn('h-1.5 rounded-full', i === current ? 'bg-foreground w-5' : 'bg-muted-foreground w-1.5')}
+            />
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+const ADJUST_ACTIONS = [{ name: 'increment' }, { name: 'decrement' }] as const;
+
+/** One hero page. Tapping the art opens the game page, like Details. */
+const HeroSlide = memo(function HeroSlide({
+  game,
+  width,
+  height,
+  wide,
+  pad,
+  dots,
+  background,
+  onPlay,
+  resolving,
+  notice,
+  spinnerColor,
+}: {
+  game: GameCard;
+  width: number;
+  height: number;
+  wide: boolean;
+  pad: Pad;
+  dots: boolean;
+  background: string;
+  onPlay: (game: GameCard) => void;
+  resolving: boolean;
+  notice: string | null;
+  spinnerColor: string;
+}) {
+  const details = () => router.push({ pathname: '/game/[id]', params: { id: game.id } });
+  const genre = game.genres[0];
+  return (
+    <View style={{ width, height }}>
+      <GameCover
+        id={game.id}
+        title={game.title}
+        uri={coverUriFor(game, 'feature')}
+        variant="feature"
+        showTitle={false}
+        scrim="none"
+        className="absolute left-0 top-0"
+        style={{ width, height }}
+      />
+      <HeroScrim width={width} height={height} wide={wide} color={background} />
+      <Pressable onPress={details} style={StyleSheet.absoluteFill} accessible={false} importantForAccessibility="no" />
+      <View
+        className="absolute bottom-0 left-0 right-0"
+        style={{ paddingLeft: pad.left, paddingRight: pad.right, paddingBottom: dots ? DOTS_SPACE : CONTENT_BOTTOM }}
+        pointerEvents="box-none"
+      >
+        <View
+          className="gap-3"
+          style={wide ? { width: wideColumn(width) - pad.left } : undefined}
+          pointerEvents="box-none"
+        >
+          <View className="flex-row" pointerEvents="none">
+            <Badge variant="subtle">
+              <Text>Featured</Text>
+            </Badge>
+          </View>
+          <Text
+            className={cn(
+              'text-foreground font-extrabold tracking-tight',
+              wide ? 'text-[30px] leading-[36px]' : 'text-[34px] leading-[40px]',
+            )}
+            role="heading"
+            numberOfLines={2}
+          >
+            {game.title}
+          </Text>
+          <View className="flex-row flex-wrap gap-2" pointerEvents="none">
+            {genre ? (
+              <Badge variant="subtle">
+                <Text>{genreLabel(genre)}</Text>
+              </Badge>
+            ) : null}
+            <Badge variant="secondary" accessibilityLabel={playersLabel(game)}>
+              <Icon as={UsersIcon} className="text-secondary-foreground size-3" />
+              <Text>{playersLabel(game)}</Text>
+            </Badge>
+            <Badge variant="outline">
+              <Text>{game.age_rating}</Text>
+            </Badge>
+          </View>
+          <View className="flex-row items-center gap-2.5 pt-1">
+            <Button
+              className="h-11 min-w-28 rounded-full px-5"
+              onPress={() => onPlay(game)}
+              disabled={resolving}
+              accessibilityLabel={`Play ${game.title}`}
+            >
+              {resolving ? (
+                <ActivityIndicator size="small" color={spinnerColor} />
+              ) : (
+                <Icon as={PlayIcon} className="text-primary-foreground fill-primary-foreground size-4" />
+              )}
+              <Text className="font-bold">Play</Text>
+            </Button>
+            <Button
+              variant="secondary"
+              className="h-11 rounded-full px-5"
+              onPress={details}
+              accessibilityLabel={`${game.title} details`}
+            >
+              <Icon as={InfoIcon} className="text-secondary-foreground size-4" />
+              <Text className="font-semibold">Details</Text>
+            </Button>
+          </View>
+          {notice ? (
+            <Text
+              className="text-muted-foreground text-[13px] leading-[18px]"
+              numberOfLines={2}
+              accessibilityLiveRegion="polite"
+            >
+              {notice}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+    </View>
+  );
+});
+
+/**
+ * Hero scrim at explicit numbers (keyed on the size, so a rotation redraws instead of stretching an old bitmap):
+ * shade under the status bar and top bar, then a fade that reaches the page background before the text block. Wide:
+ * the bottom fade plus a fade from the left edge under the left-hand column.
+ */
+const HeroScrim = memo(function HeroScrim({
+  width,
+  height,
+  wide,
+  color,
+}: {
+  width: number;
+  height: number;
+  wide: boolean;
+  color: string;
+}) {
+  const down = useSvgId('hero-down');
+  const side = useSvgId('hero-side');
+  const stops = wide ? WIDE_DOWN : NARROW_DOWN;
+  return (
+    <Svg key={`${width}x${height}`} style={StyleSheet.absoluteFill} width={width} height={height} pointerEvents="none">
+      <Defs>
+        <LinearGradient id={down} x1="0" y1="0" x2="0" y2="1">
+          {stops.map((s) => (
+            <Stop key={s.offset} offset={s.offset} stopColor={s.page ? color : '#000000'} stopOpacity={s.opacity} />
+          ))}
+        </LinearGradient>
+        {wide && (
+          <LinearGradient id={side} x1="0" y1="0" x2="1" y2="0">
+            {WIDE_SIDE.map((s) => (
+              <Stop key={s.offset} offset={s.offset} stopColor={color} stopOpacity={s.opacity} />
+            ))}
+          </LinearGradient>
+        )}
+      </Defs>
+      {wide && <Rect x={0} y={0} width={width} height={height} fill={`url(#${side})`} />}
+      <Rect x={0} y={0} width={width} height={height} fill={`url(#${down})`} />
+    </Svg>
+  );
+});
+
+type HeroStop = { offset: number; page: boolean; opacity: number };
+const NARROW_DOWN: HeroStop[] = [
+  { offset: 0, page: false, opacity: 0.5 },
+  { offset: 0.2, page: false, opacity: 0 },
+  { offset: 0.36, page: true, opacity: 0 },
+  { offset: 0.6, page: true, opacity: 0.84 },
+  { offset: 0.78, page: true, opacity: 1 },
+  { offset: 1, page: true, opacity: 1 },
+];
+const WIDE_DOWN: HeroStop[] = [
+  { offset: 0, page: false, opacity: 0.45 },
+  { offset: 0.28, page: false, opacity: 0 },
+  { offset: 0.55, page: true, opacity: 0 },
+  { offset: 0.9, page: true, opacity: 0.92 },
+  { offset: 1, page: true, opacity: 1 },
+];
+const WIDE_SIDE = [
+  { offset: 0, opacity: 0.96 },
+  { offset: 0.34, opacity: 0.82 },
+  { offset: 0.62, opacity: 0 },
+];
+
+/**
+ * Same box as the hero while the featured games load: a full-bleed block for the art, then the chip, title, meta
+ * chips and the two buttons at their real places (bottom-aligned, same paddings), and the dots.
+ */
+export function DashboardHeroSkeleton({
+  width,
+  height,
+  wide,
+  pad,
+}: {
+  width: number;
+  height: number;
+  wide: boolean;
+  pad: Pad;
+}) {
+  return (
+    <View style={{ width, height }}>
+      <Skeleton
+        className="absolute left-0 right-0 top-0 rounded-none"
+        style={{ height: Math.round(height * (wide ? 0.62 : 0.5)) }}
+      />
+      <View
+        className="absolute bottom-0 left-0 right-0"
+        style={{ paddingLeft: pad.left, paddingRight: pad.right, paddingBottom: DOTS_SPACE }}
+      >
+        <View className="gap-3">
+          <Skeleton className="h-[26px] w-20 rounded-full" />
+          <Skeleton className="h-9 w-56 rounded-lg" />
+          <View className="flex-row gap-2">
+            <Skeleton className="h-[26px] w-16 rounded-full" />
+            <Skeleton className="h-[26px] w-24 rounded-full" />
+            <Skeleton className="h-[26px] w-10 rounded-full" />
+          </View>
+          <View className="flex-row gap-2.5 pt-1">
+            <Skeleton className="h-11 w-28 rounded-full" />
+            <Skeleton className="h-11 w-28 rounded-full" />
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+/** Whether a screen reader is on, kept current (the hero does not move under VoiceOver / TalkBack focus). */
+function useScreenReaderEnabled(): boolean {
+  const [enabled, setEnabled] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    AccessibilityInfo.isScreenReaderEnabled()
+      .then((on) => {
+        if (alive) setEnabled(on);
+      })
+      .catch(() => {});
+    const sub = AccessibilityInfo.addEventListener('screenReaderChanged', setEnabled);
+    return () => {
+      alive = false;
+      sub.remove();
+    };
+  }, []);
+  return enabled;
+}

@@ -14,7 +14,7 @@ pnpm dev:mobile:go                    # Metro for Expo Go (email sign-in + Devel
 
 pnpm --filter @rally/mobile typecheck # app + tests
 pnpm --filter @rally/mobile lint      # expo lint (React Compiler rules), zero warnings
-pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects/anonymous plan, bridge + nav gate, handlers (saves, leaderboards, achievements, join limits, token policy), join targets + rejoin journal (target → matchmaking calls, sticky / resume-once, reportReconnection room check, journal expiry, minVersion refusal, room lookups), controller (play sessions, playtime across reloads, diagnostics), session journal, storage reset, progress formatting, cover art, social (friendship buttons, people ranking, privacy, requests)
+pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects/anonymous plan, bridge + nav gate, handlers (saves, leaderboards, achievements, join limits, token policy), join targets + rejoin journal (target → matchmaking calls, sticky / resume-once, reportReconnection room check, journal expiry, minVersion refusal, room lookups), controller (play sessions, playtime across reloads, diagnostics), session journal, storage reset, progress formatting, cover art, social (friendship buttons, people ranking, privacy, requests), dashboard (hero / category geometry, genre rows, hero auto-advance rules), drawer (width, swipe routes, items)
 node scripts/generate-brand-assets.cjs  # (from apps/mobile) app icon, adaptive icon layers, splash, favicon from src/lib/brand.ts; needs Playwright
 ```
 
@@ -98,7 +98,7 @@ when they do surface (profile edits go through PostgREST, which passes them on).
 | `/sign-up?method=` | `src/app/(auth)/sign-up.tsx` | username (+ email/password), then account creation |
 | `/forgot-password`, `/check-email` | `src/app/(auth)/…` | reset link request, confirmation notice |
 | `/auth/callback`, `/auth/reset-password` | `src/app/auth/…` | deep-link targets (PKCE code exchange, new password) |
-| `/` | `src/app/(app)/index.tsx` | dashboard: search pill (opens `/search`), featured carousel, continue playing, favorites, new; the avatar shows pending friend requests |
+| `/` | `src/app/(app)/index.tsx` | dashboard: full-bleed featured hero (paged, auto-advancing) under a floating top bar (menu → drawer, greeting, avatar with the request badge), search pill, Continue playing / New on Rally / Favorites, Browse by category, one row per genre ("See all" → category sheet) |
 | `/search` | `src/app/(app)/search.tsx` | Games (`searchGames` over the catalog) and People (`search_profiles`, debounced 250 ms, `@name` = people only) with Add / Requested / Friends / Accept |
 | `/friends` | `src/app/(app)/friends.tsx` | your friends (`my_friends`) and requests (`my_friend_requests`: Accept / Decline, Cancel); `?tab=requests`; `?username=` lists another player's friends (`public_friends`) |
 | `/game/:id` | `src/app/(app)/game/[id]/index.tsx` | game page: screenshot gallery (else cover art), details (+ "Best" for solo games), favorite, Play → consent sheet, leaderboard, achievements |
@@ -110,6 +110,24 @@ when they do surface (profile edits go through PostgREST, which passes them on).
 `src/app/_layout.tsx` gates `(app)` on a signed-in, non-anonymous session and `(auth)` on its absence
 (`Stack.Protected`); `auth/*` is reachable either way and `dev` only when dev tools are on. On Android the OAuth
 redirect also reaches the router; `src/app/+native-intent.tsx` drops it while an in-app browser flow owns it.
+
+**Drawer.** `(app)/_layout.tsx` wraps its stack in `AppDrawer` (`components/rally/app-drawer.tsx`):
+`react-native-drawer-layout`, the component expo-router's own `Drawer` navigator renders, used directly so the stack
+keeps its push / back behaviour (expo-router's `Drawer` would turn every route into a drawer screen). Header (avatar,
+display name, @username → Profile), Home, Search, Friends (incoming-request badge), Profile, Settings (opens Profile,
+where "Show FPS in games" lives), Developer (dev tools only), then Sign out and the app version. ≈78 % of the window,
+at most 340 pt (`lib/drawer.ts`). It opens from the dashboard's menu button or an edge swipe **on the dashboard
+only** (`drawerSwipeEnabled`): pushed screens use that edge for back, the game host is full screen, and the auth
+screens are outside `(app)`. Android back closes it first. Pure JS on gesture-handler + Reanimated (both in Expo Go).
+
+**Dashboard.** The hero pages through the featured games (`coverUriFor(game, 'feature')` under a scrim that shades
+the top bar and fades into the page), with dots, Play (same plan → consent → host steps as the game page,
+`lib/use-quick-play.ts`) and Details. It advances every 6 s except under reduced motion or a screen reader, while
+touched, while another screen covers the dashboard or while the drawer is open (`lib/dashboard.ts`
+`heroAutoAdvances`). Portrait: ≈10:13, at most 66 % of the window; wide: 16:7, at most 78 % of the window height.
+Genre rows and category cards come from the whole catalog (`useAllGames`, `groupByGenre`: biggest genre first, at
+most 10 rows; every genre gets a card). "See all" and the cards open `CategorySheet` (the search screen has no genre
+filter). The top bar turns solid once the hero scrolls behind it; with no featured games it is solid from the start.
 
 ## Social and loading states
 
@@ -124,7 +142,8 @@ redirect also reaches the router; `src/app/+native-intent.tsx` drops it while an
   `global.css`, mirrored in `PALETTE`), in step across the screen (UI-thread frame clock), static under reduced motion.
   Every data-driven component has a skeleton next to it with the same box (`GameTileSkeleton`, `FeaturedGameSkeleton`,
   `GameListRowSkeleton`, `LeaderboardSkeleton`, `AchievementsSectionSkeleton`, `PersonListSkeleton`,
-  `PlayedGamesSkeleton`, `ProfileAvatarSkeleton`, `SkeletonText` for single text lines). `components/rally/image.tsx`
+  `PlayedGamesSkeleton`, `ProfileAvatarSkeleton`, `DashboardHeroSkeleton`, `TileRowSkeleton`, `CategoryCardSkeleton`,
+  `SkeletonText` for single text lines). `components/rally/image.tsx`
   keeps a skeleton under every image until it has faded in.
 
 ## Play flow
@@ -282,7 +301,9 @@ identity, never the real profile.
   hero without screenshots = `cover_url` → first screenshot; the hero gallery = `screenshots`).
 - `src/components/rally/`: app components (logo + wordmark, cold-start intro overlay, game cover / cards / rows, faint
   white glows, avatar with ring, empty states, form fields, consent dialog, segmented control, leaderboard and
-  achievements sections).
+  achievements sections, app drawer, dashboard hero / top bar / tile rows / category cards and sheet).
+- `src/lib/dashboard.ts`, `src/lib/drawer.ts`: the dashboard's and drawer's pure parts (geometry, genre grouping,
+  auto-advance rules, drawer items); `src/lib/use-app-drawer.ts`: the drawer's context (`useAppDrawer`).
 - `src/components/ui/`: [React Native Reusables](https://reactnativereusables.com) on [Uniwind](https://docs.uniwind.dev)
   (ADR 0005). Owned source; theme tokens in `global.css`. Add more with
   `npx @react-native-reusables/cli@latest add <name> --styling-library uniwind`. Opacity modifiers on theme colours
