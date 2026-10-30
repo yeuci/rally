@@ -3,6 +3,7 @@ import * as Crypto from 'expo-crypto';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
+import { signOutPresence } from '@/lib/presence';
 import { supabase } from '@/lib/supabase';
 import { keepSessionWhenReleaseFails, planAnonymousUser, type AbandonReason, type SignupMetadata } from './anonymous';
 import { EMAIL_ACCOUNT_EXISTS, classifyLinkError, isNewUserRejected } from './errors';
@@ -308,6 +309,8 @@ export async function sendPasswordReset(email: string): Promise<void> {
 }
 
 export async function signOut(): Promise<void> {
+  // `heartbeat('offline')` needs the session: friends stop seeing this account online now, not after the 90 s TTL.
+  await signOutPresence();
   await abandonAnonymousUser('sign-out');
   const { error } = await supabase.auth.signOut();
   if (!error) return;

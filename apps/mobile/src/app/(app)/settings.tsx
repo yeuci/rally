@@ -39,7 +39,7 @@ export default function SettingsScreen() {
   const { signingOut, error: signOutError, signOut } = useSignOut();
 
   const privacySummary = privacy.data
-    ? `Games played: ${visibilityLabel(privacy.data.games)} · Friends list: ${visibilityLabel(privacy.data.friends)}`
+    ? `Games played: ${visibilityLabel(privacy.data.games)} · Friends list: ${visibilityLabel(privacy.data.friends)} · Online status: ${visibilityLabel(privacy.data.presence)}`
     : privacy.isError
       ? "Couldn't load your privacy settings."
       : undefined;
@@ -82,7 +82,7 @@ export default function SettingsScreen() {
         <SettingsRow
           icon={ShieldIcon}
           label="Profile privacy"
-          hint="Choose who sees your games played and friends list"
+          hint="Choose who sees your games, friends and online status"
           onPress={() => router.push({ pathname: '/profile/edit', params: { section: 'privacy' } })}
         />
       </SettingsGroup>

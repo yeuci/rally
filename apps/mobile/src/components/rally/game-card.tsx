@@ -12,6 +12,7 @@ import { coverUriFor } from '@/lib/game-art';
 import { featuredCardHeight } from '@/lib/layout';
 import { cn } from '@/lib/utils';
 import { GameCover } from './game-cover';
+import { PresenceDot } from './presence-dot';
 
 /**
  * Hero card for the featured carousel: full-bleed cover (game.json `cover`, else the first screenshot), big title, age
@@ -111,11 +112,14 @@ export const GameTile = memo(function GameTile({
   game,
   className,
   subtitle,
+  live,
   width,
 }: {
   game: GameCardData;
   className?: string;
   subtitle?: string;
+  /** "12 playing" (lib/dashboard.ts `liveCountLabel`): a multiplayer game with players right now; wins the meta line. */
+  live?: string | null;
   width: number;
 }) {
   const meta = subtitle || (game.genres[0] ? capitalize(game.genres[0]) : playersLabel(game));
@@ -123,7 +127,7 @@ export const GameTile = memo(function GameTile({
     <Link href={{ pathname: '/game/[id]', params: { id: game.id } }} asChild>
       <TapPressable
         accessibilityRole="button"
-        accessibilityLabel={`${game.title}, ${meta}`}
+        accessibilityLabel={live ? `${game.title}, ${meta}, ${live}` : `${game.title}, ${meta}`}
         className={cn('gap-2 active:opacity-80', className)}
         style={{ width }}
       >
@@ -135,9 +139,16 @@ export const GameTile = memo(function GameTile({
           style={{ width, height: width }}
         />
         <View className="flex-row items-center gap-1.5 px-1">
-          {!subtitle && game.max_players > 1 && <Icon as={UsersIcon} className="text-muted-foreground size-3" />}
-          <Text className="text-muted-foreground shrink text-[13px] leading-[18px]" numberOfLines={1}>
-            {meta}
+          {live ? (
+            <PresenceDot />
+          ) : (
+            !subtitle && game.max_players > 1 && <Icon as={UsersIcon} className="text-muted-foreground size-3" />
+          )}
+          <Text
+            className={cn('shrink text-[13px] leading-[18px]', live ? 'text-foreground font-medium' : 'text-muted-foreground')}
+            numberOfLines={1}
+          >
+            {live || meta}
           </Text>
         </View>
       </TapPressable>

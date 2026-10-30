@@ -177,18 +177,46 @@ test('toPersonResults maps rows and parses friendship', () => {
 
 test('privacy: parse with defaults, patch only on change, labels', () => {
   assert.deepEqual(parsePrivacy(null), DEFAULT_PRIVACY);
-  assert.deepEqual(parsePrivacy({}), { games: 'public', friends: 'public' });
-  assert.deepEqual(parsePrivacy({ games: 'friends', friends: 'private' }), { games: 'friends', friends: 'private' });
-  assert.deepEqual(parsePrivacy({ games: 'everyone', friends: 7 }), { games: 'public', friends: 'public' });
-  assert.deepEqual(parsePrivacy('{"games":"private"}'), { games: 'private', friends: 'public' });
+  assert.deepEqual(DEFAULT_PRIVACY, { games: 'public', friends: 'public', presence: 'friends' }, 'the server defaults (my_privacy)');
+  assert.deepEqual(parsePrivacy({}), { games: 'public', friends: 'public', presence: 'friends' });
+  assert.deepEqual(parsePrivacy({ games: 'friends', friends: 'private' }), { games: 'friends', friends: 'private', presence: 'friends' });
+  assert.deepEqual(parsePrivacy({ games: 'everyone', friends: 7 }), { games: 'public', friends: 'public', presence: 'friends' });
+  assert.deepEqual(parsePrivacy('{"games":"private"}'), { games: 'private', friends: 'public', presence: 'friends' });
   assert.deepEqual(parsePrivacy('not json'), DEFAULT_PRIVACY);
   assert.deepEqual(parsePrivacy([1, 2]), DEFAULT_PRIVACY);
-  const saved = { games: 'public', friends: 'public' } as const;
+  const saved = { games: 'public', friends: 'public', presence: 'friends' } as const;
   assert.equal(privacyPatch(saved, { ...saved }), null);
-  assert.deepEqual(privacyPatch(saved, { games: 'friends', friends: 'public' }), { games: 'friends', friends: 'public' }, 'always the whole object');
+  assert.deepEqual(
+    privacyPatch(saved, { games: 'friends', friends: 'public', presence: 'friends' }),
+    { games: 'friends', friends: 'public', presence: 'friends' },
+    'always the whole object',
+  );
   assert.equal(visibilityLabel('public'), 'Everyone');
   assert.equal(visibilityLabel('friends'), 'Friends');
   assert.equal(visibilityLabel('private'), 'Only me');
+});
+
+test('privacy: presence parses all three values, unknown falls back to friends', () => {
+  assert.equal(parsePrivacy({ presence: 'public' }).presence, 'public');
+  assert.equal(parsePrivacy({ presence: 'friends' }).presence, 'friends');
+  assert.equal(parsePrivacy({ presence: 'private' }).presence, 'private');
+  assert.equal(parsePrivacy({ presence: 'everyone' }).presence, 'friends');
+  assert.equal(parsePrivacy({ presence: null }).presence, 'friends');
+  assert.equal(parsePrivacy('{"presence":"private","games":"friends"}').presence, 'private');
+  // The other keys keep their own default even when presence is set.
+  assert.deepEqual(parsePrivacy({ presence: 'public' }), { games: 'public', friends: 'public', presence: 'public' });
+});
+
+test('privacyPatch: a presence change writes every key, so games / friends are never reset', () => {
+  const saved = { games: 'private', friends: 'friends', presence: 'friends' } as const;
+  assert.deepEqual(privacyPatch(saved, { ...saved, presence: 'private' }), { games: 'private', friends: 'friends', presence: 'private' });
+  // Only the presence key edited (the others left out or undefined): still the whole object.
+  assert.deepEqual(privacyPatch(saved, { presence: 'public' }), { games: 'private', friends: 'friends', presence: 'public' });
+  assert.deepEqual(privacyPatch(saved, { presence: undefined, games: 'public' }), { games: 'public', friends: 'friends', presence: 'friends' });
+  assert.equal(privacyPatch(saved, { presence: 'friends' }), null, 'no change, no write');
+  assert.equal(privacyPatch(saved, {}), null);
+  const patch = privacyPatch(saved, { presence: 'public' })!;
+  assert.deepEqual(Object.keys(patch).sort(), ['friends', 'games', 'presence']);
 });
 
 test('splitRequests splits by direction, newest first, drops unknown directions', () => {

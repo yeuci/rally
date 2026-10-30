@@ -21,6 +21,7 @@ import {
   usePlaySessionPlan,
   withAnonymousRetry,
 } from '@/lib/launch';
+import { setInGame, setOnline } from '@/lib/presence';
 import { useProfile, resolveAvatarUrl } from '@/lib/profile';
 import { supabase } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
@@ -44,7 +45,8 @@ import { showToast } from '@/lib/toast';
  * reports go to the rejoin journal (§4). On exit the same queries refresh. `join=resume` without a live record for
  * this game says "That match has ended" and goes back without loading the game. When a join knows the private
  * room's code (`onJoined` → `code`: the reservation's, or the code joined with), a "Room code · Share" pill shows over
- * the game for 8 s (components/rally/room-code-pill.tsx); the bridge and the game are not involved.
+ * the game for 8 s (components/rally/room-code-pill.tsx); the bridge and the game are not involved. Every join also
+ * sets the presence heartbeat to `in_game` with the game and room ids (lib/presence.ts); leaving sets `online`.
  */
 
 type PlayParams = { id: string; join?: string; name?: string; room?: string; code?: string; friend?: string };
@@ -108,7 +110,11 @@ export default function PlayScreen() {
             getAccessToken: async () => (await supabase.auth.getSession()).data.session?.access_token,
             // The JWT only goes over https/wss; dev builds may also use a LAN game server over http.
             allowPrivateHttp: __DEV__,
-            onJoined: ({ code: joinedCode }) => setRoomCode(joinedCode ?? null),
+            onJoined: ({ roomId, gameId, code: joinedCode }) => {
+              setRoomCode(joinedCode ?? null);
+              // Presence: friends see "In <game>" (and can join) once the server's mirror confirms the seat.
+              setInGame(gameId, roomId);
+            },
           }
         : null,
     [room, target, minServerVersion, rejoin],
@@ -120,8 +126,12 @@ export default function PlayScreen() {
     if (id) invalidateAfterPlay(qc, userId, id);
   }, [id, qc, userId]);
 
+  // Presence: back to 'online' when this screen closes, however it closes (in_game is set by onJoined above).
+  useEffect(() => setOnline, []);
+
   const onExit = useCallback(
     (result: GameHostResult) => {
+      setOnline();
       if (id) {
         // Multiplayer: the room wrote stats, boards and unlocks (no play session to wait for).
         if (multiplayer) invalidateAfterPlay(qc, userId, id);

@@ -289,9 +289,12 @@ export interface PrivacySettings {
   games: Visibility;
   /** Your friends list (`public_friends`). */
   friends: Visibility;
+  /** When you're online and what you're playing (`friends_presence`, `public_presence`, joining you from a friend's list). */
+  presence: Visibility;
 }
 
-export const DEFAULT_PRIVACY: PrivacySettings = { games: 'public', friends: 'public' };
+/** The server's defaults (`my_privacy`): games and friends lists public, presence for friends only. */
+export const DEFAULT_PRIVACY: PrivacySettings = { games: 'public', friends: 'public', presence: 'friends' };
 
 export const VISIBILITY_OPTIONS: readonly { value: Visibility; label: string }[] = [
   { value: 'public', label: 'Everyone' },
@@ -299,11 +302,11 @@ export const VISIBILITY_OPTIONS: readonly { value: Visibility; label: string }[]
   { value: 'private', label: 'Only me' },
 ];
 
-function visibility(v: unknown): Visibility {
-  return v === 'friends' || v === 'private' ? v : 'public';
+function visibility(v: unknown, fallback: Visibility): Visibility {
+  return v === 'public' || v === 'friends' || v === 'private' ? v : fallback;
 }
 
-/** Stored JSON (string or object) → settings; missing or unknown values are 'public' (the server default). */
+/** Stored JSON (string or object) → settings; missing or unknown values take the server default (`DEFAULT_PRIVACY`). */
 export function parsePrivacy(raw: unknown): PrivacySettings {
   let value = raw;
   if (typeof raw === 'string') {
@@ -314,14 +317,27 @@ export function parsePrivacy(raw: unknown): PrivacySettings {
     }
   }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return DEFAULT_PRIVACY;
-  const v = value as { games?: unknown; friends?: unknown };
-  return { games: visibility(v.games), friends: visibility(v.friends) };
+  const v = value as { games?: unknown; friends?: unknown; presence?: unknown };
+  return {
+    games: visibility(v.games, DEFAULT_PRIVACY.games),
+    friends: visibility(v.friends, DEFAULT_PRIVACY.friends),
+    presence: visibility(v.presence, DEFAULT_PRIVACY.presence),
+  };
 }
 
-/** The `privacy` jsonb to write, or null when nothing changed. Always the whole object: an update replaces it. */
-export function privacyPatch(saved: PrivacySettings, edited: PrivacySettings): { games: Visibility; friends: Visibility } | null {
-  if (saved.games === edited.games && saved.friends === edited.friends) return null;
-  return { games: edited.games, friends: edited.friends };
+const PRIVACY_KEYS = ['games', 'friends', 'presence'] as const;
+
+/**
+ * The `privacy` jsonb to write, or null when nothing changed. Always the whole object (an update replaces the
+ * column, so a key left out would fall back to its default): every key, each one edited or as saved.
+ */
+export function privacyPatch(saved: PrivacySettings, edited: Partial<PrivacySettings>): PrivacySettings | null {
+  const next: PrivacySettings = {
+    games: edited.games ?? saved.games,
+    friends: edited.friends ?? saved.friends,
+    presence: edited.presence ?? saved.presence,
+  };
+  return PRIVACY_KEYS.every((k) => next[k] === saved[k]) ? null : next;
 }
 
 /** "Everyone" / "Friends" / "Only me". */
@@ -432,4 +448,115 @@ export function toFriends(
     avatarUrl: r.avatar_url || null,
     since: r.since || null,
   }));
+}
+
+// --- presence -----------------------------------------------------------------------------------------------------
+
+/** A friend's live status (`friends_presence`); offline friends have no row. */
+export interface FriendPresence {
+  userId: string;
+  status: 'online' | 'in_game';
+  /** Set only while `in_game` (the server's mirror confirmed the seat). */
+  gameId: string | null;
+  gameTitle: string | null;
+  /** The room has a free seat and is not locked: `friend_join_target` will answer. */
+  joinable: boolean;
+}
+
+/**
+ * `friends_presence` rows → presence by user id. Unknown statuses are dropped (read as offline); an `in_game` row
+ * without a game reads as `online` (nothing to show or join).
+ */
+export function toFriendsPresence(
+  rows:
+    | readonly {
+        user_id: string;
+        status: string | null;
+        game_id: string | null;
+        game_title: string | null;
+        room_id?: string | null;
+        joinable: boolean | null;
+      }[]
+    | null,
+): Map<string, FriendPresence> {
+  const out = new Map<string, FriendPresence>();
+  for (const r of rows ?? []) {
+    if (!r.user_id || (r.status !== 'online' && r.status !== 'in_game')) continue;
+    const inGame = r.status === 'in_game' && !!r.game_id;
+    out.set(r.user_id, {
+      userId: r.user_id,
+      status: inGame ? 'in_game' : 'online',
+      gameId: inGame ? r.game_id : null,
+      gameTitle: inGame ? r.game_title || null : null,
+      joinable: inGame && r.joinable === true,
+    });
+  }
+  return out;
+}
+
+/** What a friends-list row shows for a friend's presence. */
+export interface PresenceRowModel {
+  /** "Online", "In Sumo" ("In a game" when the title is unknown). */
+  label: string;
+  tone: 'online' | 'in_game';
+  /** The Join button: push `{ id: gameId, join: 'friend', friend: friendId }` through `useLaunchGame`. */
+  join: { gameId: string; gameTitle: string; friendId: string } | null;
+  accessibilityLabel: string;
+}
+
+/** Row model for a friend; null when offline (or hidden by their privacy), so the row shows its usual detail. */
+export function presenceRow(p: FriendPresence | null | undefined, name = 'Your friend'): PresenceRowModel | null {
+  if (!p) return null;
+  if (p.status === 'online' || !p.gameId) {
+    return { label: 'Online', tone: 'online', join: null, accessibilityLabel: `${name} is online` };
+  }
+  const title = p.gameTitle || 'a game';
+  return {
+    label: `In ${title}`,
+    tone: 'in_game',
+    join: p.joinable ? { gameId: p.gameId, gameTitle: p.gameTitle || 'this game', friendId: p.userId } : null,
+    accessibilityLabel: p.joinable ? `${name} is playing ${title}. You can join` : `${name} is playing ${title}`,
+  };
+}
+
+/**
+ * Friends in display order: in a joinable game, then in a game, then online, then everyone else; the list's own
+ * order (by name, by date) is kept inside each group.
+ */
+export function sortByPresence<T extends { userId: string }>(friends: readonly T[], presence: ReadonlyMap<string, FriendPresence>): T[] {
+  const rank = (id: string) => {
+    const p = presence.get(id);
+    if (!p) return 3;
+    if (p.status === 'in_game') return p.joinable ? 0 : 1;
+    return 2;
+  };
+  return friends
+    .map((f, i) => ({ f, i, r: rank(f.userId) }))
+    .sort((a, b) => a.r - b.r || a.i - b.i)
+    .map((x) => x.f);
+}
+
+/** `public_presence(p_user_id)`: `{status, game_id, game_title}`, or null (offline, or hidden from the viewer). */
+export interface PublicPresence {
+  status: 'online' | 'in_game';
+  gameId: string | null;
+  gameTitle: string | null;
+}
+
+export function parsePublicPresence(data: unknown): PublicPresence | null {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  const d = data as { status?: unknown; game_id?: unknown; game_title?: unknown };
+  if (d.status !== 'online' && d.status !== 'in_game') return null;
+  const gameId = typeof d.game_id === 'string' && d.game_id ? d.game_id : null;
+  if (d.status === 'in_game' && gameId) {
+    return { status: 'in_game', gameId, gameTitle: typeof d.game_title === 'string' && d.game_title ? d.game_title : null };
+  }
+  return { status: 'online', gameId: null, gameTitle: null };
+}
+
+/** The public profile's status line: "Online" / "Playing Sumo"; null when there is nothing to show. */
+export function presenceLine(p: PublicPresence | null | undefined): string | null {
+  if (!p) return null;
+  if (p.status === 'in_game') return `Playing ${p.gameTitle || 'a game'}`;
+  return 'Online';
 }

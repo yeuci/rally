@@ -7,6 +7,7 @@ import { RejoinPrompt } from '@/components/rally/rejoin-sheet';
 import { ToastHost } from '@/components/rally/toast';
 import { useSession } from '@/lib/auth/session';
 import { recoverPlaySession } from '@/lib/launch';
+import { usePresenceHeartbeat } from '@/lib/presence';
 import { NAV_THEME } from '@/lib/theme';
 
 export const unstable_settings = { anchor: 'index' };
@@ -19,6 +20,8 @@ export default function AppLayout() {
   useEffect(() => {
     if (signedIn && userId) void recoverPlaySession(qc, userId);
   }, [signedIn, userId, qc]);
+  // Presence (m3-phase2 §2): 'online' every 45 s while the app is active; never for anonymous sessions.
+  usePresenceHeartbeat();
   const nav = NAV_THEME[theme ?? 'dark'];
   // Signed out (or an unlinked anonymous session) never sees the app: back to the welcome screen.
   if (!signedIn) return <Redirect href="/welcome" />;

@@ -1,4 +1,4 @@
-import { Redirect, router, Stack, useLocalSearchParams } from 'expo-router';
+import { Redirect, router, Stack, useIsFocused, useLocalSearchParams } from 'expo-router';
 import { BanIcon, EllipsisIcon, RotateCwIcon, SearchXIcon, TrophyIcon } from 'lucide-react-native';
 import { useState } from 'react';
 import { ActionSheetIOS, Alert, Platform, Pressable, RefreshControl, ScrollView, View } from 'react-native';
@@ -6,6 +6,7 @@ import { AchievementBadge } from '@/components/rally/achievements';
 import { ConfirmDialog } from '@/components/rally/confirm-dialog';
 import { EmptyState } from '@/components/rally/empty-state';
 import { FriendButtons, FriendButtonsSkeleton } from '@/components/rally/friend-button';
+import { PresenceDot } from '@/components/rally/presence-dot';
 import { FriendsRowSection, PlayedGamesSection, ProfileHeader, StatsStrip } from '@/components/rally/profile-sections';
 import { SectionHeader } from '@/components/rally/section-header';
 import { Button } from '@/components/ui/button';
@@ -15,12 +16,12 @@ import { Skeleton, SkeletonText } from '@/components/ui/skeleton';
 import { Text } from '@/components/ui/text';
 import { useSession } from '@/lib/auth/session';
 import { timeAgo } from '@/lib/format';
-import { useFriendship, useFriendshipAction, usePublicFriends, usePublicGames } from '@/lib/friends';
+import { useFriendship, useFriendshipAction, usePublicFriends, usePublicGames, usePublicPresence } from '@/lib/friends';
 import { usePublicProfile, usePublicStats, useUserAchievements, type UnlockedAchievement } from '@/lib/game-progress';
 import { GUTTER } from '@/lib/layout';
 import { useProfile } from '@/lib/profile';
 import { formatScore, sameUsername } from '@/lib/progress-format';
-import { blockAction, confirmCopy } from '@/lib/social';
+import { blockAction, confirmCopy, presenceLine } from '@/lib/social';
 import { useColumnPadding, useLayout } from '@/lib/use-layout';
 import { usePalette } from '@/lib/use-palette';
 
@@ -28,7 +29,9 @@ import { usePalette } from '@/lib/use-palette';
  * Public profile (`/u/:username`, the architecture's deep link): avatar, names, bio, member since; the friendship
  * button(s) from `friendship_with`; Games played · Achievements · Friends (`public_profile_stats`); "Games played"
  * (`public_profile_games`) and "Friends" (`public_friends`), each shown only when the owner's privacy lets the viewer
- * see a non-empty list; unlocked achievements. Block / Unblock sit in the header's overflow menu. Your own username
+ * see a non-empty list; unlocked achievements. Under the names, a status line (`public_presence`: "Online" / "Playing
+ * Sumo", only when their privacy lets the viewer see it; refreshed every 30 s while in front). Block / Unblock sit in
+ * the header's overflow menu. Your own username
  * redirects to `/profile`. Portrait: one centred column. Landscape: identity on the left, the lists on the right.
  */
 export default function PublicProfileScreen() {
@@ -45,6 +48,8 @@ export default function PublicProfileScreen() {
   const games = usePublicGames(p?.id);
   const friends = usePublicFriends(p?.id);
   const unlocked = useUserAchievements(p?.id);
+  const focused = useIsFocused();
+  const presence = usePublicPresence(p?.id, focused);
   const action = useFriendshipAction();
   const [refreshing, setRefreshing] = useState(false);
   const [confirming, setConfirming] = useState<'block' | 'unblock' | null>(null);
@@ -59,7 +64,15 @@ export default function PublicProfileScreen() {
   async function refresh() {
     setRefreshing(true);
     try {
-      await Promise.all([profile.refetch(), stats.refetch(), friendship.refetch(), games.refetch(), friends.refetch(), unlocked.refetch()]);
+      await Promise.all([
+        profile.refetch(),
+        stats.refetch(),
+        friendship.refetch(),
+        games.refetch(),
+        friends.refetch(),
+        unlocked.refetch(),
+        presence.refetch(),
+      ]);
     } finally {
       setRefreshing(false);
     }
@@ -142,8 +155,15 @@ export default function PublicProfileScreen() {
   }
 
   const seeAllFriends = () => p && router.push({ pathname: '/friends', params: { username: p.username } });
+  const statusLine = blocked ? null : presenceLine(presence.data);
   const identity = (
     <ProfileHeader profile={p}>
+      {statusLine ? (
+        <View className="-mt-1 flex-row items-center gap-1.5" accessible accessibilityLabel={`${handle}: ${statusLine}`}>
+          <PresenceDot />
+          <Text className="text-foreground text-[13px] font-medium leading-[18px]">{statusLine}</Text>
+        </View>
+      ) : null}
       {!p || (!status && friendship.isFetching) ? (
         <FriendButtonsSkeleton mode="profile" />
       ) : !status && friendship.isError ? (

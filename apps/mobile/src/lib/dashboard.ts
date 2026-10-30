@@ -132,3 +132,46 @@ export function heroAutoAdvances(s: {
 }): boolean {
   return s.count > 1 && !s.reducedMotion && !s.screenReader && !s.touching && s.focused && !s.drawerOpen;
 }
+
+// --- live counts (m3-phase2 §2 "Catalog") ---------------------------------------------------------------------------
+
+/** How often the dashboard refreshes `game_live_counts` while it is in front. */
+export const LIVE_COUNTS_REFRESH_MS = 30_000;
+
+/** Players in live rooms (private ones included) and live public rooms, for one multiplayer game. */
+export interface LiveCount {
+  players: number;
+  rooms: number;
+}
+
+/** `game_live_counts` rows → counts by game id (games without a live room are absent; bad numbers read as 0). */
+export function toLiveCounts(
+  rows: readonly { game_id: string | null; players: number | string | null; rooms: number | string | null }[] | null,
+): Map<string, LiveCount> {
+  const count = (v: unknown) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  };
+  const out = new Map<string, LiveCount>();
+  for (const r of rows ?? []) {
+    if (!r.game_id) continue;
+    out.set(r.game_id, { players: count(r.players), rooms: count(r.rooms) });
+  }
+  return out;
+}
+
+/**
+ * "12 playing" for a multiplayer game with players in live rooms ("1.2k playing" from a thousand); null otherwise
+ * (solo games, nobody playing), so the tile keeps its usual line. `locale` is injectable for tests.
+ */
+export function liveCountLabel(
+  game: { id: string; max_players: number },
+  counts: ReadonlyMap<string, LiveCount> | undefined,
+  locale?: string,
+): string | null {
+  if (game.max_players <= 1) return null;
+  const players = counts?.get(game.id)?.players ?? 0;
+  if (players <= 0) return null;
+  const n = players < 1000 ? String(players) : new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 }).format(players);
+  return `${n} playing`;
+}

@@ -2,6 +2,7 @@ import type { Tables } from '@rally/db';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { useSession } from '@/lib/auth/session';
+import { LIVE_COUNTS_REFRESH_MS, toLiveCounts, type LiveCount } from '@/lib/dashboard';
 import { supabase } from '@/lib/supabase';
 
 /**
@@ -36,7 +37,27 @@ export const catalogKeys = {
   game: (id: string) => ['catalog', 'game', id] as const,
   recent: (uid: string | null) => ['me', uid, 'recent'] as const,
   favorites: (uid: string | null) => ['me', uid, 'favorites'] as const,
+  liveCounts: ['catalog', 'live-counts'] as const,
 };
+
+/**
+ * Players and public rooms per multiplayer game right now (`game_live_counts`, m3-phase2 §2), for "12 playing" on
+ * tiles and the featured hero. Polled every 30 s while `live` (the dashboard is in front; React Query also pauses in
+ * the background). A failure just hides the counts.
+ */
+export function useLiveCounts(live = true) {
+  return useQuery({
+    queryKey: catalogKeys.liveCounts,
+    staleTime: 15_000,
+    retry: 1,
+    refetchInterval: live ? LIVE_COUNTS_REFRESH_MS : false,
+    queryFn: async (): Promise<Map<string, LiveCount>> => {
+      const { data, error } = await supabase.rpc('game_live_counts');
+      if (error) throw error;
+      return toLiveCounts(data);
+    },
+  });
+}
 
 export function useFeaturedGames() {
   return useQuery({

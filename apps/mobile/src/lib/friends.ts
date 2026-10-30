@@ -7,17 +7,21 @@ import {
   describeSocialError,
   nextFriendship,
   parseFriendship,
+  parsePublicPresence,
   PEOPLE_SEARCH_LIMIT,
   peopleQuery,
   socialErrorKind,
   splitRequests,
   toFriends,
+  toFriendsPresence,
   toPersonResults,
   toPlayedGames,
   type FriendIntent,
+  type FriendPresence,
   type FriendRequest,
   type Friendship,
   type PersonResult,
+  type PublicPresence,
 } from '@/lib/social';
 import { supabase } from '@/lib/supabase';
 
@@ -36,7 +40,12 @@ export const socialKeys = {
   requests: (uid: string | null) => ['social', uid, 'requests'] as const,
   publicFriends: (uid: string | null, userId: string, limit: number) => ['social', uid, 'public-friends', userId, limit] as const,
   publicGames: (uid: string | null, userId: string) => ['social', uid, 'public-games', userId] as const,
+  presence: (uid: string | null) => ['social', uid, 'presence'] as const,
+  publicPresence: (uid: string | null, userId: string) => ['social', uid, 'public-presence', userId] as const,
 };
+
+/** How often friends' presence refreshes while a screen showing it is in front (m3-phase2 §2; realtime is M4). */
+export const PRESENCE_REFRESH_MS = 30_000;
 
 /** Rows fetched for the profile's friends row (it shows as many as fit, "See all" opens the full list). */
 export const FRIENDS_ROW_LIMIT = 24;
@@ -139,6 +148,43 @@ export function usePublicGames(userId: string | undefined) {
       const { data, error } = await supabase.rpc('public_profile_games', { p_user_id: userId!, p_limit: 50 });
       if (error) throw error;
       return toPlayedGames(data);
+    },
+  });
+}
+
+/**
+ * Friends who are online or in a game (`friends_presence`), by user id; offline friends are absent. Polls every 30 s
+ * while `live` (the screen is in front; React Query also pauses in the background) and refetches on focus.
+ */
+export function useFriendsPresence(live = true) {
+  const { userId } = useSession();
+  return useQuery({
+    queryKey: socialKeys.presence(userId),
+    enabled: !!userId,
+    retry: retryable,
+    staleTime: 10_000,
+    refetchInterval: live ? PRESENCE_REFRESH_MS : false,
+    queryFn: async (): Promise<Map<string, FriendPresence>> => {
+      const { data, error } = await supabase.rpc('friends_presence');
+      if (error) throw error;
+      return toFriendsPresence(data);
+    },
+  });
+}
+
+/** A player's status line (`public_presence`): null when offline or hidden from the viewer (their privacy, blocks). */
+export function usePublicPresence(userId: string | undefined, live = true) {
+  const { userId: viewer } = useSession();
+  return useQuery({
+    queryKey: socialKeys.publicPresence(viewer, userId ?? ''),
+    enabled: !!viewer && !!userId,
+    retry: retryable,
+    staleTime: 10_000,
+    refetchInterval: live ? PRESENCE_REFRESH_MS : false,
+    queryFn: async (): Promise<PublicPresence | null> => {
+      const { data, error } = await supabase.rpc('public_presence', { p_user_id: userId! });
+      if (error) throw error;
+      return parsePublicPresence(data);
     },
   });
 }

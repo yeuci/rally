@@ -6,6 +6,7 @@ import { Separator } from '@/components/ui/separator';
 import { Skeleton, SkeletonText } from '@/components/ui/skeleton';
 import { Text } from '@/components/ui/text';
 import { cn } from '@/lib/utils';
+import { PresenceDot } from './presence-dot';
 import { ProfileAvatar } from './profile-avatar';
 
 /** Height of a person row: py-2.5 around the 44 pt avatar. Skeleton rows use the same box. */
@@ -18,6 +19,12 @@ export interface PersonRowData {
   avatarUrl: string | null;
 }
 
+/** A player's live status on a row ("Online", "In Sumo"); lib/social.ts `presenceRow`. */
+export interface PersonPresence {
+  label: string;
+  tone: 'online' | 'in_game';
+}
+
 /** Open a player's public profile (your own row opens /profile). */
 export function openPerson(username: string, self = false) {
   if (self) router.push('/profile');
@@ -26,17 +33,20 @@ export function openPerson(username: string, self = false) {
 
 /**
  * A player in a list (search results, friends, requests): avatar, display name, @username, optional detail line
- * and a trailing accessory (friendship button, Accept / Decline). Tapping the row opens the profile.
+ * and a trailing accessory (friendship button, Accept / Decline, Join). Tapping the row opens the profile. With
+ * `presence` the second line shows the live status (a dot and "Online" / "In Sumo") in place of `detail`.
  */
 export function PersonRow({
   person,
   detail,
+  presence,
   accessory,
   self = false,
 }: {
   person: PersonRowData;
   /** Extra muted text after the @username ("Friends since Oct 2026", "2 h ago"). */
   detail?: string;
+  presence?: PersonPresence | null;
   accessory?: ReactNode;
   self?: boolean;
 }) {
@@ -44,7 +54,7 @@ export function PersonRow({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${name}, @${person.username}`}
+      accessibilityLabel={presence ? `${name}, @${person.username}, ${presence.label}` : `${name}, @${person.username}`}
       accessibilityHint="Opens the profile"
       onPress={() => openPerson(person.username, self)}
       className={cn(ROW_CLASS, 'active:bg-accent')}
@@ -61,9 +71,21 @@ export function PersonRow({
             </Badge>
           )}
         </View>
-        <Text className="text-muted-foreground text-[13px] leading-[18px]" numberOfLines={1}>
-          {detail ? `@${person.username} · ${detail}` : `@${person.username}`}
-        </Text>
+        {presence ? (
+          <View className="flex-row items-center">
+            <Text className="text-muted-foreground shrink text-[13px] leading-[18px]" numberOfLines={1}>
+              {`@${person.username} · `}
+            </Text>
+            <PresenceDot className="mr-1.5" />
+            <Text className="text-foreground shrink text-[13px] font-medium leading-[18px]" numberOfLines={1}>
+              {presence.label}
+            </Text>
+          </View>
+        ) : (
+          <Text className="text-muted-foreground text-[13px] leading-[18px]" numberOfLines={1}>
+            {detail ? `@${person.username} · ${detail}` : `@${person.username}`}
+          </Text>
+        )}
       </View>
       {accessory}
     </Pressable>

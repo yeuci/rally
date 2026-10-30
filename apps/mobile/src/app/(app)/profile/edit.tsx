@@ -18,7 +18,7 @@ import { describeAuthError } from '@/lib/auth/errors';
 import { useUsernameAvailability } from '@/lib/auth/use-username-availability';
 import { usePrivacy } from '@/lib/privacy';
 import { useProfile, useUpdateProfile, type Profile, type ProfileUpdate } from '@/lib/profile';
-import { privacyPatch, VISIBILITY_OPTIONS, type PrivacySettings, type Visibility } from '@/lib/social';
+import { DEFAULT_PRIVACY, privacyPatch, VISIBILITY_OPTIONS, type PrivacySettings, type Visibility } from '@/lib/social';
 import { useColumnPadding } from '@/lib/use-layout';
 
 const DISPLAY_NAME_MAX = 32; // profiles_display_name_len
@@ -69,8 +69,9 @@ function EditProfileForm({ profile, privacy }: { profile: Profile; privacy: Priv
   const [username, setUsername] = useState(profile.username);
   const [displayName, setDisplayName] = useState(profile.display_name ?? '');
   const [bio, setBio] = useState(profile.bio ?? '');
-  const [games, setGames] = useState<Visibility>(privacy?.games ?? 'public');
-  const [friends, setFriends] = useState<Visibility>(privacy?.friends ?? 'public');
+  const [games, setGames] = useState<Visibility>(privacy?.games ?? DEFAULT_PRIVACY.games);
+  const [friends, setFriends] = useState<Visibility>(privacy?.friends ?? DEFAULT_PRIVACY.friends);
+  const [presence, setPresence] = useState<Visibility>(privacy?.presence ?? DEFAULT_PRIVACY.presence);
   const [error, setError] = useState<string | null>(null);
   const availability = useUsernameAvailability(username, profile.username);
 
@@ -78,7 +79,7 @@ function EditProfileForm({ profile, privacy }: { profile: Profile; privacy: Priv
   if (username !== profile.username) patch.username = username;
   if (displayName.trim() !== (profile.display_name ?? '')) patch.display_name = displayName.trim() || null;
   if (bio.trim() !== (profile.bio ?? '')) patch.bio = bio.trim() || null;
-  const privacyChange = privacy ? privacyPatch(privacy, { games, friends }) : null;
+  const privacyChange = privacy ? privacyPatch(privacy, { games, friends, presence }) : null;
   if (privacyChange) patch.privacy = privacyChange;
 
   const usernameOk = availability.status === 'unchanged' || availability.status === 'available';
@@ -141,13 +142,17 @@ function EditProfileForm({ profile, privacy }: { profile: Profile; privacy: Priv
               Privacy
             </Text>
             <Text variant="muted" className="leading-5">
-              {privacy ? 'Who can see these on your profile.' : "Couldn't load your privacy settings. Try again later."}
+              {privacy
+                ? "Who can see these on your profile, and when you're online or in a game."
+                : "Couldn't load your privacy settings. Try again later."}
             </Text>
           </View>
           {privacy && (
             <>
               <PrivacyField label="Games played" value={games} onChange={setGames} />
               <PrivacyField label="Friends list" value={friends} onChange={setFriends} />
+              {/* m3-phase2 §2: friends lists, profiles and "Join" from a friend's list all follow this one. */}
+              <PrivacyField label="Online status" value={presence} onChange={setPresence} />
             </>
           )}
         </View>

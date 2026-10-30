@@ -14,7 +14,7 @@ pnpm dev:mobile:go                    # Metro for Expo Go (email sign-in + Devel
 
 pnpm --filter @rally/mobile typecheck # app + tests
 pnpm --filter @rally/mobile lint      # expo lint (React Compiler rules), zero warnings
-pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects/anonymous plan, bridge + nav gate, handlers (saves, leaderboards, achievements, join limits, token policy), join targets + rejoin journal (target → matchmaking calls, sticky / resume-once, reportReconnection room check, journal expiry, minVersion refusal, room lookups), controller (play sessions, playtime across reloads, diagnostics), session journal, storage reset, progress formatting, cover art, social (friendship buttons, people ranking, privacy, requests), dashboard (hero / category geometry, genre rows, hero auto-advance rules), drawer (width, swipe routes, edge width, items), press guard (drawer swipe / drag vs tap), preferences (FPS, appearance), join UI (code input normalisation and lookup copy, room rows, rejoin countdown and offer rules, room code share text)
+pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects/anonymous plan, bridge + nav gate, handlers (saves, leaderboards, achievements, join limits, token policy), join targets + rejoin journal (target → matchmaking calls, sticky / resume-once, reportReconnection room check, journal expiry, minVersion refusal, room lookups), controller (play sessions, playtime across reloads, diagnostics), session journal, storage reset, progress formatting, cover art, social (friendship buttons, people ranking, privacy incl. presence, requests), presence (heartbeat scheduler: AppState, interval, grace, ok:false, sign-out; presence row model, Join targets, live counts), dashboard (hero / category geometry, genre rows, hero auto-advance rules), drawer (width, swipe routes, edge width, items), press guard (drawer swipe / drag vs tap), preferences (FPS, appearance), join UI (code input normalisation and lookup copy, room rows, rejoin countdown and offer rules, room code share text)
 node scripts/generate-brand-assets.cjs  # (from apps/mobile) app icon, adaptive icon layers, splash, favicon from src/lib/brand.ts; needs Playwright
 ```
 
@@ -98,15 +98,15 @@ when they do surface (profile edits go through PostgREST, which passes them on).
 | `/sign-up?method=` | `src/app/(auth)/sign-up.tsx` | username (+ email/password), then account creation |
 | `/forgot-password`, `/check-email` | `src/app/(auth)/…` | reset link request, confirmation notice |
 | `/auth/callback`, `/auth/reset-password` | `src/app/auth/…` | deep-link targets (PKCE code exchange, new password) |
-| `/` | `src/app/(app)/index.tsx` | dashboard: full-bleed featured hero (paged, auto-advancing) under a floating top bar (menu → drawer, greeting, avatar with the request badge), search pill, Continue playing / New on Rally / Favorites, Browse by category, one row per genre ("See all" → category sheet) |
+| `/` | `src/app/(app)/index.tsx` | dashboard: full-bleed featured hero (paged, auto-advancing) under a floating top bar (menu → drawer, greeting, avatar with the request badge), search pill, Continue playing / New on Rally / Favorites, Browse by category, one row per genre ("See all" → category sheet); "12 playing" on multiplayer tiles and the hero (`game_live_counts`, every 30 s while in front) |
 | `/search` | `src/app/(app)/search.tsx` | Games (`searchGames` over the catalog) and People (`search_profiles`, debounced 250 ms, `@name` = people only) with Add / Requested / Friends / Accept |
-| `/friends` | `src/app/(app)/friends.tsx` | your friends (`my_friends`) and requests (`my_friend_requests`: Accept / Decline, Cancel); `?tab=requests`; `?username=` lists another player's friends (`public_friends`) |
+| `/friends` | `src/app/(app)/friends.tsx` | your friends (`my_friends`) with presence (`friends_presence`: "Online" / "In Sumo", playing friends first, **Join** when joinable → `join=friend`; every 30 s while in front) and requests (`my_friend_requests`: Accept / Decline, Cancel); `?tab=requests`; `?username=` lists another player's friends (`public_friends`) |
 | `/game/:id` | `src/app/(app)/game/[id]/index.tsx` | game page: screenshot gallery (else cover art), details (+ "Best" for solo games), favorite, Play → consent sheet (multiplayer: Quick play, Rooms, Private → Create room / Join with code), leaderboard, achievements |
 | `/game/:id/rooms` | `src/app/(app)/game/[id]/rooms.tsx` | server browser for multiplayer games with the `browser` mode (see Multiplayer below) |
 | `/game/:id/play` | `src/app/(app)/game/[id]/play.tsx` | full-screen `GameHost` for the published version; multiplayer games take `?join=quick\|create\|room\|friend\|resume` (see Multiplayer below) |
-| `/profile`, `/profile/edit` | `src/app/(app)/profile/…` | profile (stats strip, Friends row with request badge, games played, Settings row), edit (display name, username, bio, Privacy: games played / friends list → Everyone / Friends / Only me, read with `my_privacy`; `?section=privacy` scrolls to it), sign out, delete-account request |
+| `/profile`, `/profile/edit` | `src/app/(app)/profile/…` | profile (stats strip, Friends row with request badge, games played, Settings row), edit (display name, username, bio, Privacy: games played / friends list / online status → Everyone / Friends / Only me, read with `my_privacy`; `?section=privacy` scrolls to it), sign out, delete-account request |
 | `/settings` | `src/app/(app)/settings.tsx` | Appearance (System / Dark / Light: `prefs.appearance` → `Uniwind.setTheme`), Show FPS in games, Profile privacy (summary → Edit profile's Privacy section), Help & support, Sign out, app version |
-| `/u/:username` | `src/app/(app)/u/[username].tsx` | public profile: avatar, names, bio, member since, friendship button (`friendship_with`), games played · achievements · friends (`public_profile_stats`), games played (`public_profile_games`), friends row (`public_friends`), unlocked achievements; Block / Unblock in the ⋯ menu; your own username redirects to `/profile` |
+| `/u/:username` | `src/app/(app)/u/[username].tsx` | public profile: avatar, names, bio, member since, status line (`public_presence`: "Online" / "Playing Sumo"), friendship button (`friendship_with`), games played · achievements · friends (`public_profile_stats`), games played (`public_profile_games`), friends row (`public_friends`), unlocked achievements; Block / Unblock in the ⋯ menu; your own username redirects to `/profile` |
 | `/dev`, `/dev/play` | `src/app/dev/…` | Developer launcher (M0 spike path: direct bundle + Colyseus URL, room type `hello` / `sumo`, join mode quick / create / code / room id, last-run metrics) |
 
 `src/app/_layout.tsx` gates `(app)` on a signed-in, non-anonymous session and `(auth)` on its absence
@@ -278,11 +278,21 @@ per board, every key unlocks) and no play-session service, so `/dev/play` never 
   left (`lib/rejoin.ts`) shows "Rejoin your Sumo match? 0:42" with a live countdown: **Rejoin** →
   `join=resume` (the record stays for the play route), **Leave match** clears it, a backdrop tap hides it for this
   run, and it closes itself when the countdown ends.
+- **Presence** (m3-phase2 §2; `lib/presence-scheduler.ts` rules, `lib/presence.ts` the app's instance,
+  `usePresenceHeartbeat()` in `(app)/_layout.tsx`): linked accounts only (never anonymous or signed out).
+  `heartbeat('online')` right away and every 45 s (the answer's `interval_s`, kept within 15–300 s) while `AppState`
+  is active; `in_game` with the game and room ids from the host's `onJoined` while a multiplayer game is open (the play
+  route sets `online` again when it closes); a change beats at once, and beats never overlap (changes coalesce).
+  Background: beats pause at once; back within 10 s the interval resumes, longer away sends `offline`. Sign-out sends
+  `offline` before the session is dropped (waits at most 3 s). `ok:false` (rate limited, banned) or an auth / input
+  error stops the interval until the status changes or the app returns after the grace; network errors just wait for
+  the next tick. The server's 90 s TTL covers anything missed. Privacy's *Online status* (`privacy.presence`, default
+  Friends) decides who sees it.
 - **"That match has ended"** (a failed or impossible resume) is a toast (`lib/toast.ts` `showToast`, `ToastHost` in
   `(app)/_layout.tsx`): one line under the status bar for 3.5 s, announced to screen readers.
 - Not yet: the code of a room the shell **created** (`join=create`): Colyseus 0.18's seat reservation is
   `{ name, sessionId, roomId, processId }` with no metadata, so the pill only appears for room / friend / resume joins
-  until the game server adds the code to the reservation it answers for `create`. Friend Join buttons (step 6).
+  until the game server adds the code to the reservation it answers for `create`.
 
 **Game page.** Below the details: a **Leaderboard** section (boards from `leaderboards`, in manifest order, with a
 segmented picker when there are several; Global / Friends toggle with a note that friends arrive in M4; top 10 from

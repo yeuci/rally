@@ -30,6 +30,7 @@ import { cn } from '@/lib/utils';
 import { GameCover } from './game-cover';
 import { useSvgId } from './logo';
 import { PageDots } from './page-dots';
+import { PresenceDot } from './presence-dot';
 
 type Pad = { left: number; right: number };
 
@@ -65,6 +66,7 @@ export function DashboardHero({
   onPlay,
   resolvingId,
   notice,
+  liveFor,
 }: {
   games: GameCard[];
   width: number;
@@ -74,6 +76,8 @@ export function DashboardHero({
   onPlay: (game: GameCard) => void;
   resolvingId: string | null;
   notice: { gameId: string; message: string } | null;
+  /** "12 playing" for a multiplayer game with players right now (a chip beside the players count), else null. */
+  liveFor?: (game: GameCard) => string | null;
 }) {
   const palette = usePalette();
   const listRef = useRef<FlatList<GameCard>>(null);
@@ -122,6 +126,7 @@ export function DashboardHero({
         onPlay={onPlay}
         resolving={resolvingId === item.id}
         notice={notice?.gameId === item.id ? notice.message : null}
+        live={liveFor?.(item) ?? null}
         spinnerColor={palette.primaryForeground}
         onContentTop={onContentTop}
       />
@@ -137,6 +142,7 @@ export function DashboardHero({
       onPlay,
       resolvingId,
       notice,
+      liveFor,
       onContentTop,
     ],
   );
@@ -217,6 +223,7 @@ const HeroSlide = memo(function HeroSlide({
   onPlay,
   resolving,
   notice,
+  live,
   spinnerColor,
   onContentTop,
 }: {
@@ -230,6 +237,7 @@ const HeroSlide = memo(function HeroSlide({
   onPlay: (game: GameCard) => void;
   resolving: boolean;
   notice: string | null;
+  live: string | null;
   spinnerColor: string;
   onContentTop: (id: string, top: number) => void;
 }) {
@@ -294,6 +302,12 @@ const HeroSlide = memo(function HeroSlide({
             <Badge variant="outline">
               <Text>{game.age_rating}</Text>
             </Badge>
+            {live ? (
+              <Badge variant="subtle" accessibilityLabel={live}>
+                <PresenceDot />
+                <Text>{live}</Text>
+              </Badge>
+            ) : null}
           </View>
           <View className="flex-row items-center gap-2.5 pt-1">
             <Button

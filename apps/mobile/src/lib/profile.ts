@@ -42,7 +42,11 @@ export function useUpdateProfile() {
       const { privacy, ...columns } = patch;
       const { data, error } = await supabase
         .from('profiles')
-        .update(privacy ? { ...columns, privacy: { games: privacy.games, friends: privacy.friends } } : columns)
+        .update(
+          privacy
+            ? { ...columns, privacy: { games: privacy.games, friends: privacy.friends, presence: privacy.presence } }
+            : columns,
+        )
         .eq('id', userId)
         .select(PROFILE_COLUMNS)
         .single();

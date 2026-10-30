@@ -1,7 +1,9 @@
-import { router, Stack, useLocalSearchParams } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
+import { router, Stack, useFocusEffect, useIsFocused, useLocalSearchParams } from 'expo-router';
 import { CircleAlertIcon, InboxIcon, SearchIcon, UserPlusIcon, UsersIcon } from 'lucide-react-native';
-import { useState } from 'react';
-import { RefreshControl, ScrollView, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { ActivityIndicator, RefreshControl, ScrollView, View } from 'react-native';
+import { LaunchConsentDialog } from '@/components/rally/consent-dialog';
 import { EmptyState } from '@/components/rally/empty-state';
 import { PersonList, PersonListSkeleton, PersonRow } from '@/components/rally/person-row';
 import { SectionHeader } from '@/components/rally/section-header';
@@ -9,11 +11,29 @@ import { Segmented } from '@/components/rally/segmented';
 import { Button } from '@/components/ui/button';
 import { Text } from '@/components/ui/text';
 import { monthYear, timeAgo } from '@/lib/format';
-import { FRIENDS_LIST_LIMIT, useFriendRequests, useFriendshipAction, useMyFriends, usePublicFriends } from '@/lib/friends';
+import { useSession } from '@/lib/auth/session';
+import {
+  FRIENDS_LIST_LIMIT,
+  socialKeys,
+  useFriendRequests,
+  useFriendshipAction,
+  useFriendsPresence,
+  useMyFriends,
+  usePublicFriends,
+} from '@/lib/friends';
 import { usePublicProfile } from '@/lib/game-progress';
 import { useProfile } from '@/lib/profile';
 import { formatScore, sameUsername } from '@/lib/progress-format';
-import { describeSocialError, type FriendIntent, type FriendRequest, type FriendSummary } from '@/lib/social';
+import {
+  describeSocialError,
+  presenceRow,
+  sortByPresence,
+  type FriendIntent,
+  type FriendPresence,
+  type FriendRequest,
+  type FriendSummary,
+} from '@/lib/social';
+import { useLaunchGame, type GameLauncher } from '@/lib/use-launch-game';
 import { useColumnPadding, useLayout } from '@/lib/use-layout';
 import { usePalette } from '@/lib/use-palette';
 
@@ -23,6 +43,11 @@ type Tab = 'friends' | 'requests';
  * Friends (`/friends`): your friends (`my_friends`) and pending requests (`my_friend_requests`: incoming with Accept /
  * Decline, outgoing with Cancel), from the profile's Friends row and stats strip (`?tab=requests` opens Requests).
  * With `?username=` it lists another player's friends (`public_friends`, the profile's "See all").
+ *
+ * Your friends show their presence (`friends_presence`, m3-phase2 §2): "Online" or "In Sumo", playing friends first,
+ * with **Join** when their room has a free seat (`useLaunchGame` → `join=friend`: the play route asks
+ * `friend_join_target` for the room, so the target never comes from the friend's client). Polled every 30 s while
+ * this screen is in front, and refreshed when it comes back into focus.
  */
 export default function FriendsScreen() {
   const { username, tab } = useLocalSearchParams<{ username?: string; tab?: string }>();
@@ -36,17 +61,29 @@ function MyFriends({ initialTab }: { initialTab: Tab }) {
   const column = useColumnPadding();
   const palette = usePalette();
   const [tab, setTab] = useState<Tab>(initialTab);
+  const focused = useIsFocused();
+  const { userId } = useSession();
+  const qc = useQueryClient();
   const friends = useMyFriends();
   const requests = useFriendRequests();
+  const presence = useFriendsPresence(focused);
+  const launcher = useLaunchGame();
   const [refreshing, setRefreshing] = useState(false);
   const incoming = requests.data?.incoming ?? [];
   const outgoing = requests.data?.outgoing ?? [];
   const pending = incoming.length + outgoing.length;
 
+  // Back from a game or a profile: presence may have moved on (only when stale, so the first focus does not refetch).
+  useFocusEffect(
+    useCallback(() => {
+      void qc.refetchQueries({ queryKey: socialKeys.presence(userId), stale: true });
+    }, [qc, userId]),
+  );
+
   async function refresh() {
     setRefreshing(true);
     try {
-      await Promise.all([friends.refetch(), requests.refetch()]);
+      await Promise.all([friends.refetch(), requests.refetch(), presence.refetch()]);
     } finally {
       setRefreshing(false);
     }
@@ -93,7 +130,14 @@ function MyFriends({ initialTab }: { initialTab: Tab }) {
         ) : !friends.data || friends.data.length === 0 ? (
           <EmptyState icon={UsersIcon} title="No friends yet" body="Search for players by name or @username and send a request." action={findPeople} />
         ) : (
-          <FriendList friends={friends.data} />
+          <>
+            {launcher.notice ? (
+              <Text variant="muted" className="text-center leading-5" accessibilityLiveRegion="polite">
+                {launcher.notice.message}
+              </Text>
+            ) : null}
+            <FriendList friends={friends.data} presence={presence.data} launcher={launcher} />
+          </>
         )
       ) : requests.isLoading ? (
         <View className="gap-3">
@@ -120,17 +164,76 @@ function MyFriends({ initialTab }: { initialTab: Tab }) {
           )}
         </>
       )}
+      <LaunchConsentDialog launcher={launcher} />
     </ScrollView>
   );
 }
 
-function FriendList({ friends }: { friends: FriendSummary[] }) {
+/**
+ * Friends with their presence when known (your own list; another player's list has none): playing friends first,
+ * "Online" / "In Sumo" in place of "since …", and Join for a joinable room.
+ */
+function FriendList({
+  friends,
+  presence,
+  launcher,
+}: {
+  friends: FriendSummary[];
+  presence?: ReadonlyMap<string, FriendPresence>;
+  launcher?: GameLauncher;
+}) {
+  const [joining, setJoining] = useState<string | null>(null);
+  const ordered = presence ? sortByPresence(friends, presence) : friends;
+  const join = (target: { gameId: string; gameTitle: string; friendId: string }) => {
+    if (!launcher) return;
+    setJoining(target.friendId);
+    launcher.launch({ id: target.gameId, title: target.gameTitle }, { join: 'friend', friend: target.friendId });
+  };
   return (
     <PersonList
-      items={friends}
+      items={ordered}
       keyOf={(f) => f.userId}
-      render={(f) => <PersonRow person={f} detail={f.since ? `since ${monthYear(f.since)}` : undefined} />}
+      render={(f) => {
+        const row = presenceRow(presence?.get(f.userId), `@${f.username}`);
+        return (
+          <PersonRow
+            person={f}
+            presence={row}
+            detail={f.since ? `since ${monthYear(f.since)}` : undefined}
+            accessory={
+              row?.join && launcher ? (
+                <JoinButton
+                  label={`Join @${f.username} in ${row.join.gameTitle}`}
+                  disabled={!!launcher.pending}
+                  spinning={launcher.pending?.join === 'friend' && joining === f.userId}
+                  onPress={() => row.join && join(row.join)}
+                />
+              ) : undefined
+            }
+          />
+        );
+      }}
     />
+  );
+}
+
+/** Join a friend's room (`{ id: gameId, join: 'friend', friend }` through the shared launcher: plan, consent, push). */
+function JoinButton({
+  label,
+  disabled,
+  spinning,
+  onPress,
+}: {
+  label: string;
+  disabled: boolean;
+  spinning: boolean;
+  onPress: () => void;
+}) {
+  const palette = usePalette();
+  return (
+    <Button size="sm" className="h-8 min-w-16 rounded-full px-3.5" disabled={disabled} onPress={onPress} accessibilityLabel={label}>
+      {spinning ? <ActivityIndicator size="small" color={palette.primaryForeground} /> : <Text className="text-[13px]">Join</Text>}
+    </Button>
   );
 }
 

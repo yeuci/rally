@@ -27,6 +27,7 @@ import {
   useAllGames,
   useFavorites,
   useFeaturedGames,
+  useLiveCounts,
   useNewGames,
   useRecentlyPlayed,
   type GameCard,
@@ -38,6 +39,7 @@ import {
   categoryCoverGames,
   dashboardHeroHeight,
   groupByGenre,
+  liveCountLabel,
   type GenreGroup,
 } from '@/lib/dashboard';
 import { timeAgo } from '@/lib/format';
@@ -55,8 +57,9 @@ const GENRE_SKELETON_ROWS = [0, 1];
 /**
  * Dashboard: a full-bleed featured hero (paged, auto-advancing) under a floating top bar (menu → drawer, greeting,
  * avatar), the search pill, then rows of square tiles (Continue playing, New on Rally, Favorites), "Browse by
- * category" (wide genre cards) and one row per genre with "See all" (the category sheet). Every section has its own
- * skeleton; pull to refresh refetches everything.
+ * category" (wide genre cards) and one row per genre with "See all" (the category sheet). Multiplayer games with
+ * players right now show "12 playing" on their tiles and hero page (`game_live_counts`, every 30 s while the
+ * dashboard is in front). Every section has its own skeleton; pull to refresh refetches everything.
  */
 export default function Dashboard() {
   // Every size below is recomputed from the live window on each render; rotation re-renders through useLayout.
@@ -74,6 +77,8 @@ export default function Dashboard() {
   const recent = useRecentlyPlayed();
   const favorites = useFavorites();
   const catalog = useAllGames();
+  // "12 playing" on multiplayer tiles and the hero: polled every 30 s only while the dashboard is in front.
+  const liveCounts = useLiveCounts(focused);
 
   // Only the pull gesture shows the spinner: background refetches (focus, reconnect, a finished play invalidating
   // "Continue playing") would otherwise pop it up and shift the content.
@@ -95,6 +100,8 @@ export default function Dashboard() {
   const openCategory = (group: GenreGroup<GameCard>) => setSheet({ group, open: true });
   const glow = Math.max(width, 360) * 1.4;
   const playFeatured = (game: GameCard) => launcher.launch(game, { join: 'quick' });
+  const counts = liveCounts.data;
+  const liveFor = (game: GameCard) => liveCountLabel(game, counts);
 
   // The top bar turns solid once the hero has scrolled behind it (UI thread); without a hero it is solid from the start.
   const scrollY = useSharedValue(0);
@@ -126,6 +133,7 @@ export default function Dashboard() {
         catalog.refetch(),
         requests.refetch(),
         profile.refetch(),
+        liveCounts.refetch(),
       ]);
     } finally {
       setRefreshing(false);
@@ -170,6 +178,7 @@ export default function Dashboard() {
               onPlay={playFeatured}
               resolvingId={launcher.resolvingId}
               notice={launcher.notice}
+              liveFor={liveFor}
             />
           )
         ) : (
@@ -204,6 +213,7 @@ export default function Dashboard() {
                 loading={recent.isLoading}
                 tileWidth={tileWidth}
                 pad={pad}
+                liveFor={liveFor}
                 subtitleFor={(g) => timeAgo(lastPlayed.get(g.id))}
               />
               <TileRow
@@ -212,6 +222,7 @@ export default function Dashboard() {
                 loading={newest.isLoading}
                 tileWidth={tileWidth}
                 pad={pad}
+                liveFor={liveFor}
                 empty={
                   <EmptyState
                     icon={SparklesIcon}
@@ -226,6 +237,7 @@ export default function Dashboard() {
                 loading={favorites.isLoading}
                 tileWidth={tileWidth}
                 pad={pad}
+                liveFor={liveFor}
                 empty={
                   <EmptyState
                     compact
@@ -255,6 +267,7 @@ export default function Dashboard() {
                         loading={false}
                         tileWidth={tileWidth}
                         pad={pad}
+                        liveFor={liveFor}
                         onSeeAll={() => openCategory(group)}
                       />
                     ))}
