@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { resolveAvatarPath } from '../src/lib/avatar';
-import { timeAgo } from '../src/lib/format';
+import { formatCount, timeAgo, visitsLabel } from '../src/lib/format';
 import { searchGames } from '../src/lib/search';
 import { compareSemver, satisfiesMinVersion } from '../src/lib/semver';
 
@@ -44,4 +44,36 @@ test('resolveAvatarPath keeps absolute URLs and resolves bucket paths', () => {
   assert.equal(resolveAvatarPath('https://cdn.example.com/a.png', base), 'https://cdn.example.com/a.png');
   assert.equal(resolveAvatarPath('defaults/avatar-03.webp', base), 'https://x.supabase.co/storage/v1/object/public/avatars/defaults/avatar-03.webp');
   assert.equal(resolveAvatarPath('/defaults/avatar-10.webp', base), 'https://x.supabase.co/storage/v1/object/public/avatars/defaults/avatar-10.webp');
+});
+
+test('formatCount: compact counts, one decimal at most, rounded down', () => {
+  assert.equal(formatCount(0), '0');
+  assert.equal(formatCount(950), '950');
+  assert.equal(formatCount(999), '999');
+  assert.equal(formatCount(1_000), '1K');
+  assert.equal(formatCount(1_049), '1K');
+  assert.equal(formatCount(1_050), '1K');
+  assert.equal(formatCount(1_100), '1.1K');
+  assert.equal(formatCount(12_400), '12.4K');
+  assert.equal(formatCount(12_499), '12.4K');
+  assert.equal(formatCount(100_000), '100K');
+  // Never rounds up into the next unit.
+  assert.equal(formatCount(999_999), '999.9K');
+  assert.equal(formatCount(1_000_000), '1M');
+  assert.equal(formatCount(3_100_000), '3.1M');
+  assert.equal(formatCount(3_199_999), '3.1M');
+  assert.equal(formatCount(2_500_000_000), '2.5B');
+  // Bad input reads as a whole count >= 0.
+  assert.equal(formatCount(12.9), '12');
+  assert.equal(formatCount(-5), '0');
+  assert.equal(formatCount(Number.NaN), '0');
+  assert.equal(formatCount(Number.POSITIVE_INFINITY), '0');
+});
+
+test('visitsLabel: "12.4K visits", singular for one', () => {
+  assert.equal(visitsLabel(12_400), '12.4K visits');
+  assert.equal(visitsLabel(3_100_000), '3.1M visits');
+  assert.equal(visitsLabel(950), '950 visits');
+  assert.equal(visitsLabel(1), '1 visit');
+  assert.equal(visitsLabel(0), '0 visits');
 });

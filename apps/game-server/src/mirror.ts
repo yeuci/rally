@@ -33,7 +33,7 @@ export interface RoomMirrorOptions {
   log?: (msg: string) => void;
 }
 
-const realTimers: MirrorTimers = {
+export const realTimers: MirrorTimers = {
   now: () => Date.now(),
   setTimeout: (fn, ms) => setTimeout(fn, ms).unref(),
   clearTimeout: (h) => clearTimeout(h as NodeJS.Timeout),

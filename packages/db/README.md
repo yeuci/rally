@@ -389,8 +389,56 @@ signal; the test `signup without birth_date metadata is refused` pins that behav
   `INVALID: <game> is not a solo game` for games without the `solo` mode (as `submit_solo_score` already did).
   `private.purge_stale_rows()` (job `purge-stale-play-sessions`) also deletes presence rows idle for a day,
   `game_rooms` rows idle for 10 minutes and `match_results` older than 180 days.
+- `20261031000100_visits.sql` (visits = launches of a game, as on Roblox; pinned by `test/visits.test.ts`):
+
+  | Object | Who reads | Who writes |
+  |---|---|---|
+  | `games.visits` bigint, default 0 (all-time launches) | with the rest of the row (published games, anon + authenticated) | `private.bump_visits` only; clients hold no insert/update grant on `games` |
+  | `game_visits_daily` (`game_id`, `day` = UTC date, `visits`; PK `(game_id, day)`) | anon + authenticated, rows of published games (for a 7-day trend) | `private.bump_visits` only |
+  | `private.bump_visits(game, count)` | nobody | adds `count` to `games.visits` and the current UTC day's row in the caller's transaction; ignores `count <= 0`; no-op for an unknown game |
+
+  What counts: `start_play_session` (one visit per session created) and `record_play` (the fallback without a
+  session, one per counted play), both already rate limited; a refused call counts nothing. `abandon_play_session`
+  and `end_play_session` never count. Multiplayer joins are reported by the game server:
+
+  ```ts
+  // Service role only. p_count 1..1000 (INVALID otherwise, MAX_SERVER_VISITS_PER_CALL); NOT_FOUND for an unknown game.
+  await rpc('server_record_visits', { p_game_id: 'sumo', p_count: joins });
+  // App: 7-day trend (UTC days; days without launches have no row).
+  await supabase.from('game_visits_daily').select('day, visits').eq('game_id', id).gte('day', sevenDaysAgoUtc).order('day');
+  ```
+
+  A bump does not touch `games.updated_at` (the `games_updated_at` trigger skips updates whose only change is
+  `visits`). `private.purge_stale_rows()` also deletes `game_visits_daily` rows of UTC days more than 90 days ago;
+  `games.visits` keeps the total.
 - The word filter matches whole words, case-insensitively; see the header of `seed.sql` for what that
   does and does not catch.
+
+## Realtime
+
+`20261031000200_social_realtime.sql` (pinned by `test/social-realtime.test.ts`) pushes friendship changes with
+Broadcast-from-database into one private channel per user, topic `user:<uid>`. `friendships` is deliberately not in
+the `supabase_realtime` publication: `postgres_changes` neither filters DELETE events nor applies RLS to them.
+
+- An AFTER INSERT/UPDATE/DELETE trigger on `friendships` (`private.broadcast_friendship_change`, security definer)
+  calls `realtime.send(payload, 'social', 'user:<to>', true)` once per change, to the recipient's topic only:
+  `{ type, from, to, at }` with `from` = actor, `to` = recipient (owner of the topic), `at` = ISO 8601 UTC, and no
+  usernames (look the profile up). `type`: `friend_request` (to the recipient), `friend_accepted` (to the original
+  requester; also for the mutual auto-accept of `send_friend_request`), `friend_declined` (to the requester),
+  `friend_request_cancelled` (to the recipient), `friend_removed` (to the other side). `block_user` sends the matching
+  declined / cancelled / removed event, so a block looks like those. Nothing is sent when the status did not change,
+  nor for deletes by the service role or without a user JWT (purges, account deletion cascades).
+- Who listens: RLS on `realtime.messages`, policy "users receive their own user channel": SELECT to `authenticated`
+  where `realtime.topic() = 'user:' || auth.uid()`. No INSERT policy, so clients cannot send or track presence on
+  `user:*`. The app subscribes like this:
+
+  ```ts
+  await supabase.realtime.setAuth(); // private channels need the user's JWT
+  supabase.channel(`user:${uid}`, { config: { private: true } }).on('broadcast', { event: 'social' }, onSocial).subscribe();
+  ```
+- Where `realtime.send` / `realtime.messages` do not exist (PGlite tests, a local stack without Realtime) the trigger
+  sends nothing and the policy is skipped with a NOTICE. A failing send raises a WARNING and never fails the
+  friendship change.
 
 ## Default avatars
 

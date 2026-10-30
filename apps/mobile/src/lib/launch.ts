@@ -221,10 +221,12 @@ export async function recoverPlaySession(qc: QueryClient, userId: string): Promi
 }
 
 /**
- * Everything a recorded play changes for the player: "Continue playing", the game page's leaderboards and
- * achievements, and their own profile (stats strip, games played, unlocked achievements).
+ * Everything a recorded play changes for the player: the game's catalog entry (its `visits` count, and the daily
+ * visits under the same key), "Continue playing", the game page's leaderboards and achievements, and their own
+ * profile (stats strip, games played, unlocked achievements).
  */
 export function invalidateAfterPlay(qc: QueryClient, userId: string | null, gameId: string) {
+  void qc.invalidateQueries({ queryKey: catalogKeys.game(gameId) });
   void qc.invalidateQueries({ queryKey: catalogKeys.recent(userId) });
   void qc.invalidateQueries({ queryKey: progressKeys.game(userId, gameId) });
   if (!userId) return;

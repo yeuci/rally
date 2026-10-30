@@ -18,6 +18,7 @@ import { clientAddress } from '../rateLimit.js';
 import { isRoomCreation, roomCreationLimit } from '../routes.js';
 import { isUuid, serviceApi, type GameRoomSnapshot } from '../supabase.js';
 import { SERVER_VERSION } from '../version.js';
+import { configureVisitCounter, visitCounter, type VisitCounter } from '../visits.js';
 
 export type { RallyAuth } from '../auth.js';
 
@@ -95,6 +96,8 @@ function roomMirror(): RoomMirror | null {
  * - **Mirror:** the `onRoom*` / `onPlayer*` hooks and {@link syncMetadata} push a snapshot to the process's
  *   {@link RoomMirror} (`game_rooms`, for presence and live counts); writes are coalesced and best effort, so the
  *   room never waits for Supabase.
+ * - **Visits:** {@link onPlayerJoined} counts a visit of the game in the process's {@link VisitCounter}
+ *   (`server_record_visits`, batched): a new seat is a visit, a reconnection within the grace is not.
  *
  * Subclasses implement the `onGame*` hooks instead of overriding Colyseus' lifecycle methods; a subclass that
  * overrides an `onRoom*` / `onPlayer*` hook must call `super`.
@@ -157,6 +160,14 @@ export abstract class RallyRoom<S extends object = object> extends Room<{
     return auth;
   }
 
+  /**
+   * Replace the process's visit counter (tests): `null` disables counting, `undefined` goes back to the default
+   * built from the environment (Supabase with a service key, a logging dry run in development, else none).
+   */
+  static configureVisits(next: VisitCounter | null | undefined): void {
+    configureVisitCounter(next);
+  }
+
   // ---- game hooks (override these) ----------------------------------------------------------------------------
 
   /** Build state, timers and message handlers. Runs once; `this.gameId`, `this.joinCode` etc. are already set. */
@@ -193,11 +204,12 @@ export abstract class RallyRoom<S extends object = object> extends Room<{
     }
   }
   /**
-   * A seat was taken: mirror the new count and `player_ids`. Presence itself comes from the shell's heartbeat; the
-   * mirror only confirms the seat.
+   * A seat was taken: mirror the new count and `player_ids` (presence itself comes from the shell's heartbeat; the
+   * mirror only confirms the seat), and count a visit (see {@link countVisit}).
    */
-  protected onPlayerJoined(_client: RallyClient): void | Promise<void> {
+  protected onPlayerJoined(client: RallyClient): void | Promise<void> {
     this.pushMirror();
+    this.countVisit(client);
   }
   /** A seat was freed (not on a drop: a player inside the grace still holds it). */
   protected onPlayerLeft(_client: RallyClient): void | Promise<void> {
@@ -322,6 +334,24 @@ export abstract class RallyRoom<S extends object = object> extends Room<{
       serverVersion: SERVER_VERSION,
       playerIds: [...playerIds],
     };
+  }
+
+  /**
+   * A visit is a player's first seat in this room. A reconnection within the grace never gets here (Colyseus calls
+   * `onReconnect`, same seat); a player who already holds another seat here (a second tab, or a fresh join while the
+   * old seat is still inside its grace) is not a new visit either. A join after the grace ran out (or after a
+   * consented leave) is a new seat, so a new visit. Never blocks or throws.
+   */
+  protected countVisit(client: RallyClient): void {
+    const userId = client.auth?.userId;
+    for (const [sessionId, seat] of this.seats) {
+      if (sessionId !== client.sessionId && seat.auth.userId === userId) return;
+    }
+    try {
+      visitCounter()?.record(this.gameId);
+    } catch (err) {
+      console.warn(`[visits] record ${this.gameId} failed`, err);
+    }
   }
 
   /** Hand the current snapshot to the mirror (coalesced there; never blocks or throws). */

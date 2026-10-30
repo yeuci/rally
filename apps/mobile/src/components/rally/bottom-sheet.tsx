@@ -1,8 +1,9 @@
-import type { ReactNode } from 'react';
+import { useEffect, useId, type ComponentProps, type ReactNode } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, View } from 'react-native';
 import Animated, { ReduceMotion, SlideInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@/components/ui/text';
+import { setSheetOpen } from '@/lib/open-sheets';
 import { cn } from '@/lib/utils';
 
 /**
@@ -17,6 +18,8 @@ export function BottomSheet({
   description,
   children,
   className,
+  supportedOrientations,
+  register = true,
 }: {
   open: boolean;
   onClose: () => void;
@@ -24,8 +27,22 @@ export function BottomSheet({
   description?: ReactNode;
   children: ReactNode;
   className?: string;
+  /**
+   * iOS: orientations the sheet may be shown in (React Native's default is portrait only). A sheet that can appear
+   * over a landscape-locked game must allow landscape, or iOS rotates the screen (or refuses the presentation).
+   */
+  supportedOrientations?: ComponentProps<typeof Modal>['supportedOrientations'];
+  /** Count in lib/open-sheets.ts while open (a sheet that waits for the others passes false). */
+  register?: boolean;
 }) {
   const insets = useSafeAreaInsets();
+  const id = useId();
+  const registered = open && register;
+  useEffect(() => {
+    if (!registered) return;
+    setSheetOpen(id, true);
+    return () => setSheetOpen(id, false);
+  }, [registered, id]);
   return (
     <Modal
       visible={open}
@@ -34,6 +51,7 @@ export function BottomSheet({
       onRequestClose={onClose}
       statusBarTranslucent
       navigationBarTranslucent
+      supportedOrientations={supportedOrientations}
     >
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1 justify-end">
         <Pressable

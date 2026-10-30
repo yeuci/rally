@@ -1,8 +1,8 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import * as Haptics from 'expo-haptics';
 import { Alert } from 'react-native';
 import { useSession } from '@/lib/auth/session';
 import { progressKeys } from '@/lib/game-progress';
+import { selectionHaptic } from '@/lib/haptics';
 import {
   describeSocialError,
   nextFriendship,
@@ -42,6 +42,8 @@ export const socialKeys = {
   publicGames: (uid: string | null, userId: string) => ['social', uid, 'public-games', userId] as const,
   presence: (uid: string | null) => ['social', uid, 'presence'] as const,
   publicPresence: (uid: string | null, userId: string) => ['social', uid, 'public-presence', userId] as const,
+  /** A requester's card for the friend-request sheet / accepted toast (lib/social-realtime.ts `fetchRequestProfile`). */
+  requestProfile: (uid: string | null, userId: string) => ['social', uid, 'request-profile', userId] as const,
 };
 
 /** How often friends' presence refreshes while a screen showing it is in front (m3-phase2 §2; realtime is M4). */
@@ -107,6 +109,13 @@ export function useMyFriends() {
   });
 }
 
+/** `my_friend_requests`, split into incoming and outgoing (newest first). */
+export async function fetchFriendRequests(): Promise<{ incoming: FriendRequest[]; outgoing: FriendRequest[] }> {
+  const { data, error } = await supabase.rpc('my_friend_requests');
+  if (error) throw error;
+  return splitRequests(data);
+}
+
 /** Pending requests (`my_friend_requests`), split into incoming and outgoing. */
 export function useFriendRequests() {
   const { userId } = useSession();
@@ -114,11 +123,7 @@ export function useFriendRequests() {
     queryKey: socialKeys.requests(userId),
     enabled: !!userId,
     retry: retryable,
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc('my_friend_requests');
-      if (error) throw error;
-      return splitRequests(data);
-    },
+    queryFn: fetchFriendRequests,
   });
 }
 
@@ -270,7 +275,7 @@ export function useFriendshipAction() {
     mutationFn: async ({ userId, intent, current }: FriendshipVars): Promise<Friendship> =>
       nextFriendship(current, intent, await runIntent(intent, userId)),
     onMutate: async ({ userId, intent, current }) => {
-      void Haptics.selectionAsync().catch(() => {});
+      selectionHaptic();
       // Every social query may hold this relationship (search rows, request lists): stop in-flight refetches
       // so none of them lands on top of the optimistic state; onSettled refetches them all.
       await qc.cancelQueries({ queryKey: socialKeys.all(uid) });

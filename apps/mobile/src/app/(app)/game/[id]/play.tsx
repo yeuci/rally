@@ -4,7 +4,9 @@ import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
+import { FriendRequestPrompt } from '@/components/rally/friend-request-sheet';
 import { RoomCodePill } from '@/components/rally/room-code-pill';
+import { ToastHost } from '@/components/rally/toast';
 import { config, toWsUrl } from '@/config';
 import { HostError } from '@/game-host/bridge';
 import { GameHost, type GameHostResult } from '@/game-host/GameHost';
@@ -195,6 +197,11 @@ export default function PlayScreen() {
         onPlayRecorded={onPlayRecorded}
       />
       {roomCode ? <RoomCodePill key={roomCode} code={roomCode} gameTitle={p.game.title} /> : null}
+      {/* This screen is a native full-screen modal: the shell's toast and sheets sit underneath it. On iOS a Modal
+          presents from the nearest view controller, so the friend-request sheet must be mounted here to rise over
+          the game (components/rally/friend-request-sheet.tsx). */}
+      <ToastHost />
+      <FriendRequestPrompt placement="game" />
     </View>
   );
 }

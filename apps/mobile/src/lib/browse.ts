@@ -108,7 +108,7 @@ export function genreChips(games: readonly Pick<GameCard, 'genres'>[], selected:
 
 // --- filtering and sorting ------------------------------------------------------------------------------------------
 
-type Sortable = Pick<GameCard, 'id' | 'title' | 'genres' | 'featured_rank' | 'created_at' | 'max_players'>;
+type Sortable = Pick<GameCard, 'id' | 'title' | 'genres' | 'featured_rank' | 'created_at' | 'max_players' | 'visits'>;
 
 /** Games in `genre` (any spelling); all of them for null. */
 export function filterByGenre<T extends Pick<GameCard, 'genres'>>(games: readonly T[], genre: string | null): T[] {
@@ -142,13 +142,16 @@ export function compareNew(a: Sortable, b: Sortable): number {
 }
 
 /**
- * Popular: players in live rooms right now (multiplayer games, `game_live_counts`), then the editors' featured rank
- * (1 first; unranked after every ranked game), then the newest, then A–Z. The catalog exposes no global play
- * counts to the client, so live players are the only usage signal.
+ * Popular: the most visits first (`games.visits`: launches of solo games, joins of multiplayer ones), then players in
+ * live rooms right now (multiplayer games, `game_live_counts`), then the editors' featured rank (1 first; unranked
+ * after every ranked game), then the newest, then A–Z.
  */
 export function comparePopular(counts: ReadonlyMap<string, LiveCount> | undefined) {
+  const visits = (g: Sortable) => (Number.isFinite(g.visits) ? Math.max(0, g.visits) : 0);
   const live = (g: Sortable) => (g.max_players > 1 ? (counts?.get(g.id)?.players ?? 0) : 0);
   return (a: Sortable, b: Sortable): number => {
+    const visited = visits(b) - visits(a);
+    if (visited) return visited;
     const players = live(b) - live(a);
     if (players) return players;
     const ra = a.featured_rank ?? Number.POSITIVE_INFINITY;

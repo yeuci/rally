@@ -88,3 +88,12 @@ export type RecordedMatchPlayer = {
 export type RecordedMatch =
   | { duplicate: true }
   | { duplicate: false; players: Record<string, RecordedMatchPlayer> };
+
+// ---- Visits (20261031000100_visits.sql) ---------------------------------------------------------------------------
+
+/**
+ * `server_record_visits(p_game_id, p_count)` (service role) accepts 1..this many joins per call (INVALID otherwise).
+ * Solo launches are counted by `start_play_session` / `record_play`; `games.visits` is the all-time total and
+ * `game_visits_daily` the per-UTC-day count (kept 90 days).
+ */
+export const MAX_SERVER_VISITS_PER_CALL = 1000 as const;

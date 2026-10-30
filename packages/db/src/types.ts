@@ -416,6 +416,32 @@ export type Database = {
           },
         ]
       }
+      game_visits_daily: {
+        Row: {
+          day: string
+          game_id: string
+          visits: number
+        }
+        Insert: {
+          day: string
+          game_id: string
+          visits?: number
+        }
+        Update: {
+          day?: string
+          game_id?: string
+          visits?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "game_visits_daily_game_id_fkey"
+            columns: ["game_id"]
+            isOneToOne: false
+            referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       games: {
         Row: {
           age_rating: Database["public"]["Enums"]["age_rating"]
@@ -437,6 +463,7 @@ export type Database = {
           status: Database["public"]["Enums"]["game_status"]
           title: string
           updated_at: string
+          visits: number
         }
         Insert: {
           age_rating?: Database["public"]["Enums"]["age_rating"]
@@ -458,6 +485,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["game_status"]
           title: string
           updated_at?: string
+          visits?: number
         }
         Update: {
           age_rating?: Database["public"]["Enums"]["age_rating"]
@@ -479,6 +507,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["game_status"]
           title?: string
           updated_at?: string
+          visits?: number
         }
         Relationships: [
           {
@@ -979,6 +1008,10 @@ export type Database = {
       }
       send_friend_request: { Args: { p_user_id: string }; Returns: string }
       server_record_match: { Args: { p_match: Json }; Returns: Json }
+      server_record_visits: {
+        Args: { p_count: number; p_game_id: string }
+        Returns: undefined
+      }
       server_remove_game_room: {
         Args: { p_room_id: string }
         Returns: undefined

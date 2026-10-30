@@ -175,3 +175,44 @@ export function liveCountLabel(
   const n = players < 1000 ? String(players) : new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 }).format(players);
   return `${n} playing`;
 }
+
+// --- visits (`games.visits`, `game_visits_daily`) -------------------------------------------------------------------
+
+/** Days `useVisitsDaily` reads, today (UTC) included. */
+export const VISITS_DAILY_DAYS = 7;
+
+/** One UTC day of visits: `day` is `YYYY-MM-DD`. */
+export interface VisitsDay {
+  day: string;
+  visits: number;
+}
+
+const DAY_MS = 86_400_000;
+const isoDay = (t: number) => new Date(t).toISOString().slice(0, 10);
+
+/** The `day` bounds (inclusive, `YYYY-MM-DD`, UTC) of the last `days` days ending today. */
+export function visitsDailyRange(now: number = Date.now(), days: number = VISITS_DAILY_DAYS): { from: string; to: string } {
+  const span = Math.max(1, Math.floor(days));
+  return { from: isoDay(now - (span - 1) * DAY_MS), to: isoDay(now) };
+}
+
+/**
+ * `game_visits_daily` rows → one entry per day of the range, oldest first, 0 for a day without a row (or a bad
+ * number). Rows outside the range are dropped.
+ */
+export function toVisitsDaily(
+  rows: readonly { day: string; visits: number | string | null }[] | null,
+  now: number = Date.now(),
+  days: number = VISITS_DAILY_DAYS,
+): VisitsDay[] {
+  const byDay = new Map<string, number>();
+  for (const r of rows ?? []) {
+    const n = Number(r.visits);
+    byDay.set(r.day.slice(0, 10), Number.isFinite(n) && n > 0 ? Math.floor(n) : 0);
+  }
+  const span = Math.max(1, Math.floor(days));
+  return Array.from({ length: span }, (_, i) => {
+    const day = isoDay(now - (span - 1 - i) * DAY_MS);
+    return { day, visits: byDay.get(day) ?? 0 };
+  });
+}

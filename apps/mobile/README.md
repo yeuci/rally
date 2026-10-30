@@ -14,7 +14,7 @@ pnpm dev:mobile:go                    # Metro for Expo Go (email sign-in + Devel
 
 pnpm --filter @rally/mobile typecheck # app + tests
 pnpm --filter @rally/mobile lint      # expo lint (React Compiler rules), zero warnings
-pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects/anonymous plan, bridge + nav gate, handlers (saves, leaderboards, achievements, join limits, token policy), join targets + rejoin journal (target → matchmaking calls, sticky / resume-once, reportReconnection room check, journal expiry, minVersion refusal, room lookups), controller (play sessions, playtime across reloads, diagnostics), session journal, storage reset, progress formatting, cover art, social (friendship buttons, people ranking, privacy incl. presence, requests), presence (heartbeat scheduler: AppState, interval, grace, ok:false, sign-out; presence row model, Join targets, live counts), dashboard (hero / category geometry, genre rows, hero auto-advance rules), browse (route params, genre chip order, Popular / New / A–Z comparators, grid columns per window), drawer (width, swipe routes, edge width, items), press guard (drawer swipe / drag vs tap), preferences (FPS, appearance, haptics), join UI (code input normalisation and lookup copy, room rows, rejoin countdown and offer rules, room code share text), gradients (page fades from the page colour at alpha 0, no visible colour blends), theme tokens (PALETTE ↔ global.css), recent searches, the friends filter, podium tints, game share copy
+pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects/anonymous plan, bridge + nav gate, handlers (saves, leaderboards, achievements, join limits, token policy), join targets + rejoin journal (target → matchmaking calls, sticky / resume-once, reportReconnection room check, journal expiry, minVersion refusal, room lookups), controller (play sessions, playtime across reloads, diagnostics), session journal, storage reset, progress formatting, cover art, social (friendship buttons, people ranking, privacy incl. presence, requests), social realtime (broadcast event → show / toast / dismiss / refresh, request keys, seen-keys store, catch-up pick, request queue), presence (heartbeat scheduler: AppState, interval, grace, ok:false, sign-out; presence row model, Join targets, live counts), dashboard (hero / category geometry, genre rows, hero auto-advance rules, the 7-day visits range), browse (route params, genre chip order, Popular (visits, then live players) / New / A–Z comparators, grid columns per window), visit counts (`formatCount` 950 / 12.4K / 3.1M, `visitsLabel`), drawer (width, swipe routes, edge width, items), press guard (drawer swipe / drag vs tap), preferences (FPS, appearance, haptics), join UI (code input normalisation and lookup copy, room rows, rejoin countdown and offer rules, room code share text), gradients (page fades from the page colour at alpha 0, no visible colour blends), theme tokens (PALETTE ↔ global.css), recent searches, the friends filter, podium tints, game share copy
 node scripts/generate-brand-assets.cjs  # (from apps/mobile) app icon, adaptive icon layers, splash, favicon from src/lib/brand.ts; needs Playwright
 ```
 
@@ -99,11 +99,11 @@ when they do surface (profile edits go through PostgREST, which passes them on).
 | `/sign-up?method=` | `src/app/(auth)/sign-up.tsx` | username (+ email/password), then account creation |
 | `/forgot-password`, `/check-email` | `src/app/(auth)/…` | reset link request, confirmation notice |
 | `/auth/callback`, `/auth/reset-password` | `src/app/auth/…` | deep-link targets (PKCE code exchange, new password) |
-| `/` | `src/app/(app)/index.tsx` | dashboard: full-bleed featured hero (paged, auto-advancing) under a floating top bar (menu → drawer, greeting, avatar with the request badge), search pill, Continue playing / New on Rally / Favorites, Browse by category, "Browse all games", one row per genre ("See all" and the category cards → `/browse?genre=`); "12 playing" on multiplayer tiles and the hero (`game_live_counts`, every 30 s while in front) |
-| `/browse?genre=&sort=&q=` | `src/app/(app)/browse.tsx` | the whole catalog as a tile grid (2 columns on a portrait phone, 3–4 when wide: `lib/browse.ts` `browseGrid`, sized like the dashboard rows' tiles). Genre chips ("All" first, then the biggest genre) and Popular / New / A–Z (`sort=popular\|new\|az`, default `popular`: live players, then featured rank, then newest) write back into the route with `router.setParams`; `genre` is a `games.genres` tag (any case), `q` is search's "See all" query (a dismissable "Matching …" pill). Title "Browse" or the genre; "12 playing" on multiplayer tiles; skeleton grid, pull to refresh, empty state per genre / query, Retry. Unknown params fall back to the defaults |
+| `/` | `src/app/(app)/index.tsx` | dashboard: full-bleed featured hero (paged, auto-advancing) under a floating top bar (menu → drawer, greeting, avatar with the request badge), search pill, Continue playing / New on Rally / Favorites, Browse by category, "Browse all games", one row per genre ("See all" and the category cards → `/browse?genre=`); "12 playing" on multiplayer tiles and the hero (`game_live_counts`, every 30 s while in front); a quiet "12.4K visits" line in the hero (`games.visits`, `lib/format.ts` `formatCount`) |
+| `/browse?genre=&sort=&q=` | `src/app/(app)/browse.tsx` | the whole catalog as a tile grid (2 columns on a portrait phone, 3–4 when wide: `lib/browse.ts` `browseGrid`, sized like the dashboard rows' tiles). Genre chips ("All" first, then the biggest genre) and Popular / New / A–Z (`sort=popular\|new\|az`, default `popular`: `games.visits`, then live players, then featured rank, then newest) write back into the route with `router.setParams`; `genre` is a `games.genres` tag (any case), `q` is search's "See all" query (a dismissable "Matching …" pill). Title "Browse" or the genre; "12 playing" on multiplayer tiles, a second "12.4K visits" line on the others; skeleton grid, pull to refresh, empty state per genre / query, Retry. Unknown params fall back to the defaults |
 | `/search` | `src/app/(app)/search.tsx` | Games (`searchGames` over the catalog; the first 5, "See all" → `/browse?q=`) and People (`search_profiles`, debounced 250 ms, `@name` = people only) with Add / Requested / Friends / Accept; `?q=` prefills the field; with it empty, the last 8 searches (AsyncStorage `rally.recent-searches`, remembered on submit or on leaving with results; × / Clear) |
 | `/friends` | `src/app/(app)/friends.tsx` | your friends (`my_friends`) with presence (`friends_presence`: "Online" / "In Sumo", playing friends first, **Join** when joinable → `join=friend`; every 30 s while in front) and requests (`my_friend_requests`: Accept / Decline, Cancel); a field that filters your friends on the device (name or @username); "Find players" opens search with `@`; `?tab=requests`; `?username=` lists another player's friends (`public_friends`) |
-| `/game/:id` | `src/app/(app)/game/[id]/index.tsx` | game page: screenshot gallery (else cover art), details (+ "Best" for solo games: tap → scrolls to the leaderboard and flashes your row), Share (native sheet: title, plus the web link with `EXPO_PUBLIC_WEB_ORIGIN`), favorite (spring + haptic), Play → consent sheet (multiplayer: Quick play, Rooms, Private → Create room / Join with code), leaderboard (gold / silver / bronze rank badges for the top 3; tapping your own row flashes it), achievements ("3 / 5") |
+| `/game/:id` | `src/app/(app)/game/[id]/index.tsx` | game page: screenshot gallery (else cover art), details (Visits "12.4K visits", refreshed after a play by `invalidateAfterPlay`; + "Best" for solo games: tap → scrolls to the leaderboard and flashes your row), Share (native sheet: title, plus the web link with `EXPO_PUBLIC_WEB_ORIGIN`), favorite (spring + haptic), Play → consent sheet (multiplayer: Quick play, Rooms, Private → Create room / Join with code), leaderboard (gold / silver / bronze rank badges for the top 3; tapping your own row flashes it), achievements ("3 / 5") |
 | `/game/:id/rooms` | `src/app/(app)/game/[id]/rooms.tsx` | server browser for multiplayer games with the `browser` mode (see Multiplayer below) |
 | `/game/:id/play` | `src/app/(app)/game/[id]/play.tsx` | full-screen `GameHost` for the published version; multiplayer games take `?join=quick\|create\|room\|friend\|resume` (see Multiplayer below) |
 | `/profile`, `/profile/edit` | `src/app/(app)/profile/…` | profile (long-press the avatar to copy "@username", also on `/u/:username`; "Member since Oct 2026"; stats strip, Friends row with request badge, games played, Settings row), edit (display name, username, bio, Privacy: games played / friends list / online status → Everyone / Friends / Only me, read with `my_privacy`; `?section=privacy` scrolls to it), sign out, delete-account request |
@@ -164,6 +164,37 @@ most 10 rows; every genre gets a card). "See all" and the cards push Browse on t
   also in compact rows). Section headers are one component (`SectionHeader`: `title`, or `group` for the caps label
   over a settings card) with one text action (`HeaderAction`: See all / Show less / Clear). Rows press to
   `active:bg-accent`, everything else to `active:opacity-70`; list separators are `Separator` (`border` token).
+
+### Realtime (friend requests)
+
+`lib/social-realtime.ts` (rules in `lib/social-realtime-model.ts`, tested) shows a request the moment it is sent,
+over a running game too.
+
+- **Channel.** `useSocialRealtime()` in `(app)/_layout.tsx` keeps one private channel `user:<uid>`
+  (`{ config: { private: true } }`) per linked, signed-in account and listens to the broadcast event `social`:
+  `{ type, from, to, at }`, sent by the database (`packages/db` README, "Realtime") only to the recipient's topic.
+  `friend_request` → the sheet; `friend_accepted` → toast "sloth accepted your friend request";
+  `friend_request_cancelled` / `friend_removed` → the sender's sheet closes; every event invalidates
+  `['social', uid]` (requests, friendship, friends, badges). Events that name neither side as the user are ignored.
+  supabase-js hands the session JWT to Realtime on sign-in and refresh; `setAuth()` runs again before each subscribe.
+  A new account replaces the channel, sign-out removes it, and returning to the foreground replaces it unless it is
+  still joined. Dev builds log the channel status (`[social-realtime]`).
+- **Catch-up.** Broadcasts are not stored, so on launch, on each (re)subscribe and on returning to the foreground
+  the app reads `my_friend_requests` and shows the newest incoming request not seen yet. Seen keys
+  (`<requester>:<created_at ms>`) live in AsyncStorage `rally.friend-requests.seen.<uid>` (≤ 200; answered ones are
+  pruned once per launch). A request becomes seen when its sheet shows; older unseen ones are only counted on the
+  Friends badge. Queued requests that are no longer pending are dropped.
+- **Sheet** (`components/rally/friend-request-sheet.tsx`). The avatar, name and @username (`profiles` by id, public
+  columns), with Accept, Decline and Later (Later, the backdrop and back keep the request in Friends). Accept and
+  Decline go through `useFriendshipAction`. A light haptic plays on appear (Settings → Haptics). Several requests
+  queue (≤ 10) and show one after another.
+- **Over the game.** On iOS a React Native `Modal` presents from the nearest view controller, not from the top-most
+  one, and the play route is a native `fullScreenModal`. A sheet mounted in the shell (or the root layout) cannot
+  rise over it, so `FriendRequestPrompt` is mounted twice: `placement="shell"` in `(app)/_layout.tsx` while no game
+  is open, and `placement="game"` inside the play route. Each waits 700 ms after the game screen opens or closes, so
+  it never presents mid-transition. The shell host also waits while another `BottomSheet` is open (rejoin, join
+  code; `lib/open-sheets.ts`), because one view controller presents one Modal at a time. The sheet allows every orientation (games lock landscape, and React Native's
+  default is portrait only). The play route also mounts a `ToastHost`, so the accepted toast shows in a game too.
 
 ### Light and dark
 

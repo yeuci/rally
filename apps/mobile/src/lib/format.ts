@@ -30,3 +30,34 @@ export function playsLabel(n: number): string {
   const plays = Math.max(0, Math.floor(n));
   return `${plays} ${plays === 1 ? 'play' : 'plays'}`;
 }
+
+const COUNT_UNITS = [
+  { size: 1_000_000_000, suffix: 'B' },
+  { size: 1_000_000, suffix: 'M' },
+  { size: 1_000, suffix: 'K' },
+] as const;
+
+/**
+ * Compact count, Roblox style: 950 → "950", 12_400 → "12.4K", 3_100_000 → "3.1M", 1_000 → "1K". One decimal at most,
+ * rounded down (a count never reads higher than it is, and 999_999 stays "999.9K" instead of "1000K"). Locale
+ * independent (Hermes' compact notation varies by platform). Negative, fractional or non-finite input: floored to a
+ * whole count ≥ 0.
+ */
+export function formatCount(n: number): string {
+  const count = Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+  for (const { size, suffix } of COUNT_UNITS) {
+    if (count < size) continue;
+    // Tenths of the unit in integer math (12_400 / 100 = 124 → "12.4"), so no float rounding creeps in.
+    const tenths = Math.floor(count / (size / 10));
+    const whole = Math.floor(tenths / 10);
+    const decimal = tenths % 10;
+    return `${whole}${decimal ? `.${decimal}` : ''}${suffix}`;
+  }
+  return String(count);
+}
+
+/** "12.4K visits", "1 visit", "0 visits" (`games.visits`). */
+export function visitsLabel(n: number): string {
+  const count = Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+  return `${formatCount(count)} ${count === 1 ? 'visit' : 'visits'}`;
+}

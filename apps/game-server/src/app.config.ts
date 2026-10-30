@@ -4,6 +4,7 @@ import { configWarnings, describeConfig, serverConfig } from './config.js';
 import { rooms } from './registry.js';
 import { installCors, installMatchmakingGuards, listRooms, roomByCode } from './routes.js';
 import { SERVER_VERSION } from './version.js';
+import { shutdownVisits } from './visits.js';
 
 export { SERVER_VERSION } from './version.js';
 
@@ -41,5 +42,9 @@ const server = defineServer({
     }
   },
 });
+
+// Graceful shutdown (SIGINT from `pm2 stop` / reload, SIGTERM, Ctrl-C: Colyseus' handler): after the matchmaker has
+// disposed every room, send the visits still batched (at most 1 s, inside pm2's 1.6 s kill_timeout).
+server.onShutdown(() => shutdownVisits());
 
 export default server;

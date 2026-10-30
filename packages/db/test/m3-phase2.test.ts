@@ -130,6 +130,7 @@ describe('grants', () => {
       fns.rows.map((r) => r.sig),
       [
         'server_record_match(jsonb)',
+        'server_record_visits(text,integer)',
         'server_remove_game_room(text)',
         'server_sanction_status(uuid)',
         'server_touch_game_rooms(text[])',

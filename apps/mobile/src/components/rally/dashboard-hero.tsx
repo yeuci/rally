@@ -22,6 +22,7 @@ import { Text } from '@/components/ui/text';
 import { playersLabel, type GameCard } from '@/lib/catalog';
 import { genreLabel, HERO_AUTO_ADVANCE_MS, heroAutoAdvances, nextHeroPage } from '@/lib/dashboard';
 import { DRAWER_EDGE_WIDTH } from '@/lib/drawer';
+import { visitsLabel } from '@/lib/format';
 import { dashboardHeroFade, dashboardHeroFadeWide, dashboardHeroSide } from '@/lib/gradient';
 import { coverUriFor } from '@/lib/game-art';
 import { pageIndex } from '@/lib/layout';
@@ -48,9 +49,10 @@ function wideColumn(width: number) {
  * The dashboard's full-bleed featured hero: one page per featured game, the window's full width, from the top of the
  * window (under the status bar and the floating top bar). Cover art (`coverUriFor(game, 'feature')`, else generated
  * art) under a scrim that shades the top for the bar and fades into the page background, then the Featured chip,
- * title, meta chips and Play / Details. Several games page horizontally with dots and advance on their own every
- * `HERO_AUTO_ADVANCE_MS` (lib/dashboard.ts `heroAutoAdvances`: not under reduced motion or a screen reader, not while
- * touched, not while the dashboard is covered or the drawer is open). The list is keyed on its size, so a rotation
+ * title, meta chips, a quiet "12.4K visits" line (once the game has visits) and Play / Details. Several games page
+ * horizontally with dots and advance on their own every `HERO_AUTO_ADVANCE_MS` (lib/dashboard.ts `heroAutoAdvances`:
+ * not under reduced motion or a screen reader, not while touched, not while the dashboard is covered or the drawer is
+ * open). The list is keyed on its size, so a rotation
  * re-lays it out at the same page.
  *
  * The drawer's edge swipe owns the left `DRAWER_EDGE_WIDTH` points: a strip over the art there (a sibling above the
@@ -310,6 +312,11 @@ const HeroSlide = memo(function HeroSlide({
               </Badge>
             ) : null}
           </View>
+          {game.visits > 0 ? (
+            <Text className="text-muted-foreground -mt-1 text-[13px] font-medium leading-[18px]" numberOfLines={1}>
+              {visitsLabel(game.visits)}
+            </Text>
+          ) : null}
           <View className="flex-row items-center gap-2.5 pt-1">
             <Button
               className="h-11 min-w-28 rounded-full px-5"

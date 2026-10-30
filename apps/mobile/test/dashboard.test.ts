@@ -13,6 +13,9 @@ import {
   groupByGenre,
   heroAutoAdvances,
   nextHeroPage,
+  toVisitsDaily,
+  VISITS_DAILY_DAYS,
+  visitsDailyRange,
 } from '../src/lib/dashboard';
 import { ROW_GAP, isWideLayout, pagePadding } from '../src/lib/layout';
 
@@ -36,6 +39,7 @@ function game(id: string, genres: string[], extra: Partial<GameCard> = {}): Game
     age_rating: '4+',
     featured_rank: null,
     created_at: '2026-10-01T00:00:00Z',
+    visits: 0,
     ...extra,
   };
 }
@@ -159,4 +163,32 @@ test('hero pages wrap, and auto-advance stops whenever it should', () => {
   assert.equal(heroAutoAdvances({ ...on, touching: true }), false);
   assert.equal(heroAutoAdvances({ ...on, focused: false }), false);
   assert.equal(heroAutoAdvances({ ...on, drawerOpen: true }), false);
+});
+
+test('visits daily: the last 7 UTC days, today included, oldest first, missing days as 0', () => {
+  const now = Date.parse('2026-10-30T01:30:00Z');
+  assert.equal(VISITS_DAILY_DAYS, 7);
+  assert.deepEqual(visitsDailyRange(now), { from: '2026-10-24', to: '2026-10-30' });
+  // Across a month boundary.
+  assert.deepEqual(visitsDailyRange(Date.parse('2026-11-03T23:59:00Z')), { from: '2026-10-28', to: '2026-11-03' });
+  const days = toVisitsDaily(
+    [
+      { day: '2026-10-24', visits: 10 },
+      { day: '2026-10-28', visits: '1200' },
+      { day: '2026-10-30', visits: null },
+      // Outside the range: dropped.
+      { day: '2026-10-20', visits: 99 },
+    ],
+    now,
+  );
+  assert.deepEqual(days, [
+    { day: '2026-10-24', visits: 10 },
+    { day: '2026-10-25', visits: 0 },
+    { day: '2026-10-26', visits: 0 },
+    { day: '2026-10-27', visits: 0 },
+    { day: '2026-10-28', visits: 1200 },
+    { day: '2026-10-29', visits: 0 },
+    { day: '2026-10-30', visits: 0 },
+  ]);
+  assert.equal(toVisitsDaily(null, now).length, 7);
 });
