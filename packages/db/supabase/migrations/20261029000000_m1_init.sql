@@ -17,7 +17,7 @@ end $$;
 
 -- Word filter. Seeded by packages/db/supabase/seed.sql; matched as whole words, case-insensitive.
 create table public.banned_words (
-  word citext primary key,
+  word extensions.citext primary key,
   created_at timestamptz not null default now()
 );
 alter table public.banned_words enable row level security;
@@ -39,7 +39,7 @@ grant execute on function public.contains_banned_word(text) to authenticated, se
 
 create table public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
-  username citext not null unique,
+  username extensions.citext not null unique,
   display_name text,
   avatar_url text,
   bio text,
@@ -289,7 +289,7 @@ grant execute on function public.record_play(text, int) to authenticated;
 -- Username availability for the signup form (does not leak profiles to anon).
 create or replace function public.username_available(p_username text)
 returns boolean language sql stable security definer set search_path = public, extensions as $$
-  select not exists (select 1 from public.profiles where username = p_username::citext)
+  select not exists (select 1 from public.profiles where username = p_username::extensions.citext)
      and p_username ~ '^[A-Za-z0-9_]{3,20}$'
      and not public.contains_banned_word(p_username);
 $$;

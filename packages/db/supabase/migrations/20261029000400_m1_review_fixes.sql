@@ -110,7 +110,7 @@ create or replace function public.username_available(p_username text)
 returns boolean language sql stable security definer set search_path = public, extensions as $$
   select not exists (
            select 1 from public.profiles
-            where username = p_username::citext and id is distinct from auth.uid()
+            where username = p_username::extensions.citext and id is distinct from auth.uid()
          )
      and p_username ~ '^[A-Za-z0-9_]{3,20}$'
      and not public.contains_banned_word(p_username);
