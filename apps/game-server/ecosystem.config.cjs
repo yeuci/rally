@@ -15,6 +15,8 @@ module.exports = {
       // see each other (joinById / reconnect to a room on the other process fails) and double every limit.
       // Scaling out needs @colyseus/redis-driver + redis-presence first (design §6).
       instances: 1,
+      // Grace for the shutdown hook (rooms close, then the visit counter flushes; pm2's default is 1.6 s).
+      kill_timeout: 5000,
       exec_mode: 'fork',
       wait_ready: true,
       max_memory_restart: '512M',

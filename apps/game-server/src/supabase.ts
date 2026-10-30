@@ -160,7 +160,16 @@ export interface ServiceApi {
    * `result` message) is M3 phase 2 step 3.
    */
   recordMatch(match: MatchResult): Promise<RecordedMatch>;
+  /**
+   * `server_record_visits(p_game_id text, p_count int) returns void`: add `count` visits (joins) to the game's
+   * counter. Rejects with `INVALID` for a count outside 1..{@link MAX_VISITS_PER_CALL} and `NOT_FOUND` for a game
+   * that is not in the catalog (the dev `hello` room). Batching and retries: `src/visits.ts`.
+   */
+  recordVisits(gameId: string, count: number): Promise<void>;
 }
+
+/** The largest `p_count` `server_record_visits` accepts. */
+export const MAX_VISITS_PER_CALL = 1000;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -206,6 +215,9 @@ export function createServiceApi(rpc: ServiceRpc): ServiceApi {
         throw new ServiceRpcError(`server_record_match: unexpected answer ${JSON.stringify(raw)}`, 200);
       }
       return raw.duplicate ? { duplicate: true } : { duplicate: false, players: raw.players ?? {} };
+    },
+    async recordVisits(gameId, count) {
+      await rpc('server_record_visits', { p_game_id: gameId, p_count: count });
     },
     async sanctionStatus(userId) {
       if (!isUuid(userId)) return { bannedUntil: null, mutedUntil: null };

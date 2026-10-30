@@ -132,6 +132,20 @@ All service-role calls (RPC names and argument shapes) are in `src/supabase.ts`:
 `<SUPABASE_URL>/rest/v1/rpc/<name>` with `apikey: <key>` (plus `Authorization: Bearer <key>` for a legacy JWT key
 only; 3 s timeout), and `createServiceApi` holds the typed calls. Tests fake the RPC function (`test/fakes.ts`).
 
+## Visits (`src/visits.ts`)
+
+Every new seat in a room counts as one visit of its game (`RallyRoom.onPlayerJoined`). A reconnection within the
+grace is the same seat, so it is not a visit; neither is a second seat of a player who already holds one in that room.
+A join after the grace ran out (or after leaving) is. `VisitCounter` batches per game and calls
+`server_record_visits(p_game_id, p_count)` 10 s after a batch's first visit, or at once at 100 (at most 1000 per
+call, one call per game at a time). Network errors, timeouts, 408, 429 and 5xx are retried after 1 s, 5 s and 30 s
+(the results backoff), then the batch is dropped with a log line. `NOT_FOUND` (a game that is not in the catalog, such
+as the dev `hello` room) is logged once and that game's visits are never sent again. On a graceful shutdown (SIGINT
+from `pm2 stop` / reload, SIGTERM, Ctrl-C) `server.onShutdown` sends what is pending, waiting at most 1 s (inside
+pm2's default 1.6 s `kill_timeout`). Without a service key the batches are logged in development
+(`[visits] (no service key) sumo +3`) and not counted in tests. `RallyRoom.configureVisits()` swaps the counter
+(tests).
+
 ## Match results (`src/results.ts`)
 
 Rooms call `reportMatchResult({ matchId, gameId, roomId, private, winnerUserId, startedAt, endedAt, durationSec,
