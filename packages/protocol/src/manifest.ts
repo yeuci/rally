@@ -10,6 +10,10 @@ export type GameMode = z.infer<typeof GameMode>;
 export const AgeRating = z.enum(['4+', '9+', '12+', '17+']);
 export type AgeRating = z.infer<typeof AgeRating>;
 
+/** How often a leaderboard resets (`public.leaderboards.period`). */
+export const LeaderboardPeriod = z.enum(['alltime', 'weekly', 'daily']);
+export type LeaderboardPeriod = z.infer<typeof LeaderboardPeriod>;
+
 /** Bridge capabilities a game may request; each sits behind a host kill switch (App Store 4.7.2). */
 export const GameCapability = z.enum(['haptics', 'orientationLock']);
 export type GameCapability = z.infer<typeof GameCapability>;
@@ -65,21 +69,34 @@ export const GameManifestSchema = z.object({
     .optional(),
   sdk: z.string().default('^1'),
   ageRating: AgeRating,
+  /**
+   * Solo leaderboards (`public.leaderboards`, synced by `tooling/publish-game` on (game, id)). `id` is the board
+   * key games pass to `rally.leaderboard.submit/top`; the database requires `^[a-z][a-z0-9_-]{0,31}$`.
+   */
   leaderboards: z
     .array(
       z.object({
         id: z.string(),
+        /** `desc`: higher is better (points, height); `asc`: lower is better (times). */
         sort: z.enum(['asc', 'desc']),
+        /** Server-side bound for `submit_solo_score`: score <= this × minutes since the play session started. */
         maxScorePerMinute: z.number().positive().optional(),
+        /** How often the board resets (00:00 UTC; weekly = ISO week, Monday). Omitted = `alltime`. */
+        period: LeaderboardPeriod.optional(),
       }),
     )
     .default([]),
+  /** Achievements (`public.achievements`, synced by `tooling/publish-game` on (game, key)). */
   achievements: z
     .array(
       z.object({
         key: z.string(),
         title: z.string(),
         hidden: z.boolean().default(false),
+        /** One sentence shown under the title. Omitted = empty. */
+        description: z.string().max(280).optional(),
+        /** An absolute http(s) image URL or a short string such as an emoji. Omitted = the default trophy. */
+        icon: z.string().min(1).max(512).optional(),
       }),
     )
     .default([]),

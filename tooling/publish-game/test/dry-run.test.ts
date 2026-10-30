@@ -82,6 +82,10 @@ test('dry run end to end against the real spike build', { timeout: 60_000 }, asy
     age_rating: '4+',
     min_app_version: '0.0.0',
   });
+  // spike declares no leaderboards or achievements: the plan lists none (and the printout says so).
+  assert.deepEqual(written.db.leaderboards, []);
+  assert.deepEqual(written.db.achievements, []);
+  assert.ok(logs.some((l) => /leaderboards .*never deleted \(none\)/.test(l)));
   assert.equal(written.db.activate, true);
   assert.ok(logs.some((l) => l.includes('Dry run: nothing uploaded')));
 });

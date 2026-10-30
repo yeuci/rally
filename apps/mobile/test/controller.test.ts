@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { GameHostController, type GameHostResult } from '../src/game-host/controller';
+import type { PlaySessionService } from '../src/game-host/play-session';
+import { createMemoryProgressStore, type ProgressStore } from '../src/game-host/progress';
 import { createMemorySaveStore } from '../src/game-host/saves';
 import { BUNDLE, NONCE, clock, device, req } from './helpers';
 
-function setup(opts: { readyTimeoutMs?: number } = {}) {
+function setup(
+  opts: { readyTimeoutMs?: number; playSessions?: PlaySessionService | null; progress?: ProgressStore; onPlayRecorded?: () => void } = {},
+) {
   const c = clock();
   const injected: string[] = [];
   const exits: GameHostResult[] = [];
@@ -15,6 +19,10 @@ function setup(opts: { readyTimeoutMs?: number } = {}) {
     user: { id: 'u1', username: 'tester', avatarUrl: null },
     intent: 'solo',
     saves: createMemorySaveStore(),
+    progress: opts.progress ?? createMemoryProgressStore({ id: 'u1', username: 'tester' }),
+    soloScores: true,
+    playSessions: opts.playSessions ?? null,
+    onPlayRecorded: opts.onPlayRecorded,
     matchmaking: null,
     device,
     onExit: (r) => exits.push(r),
@@ -134,4 +142,109 @@ test('unmount after a normal exit reports nothing more', async () => {
   await tick();
   assert.equal(exits.length, 1);
   assert.equal(exits[0]!.reason, 'forced');
+});
+
+/** Fake play-session service: records every call; `start` resolves when the test says so (or rejects). */
+function fakeSessions(mode: 'ok' | 'fail' | 'manual' = 'ok') {
+  const calls: string[] = [];
+  let release!: (id: string) => void;
+  const svc: PlaySessionService = {
+    start: (game) => {
+      calls.push(`start ${game.id}@${game.version}`);
+      if (mode === 'fail') return Promise.reject(new Error('offline'));
+      if (mode === 'manual') return new Promise<string>((r) => (release = r));
+      return Promise.resolve('sess-1');
+    },
+    end: async (id, playtimeS) => {
+      calls.push(`end ${id} ${playtimeS}`);
+    },
+    recordPlay: async (gameId, playtimeS) => {
+      calls.push(`record ${gameId} ${playtimeS}`);
+    },
+  };
+  return { svc, calls, release: (id: string) => release(id) };
+}
+
+test('play session: started once at mount (StrictMode replay included), ended once with the playtime', async () => {
+  const s = fakeSessions();
+  let recorded = 0;
+  const { controller, c } = setup({ playSessions: s.svc, onPlayRecorded: () => (recorded += 1) });
+  assert.deepEqual(s.calls, ['start spike@0.1.0'], 'fired at start(), before the game is ready');
+  controller.unmount();
+  controller.start(); // StrictMode effect replay
+  controller.handleMessage(req('ready', { sdkVersion: '1' }), BUNDLE);
+  await tick();
+  c.advance(25_000);
+  controller.handleMessage(req('exit', { reason: 'quit' }), BUNDLE);
+  await tick();
+  controller.finish('forced');
+  controller.unmount();
+  await tick();
+  assert.deepEqual(s.calls, ['start spike@0.1.0', 'end sess-1 25']);
+  assert.equal(recorded, 1);
+});
+
+test('play session: a game that never became ready still closes its session (0 s)', async () => {
+  const s = fakeSessions();
+  const { controller } = setup({ playSessions: s.svc });
+  await tick();
+  controller.unmount();
+  await tick();
+  assert.deepEqual(s.calls, ['start spike@0.1.0', 'end sess-1 0']);
+});
+
+test('play session: falls back to record_play when the session failed to start', async () => {
+  const s = fakeSessions('fail');
+  let recorded = 0;
+  const { controller, c } = setup({ playSessions: s.svc, onPlayRecorded: () => (recorded += 1) });
+  controller.handleMessage(req('ready', { sdkVersion: '1' }), BUNDLE);
+  await tick();
+  c.advance(8_000);
+  controller.finish('forced');
+  await tick();
+  assert.deepEqual(s.calls, ['start spike@0.1.0', 'record spike 8']);
+  assert.equal(recorded, 1);
+
+  // Never ready and no session: nothing to record.
+  const none = fakeSessions('fail');
+  const idle = setup({ playSessions: none.svc });
+  idle.controller.finish('forced');
+  await tick();
+  assert.deepEqual(none.calls, ['start spike@0.1.0']);
+});
+
+test('play session: leaderboard.submit waits for a slow session start and sends its id', async () => {
+  const s = fakeSessions('manual');
+  const submitted: (string | null)[] = [];
+  const progress: ProgressStore = {
+    ...createMemoryProgressStore({ id: 'u1', username: 'tester' }),
+    submitScore: async (_b, score, sessionId) => {
+      submitted.push(sessionId);
+      return { accepted: true, best: score };
+    },
+  };
+  const { controller, delivered } = setup({ playSessions: s.svc, progress });
+  controller.handleMessage(req('ready', { sdkVersion: '1' }), BUNDLE);
+  await tick();
+  assert.equal(controller.getSnapshot().phase, 'ready', 'the load did not wait for the session');
+  controller.handleMessage(req('leaderboard.submit', { boardId: 'high', score: 7 }), BUNDLE);
+  await tick();
+  assert.deepEqual(submitted, []);
+  s.release('sess-slow');
+  await tick();
+  assert.deepEqual(submitted, ['sess-slow']);
+  assert.ok(delivered().some((e) => e.kind === 'res' && e.params?.accepted === true));
+  controller.finish('forced');
+  await tick();
+  assert.deepEqual(s.calls.at(-1), 'end sess-slow 0');
+});
+
+test('without a play session service (Developer launcher) nothing is recorded', async () => {
+  let recorded = 0;
+  const { controller } = setup({ onPlayRecorded: () => (recorded += 1) });
+  controller.handleMessage(req('ready', { sdkVersion: '1' }), BUNDLE);
+  await tick();
+  controller.finish('forced');
+  await tick();
+  assert.equal(recorded, 0);
 });

@@ -4,7 +4,8 @@ import { createClient } from '@supabase/supabase-js';
 import { parseManifest } from '../src/manifest.ts';
 import { hashDirectory } from '../src/hash.ts';
 import { buildPlan } from '../src/plan.ts';
-import { assertServiceRoleKey, executePublish, executeRollback } from '../src/supabase.ts';
+import { printPlan } from '../src/publish.ts';
+import { assertServiceRoleKey, executePublish, executeRollback, syncProgressCatalog } from '../src/supabase.ts';
 import { PublishError } from '../src/errors.ts';
 import { tempDir, validManifest, writeTree } from './helpers.ts';
 
@@ -21,7 +22,13 @@ interface Call {
 }
 
 /** A tiny fake of the Storage + PostgREST endpoints supabase-js talks to; records every request. */
-function fakeSupabase(state: { existingObjects?: string[]; existingVersion?: boolean; gameStatus?: string | null }) {
+function fakeSupabase(state: {
+  existingObjects?: string[];
+  existingVersion?: boolean;
+  gameStatus?: string | null;
+  existingBoards?: string[];
+  existingAchievements?: string[];
+}) {
   const calls: Call[] = [];
   const fetchImpl = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const req = new Request(input, init);
@@ -46,6 +53,12 @@ function fakeSupabase(state: { existingObjects?: string[]; existingVersion?: boo
       return json(state.gameStatus ? [{ status: state.gameStatus }] : []);
     if (p === '/rest/v1/games' && (req.method === 'POST' || req.method === 'PATCH'))
       return new Response(null, { status: 204 });
+    if (p === '/rest/v1/leaderboards' && req.method === 'GET')
+      return json((state.existingBoards ?? []).map((key) => ({ key })));
+    if (p === '/rest/v1/achievements' && req.method === 'GET')
+      return json((state.existingAchievements ?? []).map((key) => ({ key })));
+    if ((p === '/rest/v1/leaderboards' || p === '/rest/v1/achievements') && req.method === 'POST')
+      return new Response(null, { status: 201 });
     return json({ message: `unexpected ${req.method} ${p}` }, 500);
   };
   const sb = createClient(SUPABASE_URL, SERVICE_KEY, {
@@ -55,13 +68,16 @@ function fakeSupabase(state: { existingObjects?: string[]; existingVersion?: boo
   return { sb, calls };
 }
 
-async function fixturePlan(opts: { force?: boolean; activate?: boolean; publish?: boolean } = {}) {
+async function fixturePlan(
+  opts: { force?: boolean; activate?: boolean; publish?: boolean } = {},
+  extra: Record<string, unknown> = {},
+) {
   const dist = await tempDir();
   await writeTree(dist, {
     'index.html': '<!doctype html><head><meta charset="utf-8"></head>',
     'assets/app-abc123.js': 'console.log(1)',
   });
-  const manifest = parseManifest({ ...validManifest, description: 'd', genres: ['arcade'] });
+  const manifest = parseManifest({ ...validManifest, description: 'd', genres: ['arcade'], ...extra });
   const plan = buildPlan({
     manifest,
     files: await hashDirectory(dist),
@@ -190,4 +206,130 @@ test('executeRollback only flips the pointer to an existing version', async () =
     ['GET /rest/v1/game_versions', 'PATCH /rest/v1/games'],
   );
   assert.deepEqual(ok.calls[1]!.body, { current_version_id: 'old-version-id' });
+});
+
+const progressManifest = {
+  leaderboards: [
+    { id: 'height', sort: 'desc', maxScorePerMinute: 120 },
+    { id: 'best_time', sort: 'asc', period: 'weekly' },
+  ],
+  achievements: [
+    { key: 'first_drop', title: 'First drop' },
+    { key: 'tower_50', title: 'Skyscraper', hidden: true, description: 'Stack 50 blocks.', icon: '🏙️' },
+  ],
+};
+
+test('plan rows: leaderboards and achievements map from game.json with database defaults', async () => {
+  const { plan } = await fixturePlan({}, progressManifest);
+  assert.deepEqual(plan.db.leaderboards, [
+    { game_id: 'demo', key: 'height', sort: 'desc', period: 'alltime', max_score_per_minute: 120 },
+    { game_id: 'demo', key: 'best_time', sort: 'asc', period: 'weekly', max_score_per_minute: null },
+  ]);
+  assert.deepEqual(plan.db.achievements, [
+    { game_id: 'demo', key: 'first_drop', title: 'First drop', description: '', icon: null, hidden: false },
+    {
+      game_id: 'demo',
+      key: 'tower_50',
+      title: 'Skyscraper',
+      description: 'Stack 50 blocks.',
+      icon: '🏙️',
+      hidden: true,
+    },
+  ]);
+  // The stored manifest keeps what game.json said (no defaults invented for the optional fields).
+  assert.equal(plan.db.gameVersion.manifest.leaderboards[1]!.period, 'weekly');
+  assert.equal(plan.db.gameVersion.manifest.leaderboards[0]!.period, undefined);
+
+  const empty = await fixturePlan();
+  assert.deepEqual([empty.plan.db.leaderboards, empty.plan.db.achievements], [[], []]);
+});
+
+test('the dry-run plan printout lists every leaderboard and achievement row', async () => {
+  const { plan } = await fixturePlan({}, progressManifest);
+  const lines: string[] = [];
+  printPlan(plan, (l) => lines.push(l));
+  const text = lines.join('\n');
+  assert.match(text, /leaderboards {2}upsert on \(game_id, key\), one by one in this order; never deleted\n/);
+  assert.ok(text.includes(JSON.stringify(plan.db.leaderboards[0])));
+  assert.ok(text.includes(JSON.stringify(plan.db.leaderboards[1])));
+  assert.match(text, /achievements {2}upsert on \(game_id, key\); never deleted\n/);
+  assert.ok(text.includes(JSON.stringify(plan.db.achievements[1])));
+  // Boards come before the activation line, in manifest order.
+  assert.ok(text.indexOf('"key":"height"') < text.indexOf('"key":"best_time"'));
+  assert.ok(text.indexOf('"key":"best_time"') < text.indexOf('  activate '));
+
+  const empty = await fixturePlan();
+  const emptyLines: string[] = [];
+  printPlan(empty.plan, (l) => emptyLines.push(l));
+  assert.ok(emptyLines.some((l) => /leaderboards .*never deleted \(none\)/.test(l)));
+  assert.ok(emptyLines.some((l) => /achievements .*never deleted \(none\)/.test(l)));
+});
+
+test('executePublish syncs boards one by one in manifest order, then achievements, before the pointer flip', async () => {
+  const { dist, plan } = await fixturePlan({}, progressManifest);
+  const { sb, calls } = fakeSupabase({});
+  const logs: string[] = [];
+  await executePublish(sb, plan, dist, (l) => logs.push(l));
+
+  const order = calls.filter((c) => c.path.startsWith('/rest/v1/')).map((c) => `${c.method} ${c.path}`);
+  assert.deepEqual(order, [
+    'GET /rest/v1/game_versions',
+    'GET /rest/v1/games',
+    'POST /rest/v1/games',
+    'POST /rest/v1/game_versions',
+    'GET /rest/v1/leaderboards',
+    'POST /rest/v1/leaderboards',
+    'POST /rest/v1/leaderboards',
+    'GET /rest/v1/achievements',
+    'POST /rest/v1/achievements',
+    'PATCH /rest/v1/games',
+  ]);
+  const boards = calls.filter((c) => c.path === '/rest/v1/leaderboards' && c.method === 'POST');
+  assert.deepEqual(
+    boards.map((b) => b.body),
+    plan.db.leaderboards,
+  );
+  for (const b of [...boards, calls.find((c) => c.path === '/rest/v1/achievements' && c.method === 'POST')!]) {
+    assert.match(b.search, /on_conflict=game_id%2Ckey|on_conflict=game_id,key/);
+    assert.match(b.headers.prefer ?? '', /resolution=merge-duplicates/);
+  }
+  // Never sends id / created_at (an existing board keeps its identity and primary-board age).
+  for (const b of boards) assert.ok(!('id' in (b.body as object)) && !('created_at' in (b.body as object)));
+  const ach = calls.find((c) => c.path === '/rest/v1/achievements' && c.method === 'POST')!;
+  assert.deepEqual(ach.body, plan.db.achievements);
+  const reads = calls.filter((c) => c.method === 'GET' && /leaderboards|achievements/.test(c.path));
+  for (const r of reads) assert.match(r.search, /game_id=eq\.demo/);
+  assert.ok(logs.some((l) => l.includes('leaderboards.height created (desc, alltime, <= 120/min)')));
+  assert.ok(logs.some((l) => l.includes('leaderboards.best_time created (asc, weekly, unbounded)')));
+  assert.ok(logs.some((l) => l.includes('achievements: 2 upserted (2 new)')));
+  assert.ok(!logs.some((l) => l.includes('warning')));
+  assert.equal(calls.filter((c) => c.method === 'DELETE').length, 0);
+});
+
+test('syncProgressCatalog never deletes; rows missing from game.json produce warnings', async () => {
+  const { plan } = await fixturePlan({}, progressManifest);
+  const { sb, calls } = fakeSupabase({
+    existingBoards: ['height', 'old_board', 'ancient'],
+    existingAchievements: ['first_drop', 'retired'],
+  });
+  const logs: string[] = [];
+  const r = await syncProgressCatalog(sb, plan, (l) => logs.push(l));
+  assert.deepEqual(r, { staleLeaderboards: ['ancient', 'old_board'], staleAchievements: ['retired'] });
+  assert.ok(logs.some((l) => l.includes('leaderboards.height updated')));
+  assert.ok(logs.some((l) => l.includes('leaderboards.best_time created')));
+  assert.ok(logs.some((l) => l.includes('achievements: 2 upserted (1 new)')));
+  assert.ok(logs.some((l) => /warning: leaderboards .*not in game\.json.*: ancient, old_board/.test(l)));
+  assert.ok(logs.some((l) => /warning: achievements .*not in game\.json.*: retired/.test(l)));
+  assert.equal(calls.filter((c) => c.method === 'DELETE' || c.method === 'PATCH').length, 0);
+
+  // A manifest with no boards/achievements still reports what the database holds, and writes nothing.
+  const empty = await fixturePlan();
+  const e = fakeSupabase({ existingBoards: ['height'] });
+  const elogs: string[] = [];
+  await syncProgressCatalog(e.sb, empty.plan, (l) => elogs.push(l));
+  assert.deepEqual(
+    e.calls.map((c) => `${c.method} ${c.path}`),
+    ['GET /rest/v1/leaderboards', 'GET /rest/v1/achievements'],
+  );
+  assert.ok(elogs.some((l) => /warning: leaderboards .*: height/.test(l)));
 });

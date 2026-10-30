@@ -15,10 +15,12 @@ import {
 } from 'lucide-react-native';
 import { useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import { AchievementsSection } from '@/components/rally/achievements';
 import { ConsentDialog } from '@/components/rally/consent-dialog';
 import { EmptyState } from '@/components/rally/empty-state';
 import { CoverScrim, GameCover } from '@/components/rally/game-cover';
 import { Image } from '@/components/rally/image';
+import { LeaderboardSection } from '@/components/rally/leaderboard';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
@@ -27,9 +29,11 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Text } from '@/components/ui/text';
 import { useSession } from '@/lib/auth/session';
 import { playersLabel, useFavorites, useGame, useToggleFavorite, type Game } from '@/lib/catalog';
+import { progressKeys, useGameAchievements, useGameBoards, useMyRank } from '@/lib/game-progress';
 import { fetchConsent, fetchLaunchPlan, launchKeys, useGrantConsent, useLaunchPlan } from '@/lib/launch';
 import { GUTTER, gameCoverColumnWidth, gameHeroHeight, pageIndex } from '@/lib/layout';
 import { useProfile } from '@/lib/profile';
+import { formatScore, orderBoards } from '@/lib/progress-format';
 import { useBoxSize, useLayout } from '@/lib/use-layout';
 import { usePalette } from '@/lib/use-palette';
 import { cn } from '@/lib/utils';
@@ -70,6 +74,8 @@ export default function GamePage() {
   const favorites = useFavorites();
   const toggleFavorite = useToggleFavorite();
   const grantConsent = useGrantConsent();
+  const boardsQuery = useGameBoards(id);
+  const achievements = useGameAchievements(id);
 
   const [resolving, setResolving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -77,6 +83,10 @@ export default function GamePage() {
   const [refreshing, setRefreshing] = useState(false);
 
   const g = game.data;
+  const manifest = plan.data?.status === 'ready' ? plan.data.manifest : null;
+  // Manifest order first: its first board is the primary one ("Best" in Details).
+  const boards = orderBoards(boardsQuery.data ?? [], manifest?.leaderboards.map((b) => b.id));
+  const best = useMyRank(id, boards[0]?.key);
   const isFavorite = !!g && !!favorites.data?.some((f) => f.id === g.id);
   const heroHeight = gameHeroHeight({ width, height }, insets.top);
   const coverWidth = gameCoverColumnWidth(width, insets);
@@ -90,8 +100,14 @@ export default function GamePage() {
   async function refresh() {
     setRefreshing(true);
     try {
-      // The game, its version plan (Play / version row) and the favorite state; refetch() resolves, never throws.
-      await Promise.all([game.refetch(), plan.refetch(), favorites.refetch()]);
+      // The game, its version plan (Play / version row), the favorite state, leaderboards and achievements;
+      // refetch() / invalidateQueries() resolve, never throw.
+      await Promise.all([
+        game.refetch(),
+        plan.refetch(),
+        favorites.refetch(),
+        qc.invalidateQueries({ queryKey: progressKeys.game(userId, id) }),
+      ]);
     } finally {
       setRefreshing(false);
     }
@@ -155,6 +171,15 @@ export default function GamePage() {
   }
 
   const version = plan.data?.status === 'ready' ? plan.data.version : null;
+  // Solo games only: multiplayer results come from the room, so a personal best is not the headline there.
+  const solo = plan.data?.status === 'ready' ? !plan.data.room : g.max_players <= 1;
+  const bestLabel = solo && best.data ? formatScore(best.data.score) : null;
+  const progress = (
+    <>
+      <LeaderboardSection gameId={g.id} boards={boards} loading={boardsQuery.isLoading} error={boardsQuery.isError} />
+      <AchievementsSection tiles={achievements.data} loading={achievements.isLoading} error={achievements.isError} />
+    </>
+  );
   const playDisabled = resolving || plan.data?.status === 'unavailable';
   const orientation = ORIENTATION[g.orientation];
 
@@ -226,7 +251,8 @@ export default function GamePage() {
         >
           <TitleBlock game={g} orientation={orientation} />
           {playButton}
-          <About game={g} orientation={orientation} version={version} />
+          <About game={g} orientation={orientation} version={version} best={bestLabel} />
+          {progress}
         </ScrollView>
         {consent}
       </View>
@@ -241,7 +267,8 @@ export default function GamePage() {
         </View>
         <View className="-mt-10 gap-6" style={{ paddingLeft: pad.left, paddingRight: pad.right }}>
           <TitleBlock game={g} orientation={orientation} />
-          <About game={g} orientation={orientation} version={version} />
+          <About game={g} orientation={orientation} version={version} best={bestLabel} />
+          {progress}
         </View>
       </ScrollView>
 
@@ -356,7 +383,18 @@ function TitleBlock({ game: g, orientation }: { game: Game; orientation: { label
   );
 }
 
-function About({ game: g, orientation, version }: { game: Game; orientation: { label: string }; version: string | null }) {
+function About({
+  game: g,
+  orientation,
+  version,
+  best,
+}: {
+  game: Game;
+  orientation: { label: string };
+  version: string | null;
+  /** Formatted personal best on the primary board (solo games with a score). */
+  best: string | null;
+}) {
   return (
     <>
       {g.description ? <Text className="text-secondary-foreground text-base leading-[25px]">{g.description}</Text> : null}
@@ -372,6 +410,12 @@ function About({ game: g, orientation, version }: { game: Game; orientation: { l
           <InfoRow label="Age rating" value={g.age_rating} />
           <Separator />
           <InfoRow label="Orientation" value={orientation.label} />
+          {best && (
+            <>
+              <Separator />
+              <InfoRow label="Best" value={best} />
+            </>
+          )}
           {version && (
             <>
               <Separator />

@@ -180,6 +180,12 @@ export function printPlan(plan: PublishPlan, log: (l: string) => void): void {
     ),
   );
   log(
+    `  leaderboards  upsert on (game_id, key), one by one in this order; never deleted${plan.db.leaderboards.length ? '' : ' (none)'}`,
+  );
+  for (const b of plan.db.leaderboards) log(`    ${JSON.stringify(b)}`);
+  log(`  achievements  upsert on (game_id, key); never deleted${plan.db.achievements.length ? '' : ' (none)'}`);
+  for (const a of plan.db.achievements) log(`    ${JSON.stringify(a)}`);
+  log(
     `  activate   ${plan.db.activate ? `games.current_version_id → this version${plan.db.publish ? ', status → published' : ''}` : 'no (--no-activate)'}`,
   );
 }

@@ -12,6 +12,8 @@ import { Text } from '@/components/ui/text';
 import { GameHostController, type DeviceInfo, type GameHostResult } from './controller';
 import type { MatchmakingTarget } from './handlers';
 import { buildInjectedScript } from './injected';
+import type { PlaySessionService } from './play-session';
+import type { ProgressStore } from './progress';
 import type { SaveStore } from './saves';
 import { WebView, type WebViewHandle } from './webview';
 
@@ -26,8 +28,16 @@ export interface GameHostProps {
   intent: LaunchIntent;
   orientation: 'portrait' | 'landscape' | 'any';
   saves: SaveStore;
+  /** Leaderboards + achievements behind the bridge. */
+  progress: ProgressStore;
+  /** False for multiplayer games (manifest `server`): `leaderboard.submit` answers NOT_SUPPORTED. */
+  soloScores: boolean;
+  /** Server play session (started at mount, closed once on exit); null records nothing (Developer launcher). */
+  playSessions: PlaySessionService | null;
   matchmaking: MatchmakingTarget | null;
   onExit: (result: GameHostResult) => void;
+  /** Called once the play was recorded server-side (session closed or `record_play`), e.g. to refresh leaderboards. */
+  onPlayRecorded?: () => void;
 }
 
 function newNonce(): string {
@@ -38,14 +48,15 @@ function newNonce(): string {
  * Full-screen game screen: WebView configured per architecture §2 plus the host side of the bridge.
  * Session state lives in a GameHostController created once per mount (key the component to relaunch); this
  * component only renders the controller's snapshot and forwards callbacks. Every session ends in exactly one
- * `onExit`, with `reason: 'unmount'` when the component unmounts first (the callee must not navigate then). `bundleUrl`, `game`, `user`, `intent`,
- * `saves` and `matchmaking` are read at mount.
+ * `onExit`, with `reason: 'unmount'` when the component unmounts first (the callee must not navigate then).
+ * `bundleUrl`, `game`, `user`, `intent`, `saves`, `progress`, `soloScores`, `playSessions` and `matchmaking` are read
+ * at mount.
  */
 const ORIGIN_WHITELIST = ['*'];
 
 export function GameHost(props: GameHostProps) {
   useKeepAwake();
-  const { onExit, orientation, bundleUrl } = props;
+  const { onExit, onPlayRecorded, orientation, bundleUrl } = props;
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
 
@@ -67,9 +78,13 @@ export function GameHost(props: GameHostProps) {
         user: props.user,
         intent: props.intent,
         saves: props.saves,
+        progress: props.progress,
+        soloScores: props.soloScores,
+        playSessions: props.playSessions,
         matchmaking: props.matchmaking,
         device,
         onExit: props.onExit,
+        onPlayRecorded: props.onPlayRecorded,
         createNonce: newNonce,
       }),
   );
@@ -77,8 +92,8 @@ export function GameHost(props: GameHostProps) {
   const webviewRef = useRef<WebViewHandle>(null);
 
   useEffect(() => {
-    controller.update({ device, onExit });
-  }, [controller, device, onExit]);
+    controller.update({ device, onExit, onPlayRecorded });
+  }, [controller, device, onExit, onPlayRecorded]);
 
   // The controller reaches the current WebView (re-keyed on reload) through this getter, never during render.
   useEffect(() => {

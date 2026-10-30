@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { HostBridge } from '../src/game-host/bridge';
-import { createHostHandlers, type HostHandlerDeps } from '../src/game-host/handlers';
+import { createHostHandlers, PROGRESS_LIMITS_PER_MINUTE, type HostHandlerDeps } from '../src/game-host/handlers';
+import {
+  createMemoryProgressStore,
+  mapProgressError,
+  mapSubmitResult,
+  mapTopRows,
+  mapUnlockResult,
+  type ProgressStore,
+} from '../src/game-host/progress';
 import { TokenBucket } from '../src/game-host/rate-limit';
 import { createMemorySaveStore, mapSaveError } from '../src/game-host/saves';
 import { BUNDLE, NONCE, Outbox, clock, launchContext, req } from './helpers';
@@ -12,6 +20,9 @@ function setup(overrides: Partial<HostHandlerDeps> = {}) {
   const handlers = createHostHandlers({
     getLaunchContext: () => launchContext,
     saves: createMemorySaveStore(),
+    progress: createMemoryProgressStore({ id: 'u1', username: 'tester' }),
+    soloScores: true,
+    getPlaySessionId: async () => 'session-1',
     matchmaking: null,
     onReady: () => (calls.ready += 1),
     onLoading: (p) => calls.loading.push(p),
@@ -86,10 +97,10 @@ test('save.put is rate limited to 10 per minute', async () => {
   assert.equal((await call('save.put', { slot: 'a', data: 12 })).error?.code, 'RATE_LIMITED');
 });
 
-test('M2 methods stay NOT_SUPPORTED; ui.loading, party.get, exit keep M0 behaviour', async () => {
+test('capability methods stay NOT_SUPPORTED; ui.loading, party.get, exit keep M0 behaviour', async () => {
   const { call, calls } = setup();
-  assert.equal((await call('leaderboard.submit', { boardId: 'b', score: 1 })).error?.code, 'NOT_SUPPORTED');
-  assert.equal((await call('achievement.unlock', { key: 'k' })).error?.code, 'NOT_SUPPORTED');
+  assert.equal((await call('haptics', { kind: 'light' })).error?.code, 'NOT_SUPPORTED');
+  assert.equal((await call('invite.open')).error?.code, 'NOT_SUPPORTED');
   assert.equal((await call('ui.loading', { progress: 0.5 })).params, null);
   assert.equal((await call('party.get')).params, null);
   assert.equal((await call('exit', { reason: 'done' })).params, null);
@@ -121,6 +132,9 @@ test('resetHandshake lets a reloaded page call ready() again', async () => {
   const handlers = createHostHandlers({
     getLaunchContext: () => launchContext,
     saves: createMemorySaveStore(),
+    progress: createMemoryProgressStore({ id: 'u1', username: 'tester' }),
+    soloScores: true,
+    getPlaySessionId: async () => null,
     matchmaking: null,
     onReady: () => {},
     onLoading: () => {},
@@ -130,4 +144,157 @@ test('resetHandshake lets a reloaded page call ready() again', async () => {
   assert.throws(() => handlers.ready!({ sdkVersion: '0.1.0' }), /already called/);
   handlers.resetHandshake();
   assert.equal((await handlers.ready!({ sdkVersion: '0.1.0' })).game.id, launchContext.game.id);
+});
+
+/** Records what the handlers pass to the store; answers like the RPCs would. */
+function recordingStore(submit: (boardId: string, score: number) => { accepted: boolean; best: number | null } = (_b, score) => ({ accepted: true, best: score })) {
+  const seen = { submit: [] as [string, number, string | null][], top: [] as [string, string, number][], unlock: [] as string[] };
+  const store: ProgressStore = {
+    async submitScore(boardId, score, sessionId) {
+      seen.submit.push([boardId, score, sessionId]);
+      return submit(boardId, score);
+    },
+    async top(boardId, scope, limit) {
+      seen.top.push([boardId, scope, limit]);
+      return { entries: [{ rank: 1, userId: 'u1', username: 'tester', score: 42 }] };
+    },
+    async unlockAchievement(key) {
+      seen.unlock.push(key);
+      return { unlocked: true, alreadyHad: false };
+    },
+  };
+  return { store, seen };
+}
+
+test('leaderboard.submit passes the play session id, awaiting a start still in flight', async () => {
+  const { store, seen } = recordingStore((_b, score) => ({ accepted: score > 10, best: score > 10 ? score : 10 }));
+  let resolveSession!: (id: string | null) => void;
+  const session = new Promise<string | null>((r) => (resolveSession = r));
+  const { call } = setup({ progress: store, getPlaySessionId: () => session });
+  const pending = call('leaderboard.submit', { boardId: 'high', score: 25 });
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(seen.submit.length, 0, 'waits for the session');
+  resolveSession('sess-42');
+  assert.deepEqual((await pending).params, { accepted: true, best: 25 });
+  assert.deepEqual((await call('leaderboard.submit', { boardId: 'high', score: 3 })).params, { accepted: false, best: 10 });
+  assert.deepEqual(seen.submit, [
+    ['high', 25, 'sess-42'],
+    ['high', 3, 'sess-42'],
+  ]);
+});
+
+test('leaderboard.submit is NOT_SUPPORTED for multiplayer games and validates params', async () => {
+  const { store, seen } = recordingStore();
+  const multi = setup({ progress: store, soloScores: false });
+  const res = await multi.call('leaderboard.submit', { boardId: 'high', score: 1 });
+  assert.equal(res.error?.code, 'NOT_SUPPORTED');
+  assert.equal(seen.submit.length, 0);
+  // Multiplayer games may still read boards and unlock achievements.
+  assert.equal((await multi.call('leaderboard.top', { boardId: 'high' })).error, undefined);
+  assert.deepEqual((await multi.call('achievement.unlock', { key: 'first-win' })).params, { unlocked: true, alreadyHad: false });
+
+  const solo = setup({ progress: store });
+  assert.equal((await solo.call('leaderboard.submit', { boardId: '', score: 1 })).error?.code, 'INVALID_PARAMS');
+  assert.equal((await solo.call('leaderboard.submit', { boardId: 'b'.repeat(200), score: 1 })).error?.code, 'INVALID_PARAMS');
+  assert.equal((await solo.call('leaderboard.submit', { boardId: 'high', score: 'x' })).error?.code, 'INVALID_PARAMS');
+  assert.equal((await solo.call('achievement.unlock', { key: '' })).error?.code, 'INVALID_PARAMS');
+});
+
+test('leaderboard.top defaults scope/limit and maps entries; achievement.unlock passes the key', async () => {
+  const { store, seen } = recordingStore();
+  const { call } = setup({ progress: store });
+  assert.deepEqual((await call('leaderboard.top', { boardId: 'high' })).params, {
+    entries: [{ rank: 1, userId: 'u1', username: 'tester', score: 42 }],
+  });
+  await call('leaderboard.top', { boardId: 'high', scope: 'friends', limit: 5 });
+  assert.deepEqual(seen.top, [
+    ['high', 'global', 25],
+    ['high', 'friends', 5],
+  ]);
+  await call('achievement.unlock', { key: 'first-win' });
+  assert.deepEqual(seen.unlock, ['first-win']);
+});
+
+test('progress methods are rate limited per method (submit 30, top 60, unlock 60 per minute)', async () => {
+  const c = clock();
+  const { store } = recordingStore();
+  const { call } = setup({ progress: store, now: c.now });
+  for (let i = 0; i < PROGRESS_LIMITS_PER_MINUTE.submit; i++) {
+    assert.equal((await call('leaderboard.submit', { boardId: 'b', score: i })).error, undefined);
+  }
+  assert.equal((await call('leaderboard.submit', { boardId: 'b', score: 99 })).error?.code, 'RATE_LIMITED');
+  // Separate buckets: reads and unlocks are unaffected by the exhausted submit bucket.
+  for (let i = 0; i < PROGRESS_LIMITS_PER_MINUTE.top; i++) assert.equal((await call('leaderboard.top', { boardId: 'b' })).error, undefined);
+  assert.equal((await call('leaderboard.top', { boardId: 'b' })).error?.code, 'RATE_LIMITED');
+  for (let i = 0; i < PROGRESS_LIMITS_PER_MINUTE.unlock; i++) assert.equal((await call('achievement.unlock', { key: `k${i}` })).error, undefined);
+  assert.equal((await call('achievement.unlock', { key: 'k' })).error?.code, 'RATE_LIMITED');
+  c.advance(2_000); // submit refills one token every 2 s
+  assert.equal((await call('leaderboard.submit', { boardId: 'b', score: 100 })).error, undefined);
+  assert.equal((await call('leaderboard.submit', { boardId: 'b', score: 101 })).error?.code, 'RATE_LIMITED');
+});
+
+test('store errors reach the game with their bridge code', async () => {
+  const failing: ProgressStore = {
+    submitScore: async () => {
+      throw mapProgressError({ message: 'RATE_LIMITED: too many scores' });
+    },
+    top: async () => {
+      throw mapProgressError({ message: 'NOT_FOUND: leaderboard nope', code: 'P0002' });
+    },
+    unlockAchievement: async () => {
+      throw mapProgressError({ message: 'ANONYMOUS_FORBIDDEN: link an account first', code: '42501' });
+    },
+  };
+  const { call } = setup({ progress: failing });
+  assert.equal((await call('leaderboard.submit', { boardId: 'b', score: 1 })).error?.code, 'RATE_LIMITED');
+  assert.equal((await call('leaderboard.top', { boardId: 'nope' })).error?.code, 'INTERNAL');
+  const anon = await call('achievement.unlock', { key: 'k' });
+  assert.equal(anon.error?.code, 'NOT_SUPPORTED');
+  assert.match(anon.error?.message ?? '', /link an account/);
+});
+
+test('RPC result mapping: submit (accepted=false keeps best, null best), top rows, unlock', () => {
+  assert.deepEqual(mapSubmitResult({ accepted: true, best: 120, rank: 3, reason: null }), { accepted: true, best: 120 });
+  assert.deepEqual(mapSubmitResult({ accepted: false, best: 150, rank: 2, reason: 'not_best' }), { accepted: false, best: 150 });
+  assert.deepEqual(mapSubmitResult({ accepted: false, best: null, rank: null, reason: 'bounds' }), { accepted: false, best: null });
+  assert.deepEqual(mapSubmitResult({ accepted: false, reason: 'rate_limited' }), { accepted: false, best: null });
+  assert.deepEqual(mapSubmitResult(null), { accepted: false, best: null });
+  assert.deepEqual(mapSubmitResult({ accepted: true, best: '42.5' }), { accepted: true, best: 42.5 });
+
+  assert.deepEqual(
+    mapTopRows([
+      { rank: 1, user_id: 'a', username: 'ann', score: 300, avatar_url: 'x', is_me: false } as never,
+      { rank: '2', user_id: 'b', username: 'bob', score: '250' },
+      { rank: 0, user_id: 'c', username: 'bad', score: 1 },
+    ]),
+    {
+      entries: [
+        { rank: 1, userId: 'a', username: 'ann', score: 300 },
+        { rank: 2, userId: 'b', username: 'bob', score: 250 },
+      ],
+    },
+  );
+  assert.deepEqual(mapTopRows(null), { entries: [] });
+
+  assert.deepEqual(mapUnlockResult({ unlocked: true, alreadyHad: true }), { unlocked: true, alreadyHad: true });
+  assert.deepEqual(mapUnlockResult({}), { unlocked: false, alreadyHad: false });
+});
+
+test('mapProgressError: RATE_LIMITED, ANONYMOUS_FORBIDDEN → NOT_SUPPORTED, everything else INTERNAL', () => {
+  assert.equal(mapProgressError({ message: 'RATE_LIMITED: slow down' }).code, 'RATE_LIMITED');
+  const anon = mapProgressError({ message: 'ANONYMOUS_FORBIDDEN: link an account first', code: '42501' });
+  assert.equal(anon.code, 'NOT_SUPPORTED');
+  assert.equal(anon.message, 'ANONYMOUS_FORBIDDEN: link an account first');
+  assert.equal(mapProgressError({ message: 'INVALID: score must be a finite number >= 0', code: '22023' }).code, 'INTERNAL');
+  assert.equal(mapProgressError({ message: 'UNAUTHENTICATED', code: '42501' }).code, 'INTERNAL');
+});
+
+test('memory progress store (Developer launcher) keeps the best score and unlocks once', async () => {
+  const store = createMemoryProgressStore({ id: 'dev-user', username: 'dev-user' });
+  assert.deepEqual(await store.top('b', 'global', 10), { entries: [] });
+  assert.deepEqual(await store.submitScore('b', 10, null), { accepted: true, best: 10 });
+  assert.deepEqual(await store.submitScore('b', 5, null), { accepted: false, best: 10 });
+  assert.deepEqual(await store.top('b', 'global', 10), { entries: [{ rank: 1, userId: 'dev-user', username: 'dev-user', score: 10 }] });
+  assert.deepEqual(await store.unlockAchievement('k'), { unlocked: true, alreadyHad: false });
+  assert.deepEqual(await store.unlockAchievement('k'), { unlocked: true, alreadyHad: true });
 });

@@ -30,6 +30,7 @@ export default function AppLayout() {
       />
       <Stack.Screen name="profile/index" options={{ title: 'Profile' }} />
       <Stack.Screen name="profile/edit" options={{ title: 'Edit profile' }} />
+      <Stack.Screen name="u/[username]" options={{ title: 'Player' }} />
     </Stack>
   );
 }

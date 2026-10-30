@@ -2,6 +2,8 @@ import type { LaunchContext, LaunchIntent } from '@rally/protocol';
 import { HostBridge } from './bridge';
 import { createHostHandlers, type HostHandlers, type MatchmakingTarget } from './handlers';
 import { buildDeliverScript } from './injected';
+import type { PlaySessionService } from './play-session';
+import type { ProgressStore } from './progress';
 import type { SaveStore } from './saves';
 import type { WebViewHandle } from './webview';
 
@@ -28,7 +30,7 @@ export interface GameHostResult {
   reason: string;
   /** ms from WebView start to `ready()`; null if the game never became ready. */
   readyMs: number | null;
-  /** Foreground seconds between `ready()` and exit; 0 if never ready. Feeds `record_play`. */
+  /** Foreground seconds between `ready()` and exit; 0 if never ready. Feeds `end_play_session` / `record_play`. */
   playtimeS: number;
   metrics: Record<string, number | string | boolean> | null;
   error: string | null;
@@ -42,9 +44,16 @@ export interface GameHostControllerOptions {
   user: LaunchContext['user'];
   intent: LaunchIntent;
   saves: SaveStore;
+  progress: ProgressStore;
+  /** False for multiplayer games: `leaderboard.submit` answers NOT_SUPPORTED (results come from the room). */
+  soloScores: boolean;
+  /** Server play sessions; null records nothing (Developer launcher). */
+  playSessions: PlaySessionService | null;
   matchmaking: MatchmakingTarget | null;
   device: DeviceInfo;
   onExit: (result: GameHostResult) => void;
+  /** After the session was closed on the server (`end_play_session`, or the `record_play` fallback), even if that failed. */
+  onPlayRecorded?: () => void;
   createNonce: () => string;
   readyTimeoutMs?: number;
   now?: () => number;
@@ -67,6 +76,9 @@ export class GameHostController {
 
   private device: DeviceInfo;
   private onExit: (result: GameHostResult) => void;
+  private onPlayRecorded: (() => void) | undefined;
+  /** `start_play_session`, fired on the first `start()`; resolves to null if it failed. */
+  private playSession: Promise<string | null> | null = null;
   private startedAt: number;
   private readyAt: number | null = null;
   private pausedAt: number | null = null;
@@ -84,6 +96,7 @@ export class GameHostController {
     this.now = opts.now ?? Date.now;
     this.device = opts.device;
     this.onExit = opts.onExit;
+    this.onPlayRecorded = opts.onPlayRecorded;
     this.startedAt = this.now();
     const nonce = opts.createNonce();
     this.view = { attempt: 0, nonce, phase: 'loading', progress: 0, status: 'Loading…', error: null };
@@ -109,19 +122,27 @@ export class GameHostController {
   // --- lifecycle -----------------------------------------------------------------------------------------------
 
   /** Latest values from props; read lazily when the game calls `ready()` or exits. */
-  update(patch: { device?: DeviceInfo; onExit?: (result: GameHostResult) => void }): void {
+  update(patch: { device?: DeviceInfo; onExit?: (result: GameHostResult) => void; onPlayRecorded?: () => void }): void {
     if (patch.device) this.device = patch.device;
     if (patch.onExit) this.onExit = patch.onExit;
+    if (patch.onPlayRecorded) this.onPlayRecorded = patch.onPlayRecorded;
   }
 
-  /** Mount: arm the load timeout. Safe to call again after `stop()` / `unmount()` (StrictMode double effects). */
+  /**
+   * Mount: arm the load timeout and start the server play session (once; in parallel with the WebView load, never
+   * awaited here). Safe to call again after `stop()` / `unmount()` (StrictMode double effects).
+   */
   start(): void {
     if (this.unmountTimer !== null) clearTimeout(this.unmountTimer);
     this.unmountTimer = null;
     if (this.exited) return;
     this.active = true;
+    this.startPlaySession();
     if (this.view.phase === 'loading') this.armReadyTimeout();
   }
+
+  /** The play session id for `leaderboard.submit`: waits for a start still in flight; null without a session. */
+  getPlaySessionId = (): Promise<string | null> => this.playSession ?? Promise.resolve(null);
 
   /** Stop timers and drop traffic; `start()` can resume. */
   stop(): void {
@@ -131,7 +152,7 @@ export class GameHostController {
 
   /**
    * The host component is going away (navigation, sign-out, a parent unmounting) without the game having
-   * exited: end the session as `finish('unmount')` so `onExit` (and `record_play`) still runs exactly once.
+   * exited: end the session as `finish('unmount')` so `onExit` (and `end_play_session`) still runs exactly once.
    * Deferred by a tick and cancelled by `start()`, because StrictMode replays effects (cleanup, then setup)
    * on a component that stays mounted.
    */
@@ -249,9 +270,40 @@ export class GameHostController {
       metrics: this.metrics,
       error: this.lastError,
     });
+    void this.closePlaySession(playtimeS, this.readyAt !== null);
   };
 
   // --- internals -------------------------------------------------------------------------------------------------
+
+  private startPlaySession() {
+    const svc = this.opts.playSessions;
+    if (!svc || this.playSession) return;
+    this.playSession = svc.start(this.opts.game).then(
+      (id) => id || null,
+      (err: unknown) => {
+        this.warn(`[play-session] start failed: ${err instanceof Error ? err.message : String(err)}`);
+        return null;
+      },
+    );
+  }
+
+  /**
+   * Exactly once per controller (from `finish`): close the session with the playtime, or, if none could be started
+   * (offline at launch), fall back to `record_play` for a game that became ready. Failures are logged, not thrown.
+   */
+  private async closePlaySession(playtimeS: number, wasReady: boolean) {
+    const svc = this.opts.playSessions;
+    if (!svc) return;
+    try {
+      const id = await (this.playSession ?? Promise.resolve(null));
+      if (id) await svc.end(id, playtimeS);
+      else if (wasReady) await svc.recordPlay(this.opts.game.id, playtimeS);
+      else return;
+    } catch (err) {
+      this.warn(`[play-session] close failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    this.onPlayRecorded?.();
+  }
 
   private createBridge(nonce: string): HostBridge {
     return new HostBridge({
@@ -268,6 +320,9 @@ export class GameHostController {
           device: this.device,
         }),
         saves: this.opts.saves,
+        progress: this.opts.progress,
+        soloScores: this.opts.soloScores,
+        getPlaySessionId: this.getPlaySessionId,
         matchmaking: this.opts.matchmaking,
         now: this.opts.now,
         onReady: () => {

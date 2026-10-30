@@ -14,7 +14,7 @@ pnpm dev:mobile:go                    # Metro for Expo Go (email sign-in + Devel
 
 pnpm --filter @rally/mobile typecheck # app + tests
 pnpm --filter @rally/mobile lint      # expo lint (React Compiler rules), zero warnings
-pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects/anonymous plan, bridge + nav gate, handlers, controller, cover art
+pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects/anonymous plan, bridge + nav gate, handlers (saves, leaderboards, achievements), controller (play sessions), progress formatting, cover art
 node scripts/generate-brand-assets.cjs  # (from apps/mobile) app icon, adaptive icon layers, splash, favicon from src/lib/brand.ts; needs Playwright
 ```
 
@@ -99,9 +99,10 @@ when they do surface (profile edits go through PostgREST, which passes them on).
 | `/forgot-password`, `/check-email` | `src/app/(auth)/…` | reset link request, confirmation notice |
 | `/auth/callback`, `/auth/reset-password` | `src/app/auth/…` | deep-link targets (PKCE code exchange, new password) |
 | `/` | `src/app/(app)/index.tsx` | dashboard: search, featured carousel, continue playing, favorites, new |
-| `/game/:id` | `src/app/(app)/game/[id]/index.tsx` | game page: screenshots, details, favorite, Play → consent sheet |
+| `/game/:id` | `src/app/(app)/game/[id]/index.tsx` | game page: screenshots, details (+ "Best" for solo games), favorite, Play → consent sheet, leaderboard, achievements |
 | `/game/:id/play` | `src/app/(app)/game/[id]/play.tsx` | full-screen `GameHost` for the published version |
 | `/profile`, `/profile/edit` | `src/app/(app)/profile/…` | profile, edit (display name, username, bio), sign out, delete-account request |
+| `/u/:username` | `src/app/(app)/u/[username].tsx` | public profile: avatar, names, bio, achievements + games played (`public_profile_stats`), unlocked achievements; your own username redirects to `/profile` |
 | `/dev`, `/dev/play` | `src/app/dev/…` | Developer launcher (M0 spike path: direct bundle + Colyseus URL, last-run metrics) |
 
 `src/app/_layout.tsx` gates `(app)` on a signed-in, non-anonymous session and `(auth)` on its absence
@@ -119,8 +120,44 @@ carries the real profile (`user: { id, username, avatarUrl }`); orientation come
 snapshots the plan when it mounts (its own cache entry, never refetched while mounted), so a publish or a hidden
 game takes effect on the next launch instead of remounting or redirecting a running game. Every session ends in
 one `onExit`: the game's `exit()`, the close button / back, or `finish('unmount')` when the screen goes away
-(sign-out, navigation); the play screen then calls `record_play(game_id, playtime_s)` (foreground seconds since
-`ready()`), which feeds "Continue playing".
+(sign-out, navigation).
+
+### Play sessions, scores and achievements (M2)
+
+1. **Session start.** When the play screen mounts, the `GameHostController` fires `start_play_session(game_id,
+   version)` and keeps the promise of its id. It is never awaited before the WebView loads; the game starts in
+   parallel. A failed start (offline) is logged and leaves the id `null`.
+2. **Scores.** `leaderboard.submit(boardId, score)` waits for that promise if the start is still in flight, then calls
+   `submit_solo_score(game_id, board_key, score, session_id)`, which bounds the score by the session's server-side
+   start time and the board's `max_score_per_minute`. The bridge answers `{ accepted, best }` (`best` null without a
+   score; `accepted: false` for bounds / not a new best / server rate limit). Errors: a `RATE_LIMITED` message →
+   `RATE_LIMITED`, `ANONYMOUS_FORBIDDEN` → `NOT_SUPPORTED` with the server's message, anything else `INTERNAL`
+   (including a missing session). **Multiplayer games** (manifest `server`) get `NOT_SUPPORTED`: their results are
+   written by the room (architecture §8). They can still read boards and unlock achievements.
+3. **Reads and unlocks.** `leaderboard.top(boardId, { scope, limit })` → `leaderboard_top` mapped to the protocol's
+   `{ entries: [{ rank, userId, username, score }] }` ('friends' returns only the player until M4);
+   `achievement.unlock(key)` → `unlock_achievement` → `{ unlocked, alreadyHad }`.
+4. **Host rate limits** (per launch, token buckets, before any RPC): `save.put` 10/min, `leaderboard.submit` 30/min,
+   `leaderboard.top` 60/min, `achievement.unlock` 60/min. The server applies its own on top.
+5. **Session end.** `finish` (any reason, including `unmount`) closes the session exactly once:
+   `end_play_session(session_id, playtime_s)` (foreground seconds since `ready()`; it also records the play for
+   "Continue playing", like `record_play` did). Only when no session was started does it fall back to
+   `record_play(game_id, playtime_s)`, and only for a game that became ready. Then `onPlayRecorded` invalidates the
+   game page's leaderboard / achievement queries and "Continue playing" (they are also invalidated on exit, since the
+   scores are already stored).
+
+The Developer launcher passes in-memory stand-ins (`createMemorySaveStore`, `createMemoryProgressStore`: best score
+per board, every key unlocks) and no play-session service, so `/dev/play` never reaches Supabase.
+
+**Game page.** Below the details: a **Leaderboard** section (boards from `leaderboards`, in manifest order, with a
+segmented picker when there are several; Global / Friends toggle with a note that friends arrive in M4; top 10 from
+`leaderboard_top` with rank, avatar, username and the formatted score, your row highlighted, and "Your rank" from
+`my_leaderboard_rank` appended when you are outside the top 10; rows open `/u/:username`) and an **Achievements**
+section ("3 / 5" and a grid of tiles sized by `gridColumns` from the column's measured width; hidden ones read "???"
+until unlocked). Both use React Query under `progressKeys.game(uid, gameId)` with skeletons, empty ("No scores yet —
+be the first") and error states, and refresh on pull-to-refresh. Portrait stacks them under the details; landscape
+puts them in the scrolling right column. Solo games show "Best" (the primary board's `my_leaderboard_rank`) in
+Details.
 
 WebView navigation: `originWhitelist` is `['*']` on purpose. react-native-webview hands any URL that fails the
 whitelist to `Linking.openURL` (Safari, `tel:`, the app's own `rally://` routes), so `onShouldStartLoadWithRequest`
@@ -137,12 +174,16 @@ identity, never the real profile.
 - `src/lib/profile.ts`, `catalog.ts`, `launch.ts`: React Query hooks over `profiles` (always `PROFILE_COLUMNS` from
   `@rally/db`: `birth_date` and `privacy` are not readable, so `select('*')` fails), `games` / `game_versions` /
   `game_stats` / `favorites`, and the launch plan + `game_consents`.
+- `src/lib/game-progress.ts`: React Query hooks for boards, `leaderboard_top`, `my_leaderboard_rank`, achievements +
+  own unlocks, and public profiles (`profiles` by username, `public_profile_stats`, unlocked achievements across
+  games); `src/lib/progress-format.ts`: the pure parts (score formatting, board order/labels, "Your rank", tiles).
 - `src/lib/brand.ts`: the monochrome palette (shadcn neutral: near-black `#0A0A0A` / white, primary = foreground, no
   accent hue; `destructive` is the only colour), the logo mark's geometry (drawn in the foreground colour) and the
   splash layout (`SPLASH.imageWidth` mirrors `app.json`); `src/lib/cover-art.ts`: generated greyscale covers (grey
   gradient + shapes from a hash of the game id) for games without screenshots.
 - `src/components/rally/`: app components (logo + wordmark, cold-start intro overlay, game cover / cards / rows, faint
-  white glows, avatar with ring, empty states, form fields, consent dialog).
+  white glows, avatar with ring, empty states, form fields, consent dialog, segmented control, leaderboard and
+  achievements sections).
 - `src/components/ui/`: [React Native Reusables](https://reactnativereusables.com) on [Uniwind](https://docs.uniwind.dev)
   (ADR 0005). Owned source; theme tokens in `global.css`. Add more with
   `npx @react-native-reusables/cli@latest add <name> --styling-library uniwind`. Opacity modifiers on theme colours
@@ -154,11 +195,16 @@ Bridge host code (`src/game-host/`):
 - `injected.ts`: the script installed before any game code runs (`window.__rally = { nonce, version, recv }`)
 - `bridge.ts`: envelope validation, nonce + origin checks, request dispatch, event delivery
 - `handlers.ts`: SDK v1 handlers. `ready`, `ping`, `session.join` (Colyseus matchmaking, Supabase JWT attached),
-  `save.get` / `save.put` (10 puts/min token bucket, slot + 64 KB checks), `ui.loading`, `party.get`, `exit`.
-  `leaderboard.*`, `achievement.unlock`, `invite.open`, `haptics`, `orientation.lock` answer `NOT_SUPPORTED`.
+  `save.get` / `save.put` (10 puts/min token bucket, slot + 64 KB checks), `leaderboard.submit` / `leaderboard.top` /
+  `achievement.unlock` (per-method buckets; submit refused for multiplayer games), `ui.loading`, `party.get`, `exit`.
+  `invite.open`, `haptics`, `orientation.lock` answer `NOT_SUPPORTED`.
 - `saves.ts` / `supabase-saves.ts`: in-memory saves (Developer launcher) and `game_saves` + the `save_put` RPC
   (its `CONFLICT` maps to the bridge's `CONFLICT`).
-- `controller.ts`: one game session's state (bridge, nonce, timers, playtime, metrics) outside React.
+- `progress.ts` / `supabase-progress.ts`: the `ProgressStore` interface, RPC result / error mapping and the in-memory
+  store; the Supabase store over `submit_solo_score`, `leaderboard_top`, `unlock_achievement`.
+- `play-session.ts`: the `PlaySessionService` interface (start / end / `record_play` fallback); the play route backs it
+  with `startPlaySession` / `endPlaySession` / `recordPlay` from `src/lib/launch.ts`.
+- `controller.ts`: one game session's state (bridge, nonce, timers, playtime, play session, metrics) outside React.
 - `GameHost.tsx`: WebView configuration from architecture §2, lifecycle (pause/resume/back/crash) and overlays; renders
   the controller's snapshot through `useSyncExternalStore`, so it passes the React Compiler lint rules.
 

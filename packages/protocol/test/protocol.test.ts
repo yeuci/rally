@@ -39,3 +39,41 @@ test('manifest applies defaults and validates players', () => {
     false,
   );
 });
+
+test('manifest leaderboards and achievements: optional period, description and icon', () => {
+  const base = {
+    id: 'stack',
+    version: '1.0.0',
+    title: 'Stack',
+    engine: 'playcanvas',
+    players: { min: 1, max: 1 },
+    modes: ['solo'],
+    ageRating: '4+',
+  };
+  const m = GameManifestSchema.parse({
+    ...base,
+    leaderboards: [
+      { id: 'height', sort: 'desc', maxScorePerMinute: 120 },
+      { id: 'daily_height', sort: 'desc', period: 'daily' },
+    ],
+    achievements: [
+      { key: 'first_drop', title: 'First drop' },
+      { key: 'tower_50', title: 'Skyscraper', hidden: true, description: 'Stack 50 blocks.', icon: '🏙️' },
+    ],
+  });
+  assert.equal(m.leaderboards[0]!.period, undefined);
+  assert.equal(m.leaderboards[1]!.period, 'daily');
+  assert.deepEqual(m.achievements[0], { key: 'first_drop', title: 'First drop', hidden: false });
+  assert.equal(m.achievements[1]!.description, 'Stack 50 blocks.');
+  assert.equal(m.achievements[1]!.icon, '🏙️');
+  // Manifests without the new fields still validate (additive change).
+  assert.ok(GameManifestSchema.safeParse({ ...base, leaderboards: [{ id: 'kills', sort: 'desc' }] }).success);
+  assert.equal(
+    GameManifestSchema.safeParse({ ...base, leaderboards: [{ id: 'kills', sort: 'desc', period: 'monthly' }] }).success,
+    false,
+  );
+  assert.equal(
+    GameManifestSchema.safeParse({ ...base, achievements: [{ key: 'a', title: 'A', icon: '' }] }).success,
+    false,
+  );
+});

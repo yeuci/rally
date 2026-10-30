@@ -1,4 +1,4 @@
-// Hand-written to match `supabase gen types typescript` output for supabase/migrations (M1).
+// Hand-written to match `supabase gen types typescript` output for supabase/migrations (M1 + M2).
 // Regenerate against a real project with `pnpm --filter @rally/db gen:types` once one is linked;
 // keep this file in that exact shape so the swap is a no-op for consumers.
 export type Json =
@@ -17,6 +17,47 @@ export type Database = {
   }
   public: {
     Tables: {
+      achievements: {
+        Row: {
+          created_at: string
+          description: string
+          game_id: string
+          hidden: boolean
+          icon: string | null
+          id: string
+          key: string
+          title: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string
+          game_id: string
+          hidden?: boolean
+          icon?: string | null
+          id?: string
+          key: string
+          title: string
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          game_id?: string
+          hidden?: boolean
+          icon?: string | null
+          id?: string
+          key?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "achievements_game_id_fkey"
+            columns: ["game_id"]
+            isOneToOne: false
+            referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       banned_words: {
         Row: {
           created_at: string
@@ -312,6 +353,131 @@ export type Database = {
           },
         ]
       }
+      leaderboard_entries: {
+        Row: {
+          leaderboard_id: string
+          period_key: string
+          score: number
+          source: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          leaderboard_id: string
+          period_key: string
+          score: number
+          source?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          leaderboard_id?: string
+          period_key?: string
+          score?: number
+          source?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leaderboard_entries_leaderboard_id_fkey"
+            columns: ["leaderboard_id"]
+            isOneToOne: false
+            referencedRelation: "leaderboards"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leaderboard_entries_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      leaderboards: {
+        Row: {
+          created_at: string
+          game_id: string
+          id: string
+          key: string
+          max_score_per_minute: number | null
+          period: string
+          sort: string
+        }
+        Insert: {
+          created_at?: string
+          game_id: string
+          id?: string
+          key: string
+          max_score_per_minute?: number | null
+          period?: string
+          sort: string
+        }
+        Update: {
+          created_at?: string
+          game_id?: string
+          id?: string
+          key?: string
+          max_score_per_minute?: number | null
+          period?: string
+          sort?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leaderboards_game_id_fkey"
+            columns: ["game_id"]
+            isOneToOne: false
+            referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      play_sessions: {
+        Row: {
+          ended_at: string | null
+          game_id: string
+          id: string
+          playtime_s: number
+          started_at: string
+          user_id: string
+          version: string | null
+        }
+        Insert: {
+          ended_at?: string | null
+          game_id: string
+          id?: string
+          playtime_s?: number
+          started_at?: string
+          user_id: string
+          version?: string | null
+        }
+        Update: {
+          ended_at?: string | null
+          game_id?: string
+          id?: string
+          playtime_s?: number
+          started_at?: string
+          user_id?: string
+          version?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "play_sessions_game_id_fkey"
+            columns: ["game_id"]
+            isOneToOne: false
+            referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "play_sessions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -348,12 +514,100 @@ export type Database = {
         }
         Relationships: []
       }
+      rate_limits: {
+        Row: {
+          action: string
+          refilled_at: string
+          tokens: number
+          user_id: string
+        }
+        Insert: {
+          action: string
+          refilled_at?: string
+          tokens: number
+          user_id: string
+        }
+        Update: {
+          action?: string
+          refilled_at?: string
+          tokens?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rate_limits_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_achievements: {
+        Row: {
+          achievement_id: string
+          unlocked_at: string
+          user_id: string
+        }
+        Insert: {
+          achievement_id: string
+          unlocked_at?: string
+          user_id: string
+        }
+        Update: {
+          achievement_id?: string
+          unlocked_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_achievements_achievement_id_fkey"
+            columns: ["achievement_id"]
+            isOneToOne: false
+            referencedRelation: "achievements"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_achievements_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
       contains_banned_word: { Args: { input: string }; Returns: boolean }
+      end_play_session: {
+        Args: { p_playtime_s?: number; p_session_id: string }
+        Returns: undefined
+      }
+      leaderboard_top: {
+        Args: {
+          p_board_key: string
+          p_game_id: string
+          p_limit?: number
+          p_scope?: string
+        }
+        Returns: {
+          avatar_url: string
+          is_me: boolean
+          rank: number
+          score: number
+          user_id: string
+          username: string
+        }[]
+      }
+      my_leaderboard_rank: {
+        Args: { p_board_key: string; p_game_id: string }
+        Returns: Json
+      }
+      period_key: { Args: { at?: string; period: string }; Returns: string }
+      public_profile_stats: { Args: { p_user_id: string }; Returns: Json }
       random_default_avatar: { Args: never; Returns: string }
       record_play: {
         Args: { p_game_id: string; p_playtime_s?: number }
@@ -368,6 +622,32 @@ export type Database = {
           p_slot: string
         }
         Returns: number
+      }
+      start_play_session: {
+        Args: { p_game_id: string; p_version?: string }
+        Returns: string
+      }
+      submit_solo_score: {
+        Args: {
+          p_board_key: string
+          p_game_id: string
+          p_score: number
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      take_rate_limit_token: {
+        Args: {
+          p_action: string
+          p_capacity: number
+          p_refill_per_s: number
+          p_user_id: string
+        }
+        Returns: boolean
+      }
+      unlock_achievement: {
+        Args: { p_game_id: string; p_key: string }
+        Returns: Json
       }
       username_available: { Args: { p_username: string }; Returns: boolean }
     }

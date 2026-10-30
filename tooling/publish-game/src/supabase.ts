@@ -32,7 +32,10 @@ export function assertServiceRoleKey(key: string): void {
   throw new PublishError('SUPABASE_SERVICE_ROLE_KEY does not look like a Supabase service-role key');
 }
 
-/** Upload the bundle and write the catalog rows. Storage first, so a version row never points at missing files. */
+/**
+ * Upload the bundle and write the catalog rows. Storage first, so a version row never points at missing files.
+ * Then games → game_versions → leaderboards/achievements → pointer flip.
+ */
 export async function executePublish(
   sb: SupabaseClient,
   plan: PublishPlan,
@@ -94,7 +97,10 @@ export async function executePublish(
   const versionId = (inserted.data as { id: string }).id;
   log(`  ✓ game_versions ${slug}@${version} → ${versionId}`);
 
-  // 5. Pointer flip (+ optional status).
+  // 5. Leaderboards + achievements, before the version goes live so its boards accept scores right away.
+  await syncProgressCatalog(sb, plan, log);
+
+  // 6. Pointer flip (+ optional status).
   if (plan.db.activate) {
     const patch: Record<string, unknown> = { current_version_id: versionId };
     if (plan.db.publish) patch.status = 'published';
@@ -127,4 +133,55 @@ export async function executeRollback(
   if (flipped.error) throw new PublishError(`rollback failed: ${flipped.error.message}`);
   log(`✓ games.${slug}.current_version_id → ${version} (${versionId})`);
   return { versionId };
+}
+
+/**
+ * Upsert `leaderboards` and `achievements` from game.json on `(game_id, key)`. Rows are never deleted (scores and
+ * unlocks hang off them): anything in the database that game.json no longer lists is reported with a warning.
+ * Boards go one request each, in manifest order, so each gets its own `created_at` and the first board of a new
+ * game is its primary board (`game_stats.best_score` follows it).
+ */
+export async function syncProgressCatalog(
+  sb: SupabaseClient,
+  plan: PublishPlan,
+  log: Log = console.log,
+): Promise<{ staleLeaderboards: string[]; staleAchievements: string[] }> {
+  const { slug } = plan;
+  const { leaderboards, achievements } = plan.db;
+
+  const existingBoards = await sb.from('leaderboards').select('key').eq('game_id', slug);
+  if (existingBoards.error) throw new PublishError(`cannot read leaderboards: ${existingBoards.error.message}`);
+  const boardKeys = new Set((existingBoards.data as { key: string }[]).map((r) => r.key));
+  for (const row of leaderboards) {
+    const { error } = await sb.from('leaderboards').upsert(row, { onConflict: 'game_id,key' });
+    if (error) throw new PublishError(`upsert leaderboards.${row.key} failed: ${error.message}`);
+    const bound = row.max_score_per_minute === null ? 'unbounded' : `<= ${row.max_score_per_minute}/min`;
+    log(
+      `  ✓ leaderboards.${row.key} ${boardKeys.has(row.key) ? 'updated' : 'created'} (${row.sort}, ${row.period}, ${bound})`,
+    );
+  }
+
+  const existingAchievements = await sb.from('achievements').select('key').eq('game_id', slug);
+  if (existingAchievements.error) {
+    throw new PublishError(`cannot read achievements: ${existingAchievements.error.message}`);
+  }
+  const achievementKeys = new Set((existingAchievements.data as { key: string }[]).map((r) => r.key));
+  if (achievements.length > 0) {
+    const { error } = await sb.from('achievements').upsert(achievements, { onConflict: 'game_id,key' });
+    if (error) throw new PublishError(`upsert achievements failed: ${error.message}`);
+    const created = achievements.filter((a) => !achievementKeys.has(a.key)).length;
+    log(`  ✓ achievements: ${achievements.length} upserted (${created} new)`);
+  }
+
+  const staleLeaderboards = [...boardKeys].filter((k) => !leaderboards.some((b) => b.key === k)).sort();
+  const staleAchievements = [...achievementKeys].filter((k) => !achievements.some((a) => a.key === k)).sort();
+  if (staleLeaderboards.length > 0) {
+    log(
+      `  warning: leaderboards in the database but not in game.json (kept, still accepting scores): ${staleLeaderboards.join(', ')}`,
+    );
+  }
+  if (staleAchievements.length > 0) {
+    log(`  warning: achievements in the database but not in game.json (kept): ${staleAchievements.join(', ')}`);
+  }
+  return { staleLeaderboards, staleAchievements };
 }

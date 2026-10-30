@@ -218,6 +218,50 @@ signal; the test `signup without birth_date metadata is refused` pins that behav
   - pg_cron job `purge-abandoned-anonymous-users` (03:17 UTC daily) deletes anonymous users older than a
     day. Where pg_cron is unavailable the migration only raises a NOTICE; enable the extension in the
     dashboard and re-run the final `do` block of that migration to schedule it.
+- `20261030000100_m2_leaderboards.sql` (M2, solo progression; architecture §4 and §8):
+
+  | Table | Who reads | Who writes |
+  |---|---|---|
+  | `leaderboards` (`game_id`, `key`, `sort` asc/desc, `period` alltime/weekly/daily, `max_score_per_minute`) | anon + authenticated, published games only | `tooling/publish-game` (service role), from game.json |
+  | `achievements` (`game_id`, `key`, `title`, `description`, `icon`, `hidden`) | anon + authenticated, published games only | `tooling/publish-game` |
+  | `leaderboard_entries` (`leaderboard_id`, `period_key`, `user_id`, `score`, `source`) | authenticated: every row (signed-out: `leaderboard_top`) | `submit_solo_score`; game server (M3) |
+  | `user_achievements` (`user_id`, `achievement_id`, `unlocked_at`) | authenticated: every row (public profiles); anonymous sessions: own rows | `unlock_achievement` |
+  | `play_sessions` (`user_id`, `game_id`, `version`, `started_at`, `ended_at`, `playtime_s`) | owner | `start_play_session` / `end_play_session` |
+  | `rate_limits` (token buckets) | nobody | `take_rate_limit_token` (internal) |
+
+  `period_key(period, at default now())` names the bucket a score lands in: `all`, the ISO week (`2026-W44`) or
+  the UTC date (`2026-10-30`); periods roll over at 00:00 UTC (weekly: Monday). The oldest board of a game is its
+  primary board; `game_stats.best_score` mirrors the caller's all-time best on it.
+
+  RPCs (errors start with a code: `UNAUTHENTICATED` / `ANONYMOUS_FORBIDDEN` = SQLSTATE 42501, `NOT_FOUND` = P0002,
+  `INVALID` = 22023, `RATE_LIMITED` = P0001). All refuse anonymous sessions except `leaderboard_top`:
+
+  ```ts
+  // Host: when the game screen opens / closes. ≤ 60 starts per user per rolling hour (RATE_LIMITED).
+  const { data: sessionId } = await supabase.rpc('start_play_session', { p_game_id: 'stack', p_version: '1.0.0' });
+  await supabase.rpc('end_play_session', { p_session_id: sessionId, p_playtime_s: 95 }); // = record_play, once
+  // Bridge leaderboard.submit → {accepted, best, rank, reason}
+  await supabase.rpc('submit_solo_score', { p_game_id: 'stack', p_board_key: 'height', p_score: 42, p_session_id: sessionId });
+  // Bridge achievement.unlock → {unlocked: true, alreadyHad}
+  await supabase.rpc('unlock_achievement', { p_game_id: 'stack', p_key: 'first_drop' });
+  // Rows {rank, user_id, username, avatar_url, score, is_me}; anon key OK for 'global'
+  await supabase.rpc('leaderboard_top', { p_game_id: 'stack', p_board_key: 'height', p_scope: 'global', p_limit: 25 });
+  await supabase.rpc('my_leaderboard_rank', { p_game_id: 'stack', p_board_key: 'height' }); // {score, rank} | null
+  await supabase.rpc('public_profile_stats', { p_user_id: someone }); // {achievements, games_played}
+  ```
+
+  `submit_solo_score` raises only for bad input or auth (unknown/unpublished game or board, not a solo game,
+  session not the caller's or for another game, score not finite or negative). Everything else returns
+  `accepted: false` with a `reason`: `rate_limited` (30 submits per user per minute, token bucket, rejected
+  submits count), `session_too_new` (< 3 s), `session_expired` (≥ 24 h), `bounds`
+  (score > `max_score_per_minute` × ceil(minutes since session start), at least 1 minute) or `not_best` (not
+  strictly better than the current period's entry, per the board's sort). `best` / `rank` always describe the
+  caller's entry for the current period (null without one); `rank` is 1 + the number of strictly better scores.
+
+  `leaderboard_top` lists the current period best first per the board's sort; ties share a rank (1, 1, 3) and the
+  earlier score is listed first; `p_limit` is clamped to 1..100. `p_scope = 'friends'` returns only the caller's
+  own row (rank 1) until friendships exist (M4), and nothing for a signed-out caller. `end_play_session` clamps
+  playtime to the wall-clock time since the session started (and 24 h) and is idempotent.
 - The word filter matches whole words, case-insensitively; see the header of `seed.sql` for what that
   does and does not catch.
 

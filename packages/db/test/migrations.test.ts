@@ -10,7 +10,21 @@ test('migrations apply from scratch', async () => {
     `select table_name from information_schema.tables where table_schema = 'public' order by 1`,
   );
   const names = tables.rows.map((r) => r.table_name);
-  for (const t of ['profiles', 'games', 'game_versions', 'game_consents', 'game_saves', 'favorites', 'game_stats', 'banned_words']) {
+  for (const t of [
+    'profiles',
+    'games',
+    'game_versions',
+    'game_consents',
+    'game_saves',
+    'favorites',
+    'game_stats',
+    'banned_words',
+    'leaderboards',
+    'leaderboard_entries',
+    'achievements',
+    'user_achievements',
+    'play_sessions',
+  ]) {
     assert.ok(names.includes(t), `missing table ${t}`);
   }
   await db.close();

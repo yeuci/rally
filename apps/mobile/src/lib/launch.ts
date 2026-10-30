@@ -138,13 +138,39 @@ export function useGrantConsent() {
   });
 }
 
-/** Host-recorded play for "recently played" (solo path; multiplayer results come from the room in M3). */
+/**
+ * Runs an RPC once more after a session refresh when it failed with ANONYMOUS_FORBIDDEN: a token minted before
+ * linkIdentity still says is_anonymous (the session gate normally prevents this).
+ */
+export async function withAnonymousRetry<R extends { error: { message: string } | null }>(call: () => PromiseLike<R>): Promise<R> {
+  const first = await call();
+  if (first.error && isAnonymousForbidden(first.error) && !(await supabase.auth.refreshSession()).error) return call();
+  return first;
+}
+
+const playtimeArg = (playtimeS: number) => Math.max(0, Math.round(playtimeS));
+
+/**
+ * M1 host-recorded play for "recently played". Since M2 only the fallback for a launch whose play session could not
+ * be started (offline); multiplayer results come from the room in M3.
+ */
 export async function recordPlay(gameId: string, playtimeS: number): Promise<void> {
-  const args = { p_game_id: gameId, p_playtime_s: Math.max(0, Math.round(playtimeS)) };
-  let { error } = await supabase.rpc('record_play', args);
-  // A token minted before linkIdentity still says is_anonymous (the session gate normally prevents this): refresh once.
-  if (error && isAnonymousForbidden(error) && !(await supabase.auth.refreshSession()).error) {
-    ({ error } = await supabase.rpc('record_play', args));
-  }
+  const { error } = await withAnonymousRetry(() => supabase.rpc('record_play', { p_game_id: gameId, p_playtime_s: playtimeArg(playtimeS) }));
   if (error) console.warn('[record_play]', error.message);
+}
+
+/** `start_play_session`: the server-side start time `submit_solo_score` bounds scores against. Throws on failure. */
+export async function startPlaySession(gameId: string, version: string): Promise<string> {
+  const { data, error } = await withAnonymousRetry(() => supabase.rpc('start_play_session', { p_game_id: gameId, p_version: version }));
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error('start_play_session returned no id');
+  return data;
+}
+
+/** `end_play_session`: closes the session and records the play (stats, "Continue playing"), like `record_play` did. */
+export async function endPlaySession(sessionId: string, playtimeS: number): Promise<void> {
+  const { error } = await withAnonymousRetry(() =>
+    supabase.rpc('end_play_session', { p_session_id: sessionId, p_playtime_s: playtimeArg(playtimeS) }),
+  );
+  if (error) console.warn('[end_play_session]', error.message);
 }

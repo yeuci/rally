@@ -66,3 +66,56 @@ test('loadManifest: missing file, bad JSON and id/folder mismatch', async () => 
   assert.equal(m.id, 'demo');
   assert.ok(JSON.parse(await readFile(path.join(root, 'demo/game.json'), 'utf8')));
 });
+
+test('leaderboard ids must be valid database keys; ids and achievement keys must be unique', () => {
+  const ok = parseManifest({
+    ...validManifest,
+    leaderboards: [
+      { id: 'height', sort: 'desc', period: 'daily' },
+      { id: 'best_time-2', sort: 'asc' },
+    ],
+    achievements: [
+      { key: 'firstDrop', title: 'First drop', description: 'Drop a block.', icon: 'https://cdn.example.com/a.png' },
+    ],
+  });
+  assert.equal(ok.leaderboards[0]!.period, 'daily');
+  assert.equal(ok.achievements[0]!.icon, 'https://cdn.example.com/a.png');
+
+  for (const id of ['Height', '1st', 'has space', 'x'.repeat(33), '']) {
+    assert.throws(
+      () => parseManifest({ ...validManifest, leaderboards: [{ id, sort: 'desc' }] }),
+      (e: Error) => e instanceof PublishError && /leaderboards\[0\]\.id/.test(e.message),
+      id,
+    );
+  }
+  assert.throws(
+    () =>
+      parseManifest({
+        ...validManifest,
+        leaderboards: [
+          { id: 'height', sort: 'desc' },
+          { id: 'height', sort: 'asc' },
+        ],
+      }),
+    /leaderboards\[1\]\.id "height" is listed twice/,
+  );
+  assert.throws(
+    () =>
+      parseManifest({
+        ...validManifest,
+        achievements: [
+          { key: 'a', title: 'A' },
+          { key: 'a', title: 'B' },
+          { key: '', title: ' ' },
+        ],
+      }),
+    (e: Error) =>
+      /achievements\[1\]\.key "a" is listed twice/.test(e.message) &&
+      /achievements\[2\]\.key must be 1-64/.test(e.message) &&
+      /achievements\[2\]\.title must not be empty/.test(e.message),
+  );
+  assert.throws(
+    () => parseManifest({ ...validManifest, leaderboards: [{ id: 'h', sort: 'desc', period: 'hourly' }] }),
+    /period/,
+  );
+});

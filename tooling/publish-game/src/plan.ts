@@ -1,5 +1,5 @@
 import mime from 'mime';
-import { GameManifestSchema, type GameManifest, type ManifestFile } from '@rally/protocol';
+import { GameManifestSchema, type GameManifest, type LeaderboardPeriod, type ManifestFile } from '@rally/protocol';
 import { cacheControlFor } from './cache.ts';
 
 /** Supabase Storage bucket holding every game bundle (packages/db migration `20261029000000_m1_init.sql`). */
@@ -31,6 +31,29 @@ export interface GameVersionRow {
   size_bytes: number;
 }
 
+/**
+ * `public.leaderboards` upsert on `(game_id, key)` (packages/db `20261030000100_m2_leaderboards.sql`). `id` and
+ * `created_at` are never sent, so an existing board keeps both (the oldest board is the game's primary board).
+ */
+export interface LeaderboardRow {
+  game_id: string;
+  key: string;
+  sort: 'asc' | 'desc';
+  period: LeaderboardPeriod;
+  /** null clears a bound that was removed from game.json. */
+  max_score_per_minute: number | null;
+}
+
+/** `public.achievements` upsert on `(game_id, key)`. */
+export interface AchievementRow {
+  game_id: string;
+  key: string;
+  title: string;
+  description: string;
+  icon: string | null;
+  hidden: boolean;
+}
+
 export interface PlannedUpload {
   /** Path inside the bundle (and inside `dist/`). */
   path: string;
@@ -59,6 +82,13 @@ export interface PublishPlan {
     games: GamesRow;
     /** Inserted (`--force`: upserted on `(game_id, version)`). */
     gameVersion: GameVersionRow;
+    /**
+     * Upserted on `(game_id, key)` one at a time in manifest order, so on a first publish the first board is the
+     * oldest (primary) one. Never deleted: boards missing from game.json only produce a warning.
+     */
+    leaderboards: LeaderboardRow[];
+    /** Upserted on `(game_id, key)`. Never deleted: achievements missing from game.json only produce a warning. */
+    achievements: AchievementRow[];
     /** Flip `games.current_version_id` to the new version. */
     activate: boolean;
     /** Also set `games.status = 'published'`. */
@@ -95,6 +125,27 @@ export function gamesRowFromManifest(m: GameManifest): GamesRow {
     age_rating: m.ageRating,
     min_app_version: m.minAppVersion,
   };
+}
+
+export function leaderboardRowsFromManifest(m: GameManifest): LeaderboardRow[] {
+  return m.leaderboards.map((b) => ({
+    game_id: m.id,
+    key: b.id,
+    sort: b.sort,
+    period: b.period ?? 'alltime',
+    max_score_per_minute: b.maxScorePerMinute ?? null,
+  }));
+}
+
+export function achievementRowsFromManifest(m: GameManifest): AchievementRow[] {
+  return m.achievements.map((a) => ({
+    game_id: m.id,
+    key: a.key,
+    title: a.title,
+    description: a.description ?? '',
+    icon: a.icon ?? null,
+    hidden: a.hidden,
+  }));
 }
 
 export function buildPlan(input: {
@@ -142,6 +193,8 @@ export function buildPlan(input: {
         sha256: entry.sha256,
         size_bytes: sizeBytes,
       },
+      leaderboards: leaderboardRowsFromManifest(manifest),
+      achievements: achievementRowsFromManifest(manifest),
       activate: input.activate ?? true,
       publish: input.publish ?? false,
     },
