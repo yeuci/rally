@@ -3,7 +3,7 @@ import { useUniwind } from 'uniwind';
 import { useSession } from '@/lib/auth/session';
 import { NAV_THEME } from '@/lib/theme';
 
-export const unstable_settings = { initialRouteName: 'index' };
+export const unstable_settings = { anchor: 'index' };
 
 export default function AppLayout() {
   const { signedIn } = useSession();
