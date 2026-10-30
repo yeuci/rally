@@ -1,0 +1,24 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      "cache": false,
+      "outputs": ["dist/**"],
+      "env": [
+        "SITE_ORIGIN",
+        "APPLE_TEAM_ID",
+        "ANDROID_SHA256_FINGERPRINTS",
+        "IOS_APP_ID",
+        "IOS_APP_STORE_URL",
+        "ANDROID_PLAY_URL",
+        "SUPABASE_URL",
+        "SUPABASE_ANON_KEY",
+        "WEB_STRICT"
+      ]
+    },
+    "test": {
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/games/*/game.json"]
+    }
+  }
+}

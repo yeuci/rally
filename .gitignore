@@ -1,0 +1,45 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+
+# Expo
+.expo/
+web-build/
+expo-env.d.ts
+.metro-health-check*
+# generated native folders (Continuous Native Generation)
+apps/mobile/ios/
+apps/mobile/android/
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# env
+.env
+.env.*
+!.env.example
+
+# logs / OS
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+pnpm-debug.*
+.DS_Store
+*.pem
+
+# Colyseus template convention: per-NODE_ENV env files hold non-secret defaults and are committed.
+!apps/game-server/.env.development
+!apps/game-server/.env.production
+
+# publish-game --dry-run output
+publish-plan.json

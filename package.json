@@ -1,0 +1,38 @@
+{
+  "name": "rally",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Rally \u2014 one app, many games. Monorepo for the Expo shell, game SDK, game server and games.",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "dev:mobile": "pnpm --filter @rally/mobile start",
+    "dev:server": "pnpm --filter @rally/game-server dev",
+    "dev:spike": "pnpm --filter @rally/game-spike dev",
+    "dev:mobile:go": "pnpm --filter @rally/mobile start:go",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "dev:mobile:go:clear": "pnpm --filter @rally/mobile start:go:clear"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "prettier": "^3.9.10",
+    "turbo": "^2.11.10",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.1"
+  },
+  "pnpm": {
+    "overrides": {
+      "@colyseus/uwebsockets-transport": "-"
+    }
+  }
+}

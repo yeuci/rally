@@ -1,0 +1,25 @@
+{
+  "name": "@rally/web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Static site for Rally's associated domain: apple-app-site-association, assetlinks.json and the per-game Universal Link index (App Store 4.7.4).",
+  "type": "module",
+  "scripts": {
+    "build": "tsx src/cli.ts",
+    "dev": "tsx src/cli.ts --dev && tsx src/serve.ts",
+    "serve": "tsx src/serve.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint . --max-warnings 0",
+    "test": "node --experimental-strip-types --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@rally/protocol": "workspace:*",
+    "@supabase/supabase-js": "^2.118.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "tsx": "^4.21.0",
+    "typescript": "~6.0.3"
+  }
+}

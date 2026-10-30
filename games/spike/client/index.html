@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#0b1019" />
+    <title>Rally Spike</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <canvas id="application-canvas"></canvas>
+    <div id="sign" aria-hidden="true">0</div>
+    <div id="hud" class="hud">
+      <div class="panel">
+        <div class="row"><b>Rally spike</b> <span id="status">booting…</span></div>
+        <pre id="stats"></pre>
+        <div class="controls">
+          <button data-count="100">100</button>
+          <button data-count="300" aria-pressed="true">300</button>
+          <button data-count="1000">1000</button>
+          <button id="exit">exit</button>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

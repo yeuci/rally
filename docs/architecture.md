@@ -22,9 +22,9 @@ Decisions:
 **Verified platform facts (2026-10):**
 - App Store guideline 4.7 permits HTML5/JS mini apps and mini games not embedded in the binary. Obligations on the host app: responsible for their compliance (4.7), filtering/reporting/blocking + IAP for digital goods (4.7.1), may not expose native platform APIs to them without Apple's permission (4.7.2), no sharing of user data with an individual mini game without explicit consent each time (4.7.3), must provide an index of the software with Universal Links to each item (4.7.4), must let users identify content exceeding the app's age rating (4.7.5). Reported rejections exist for apps whose "primary purpose" appears to be HTML5 games. Verify exact wording on developer.apple.com at submission time.
 - Google Play's executable-code policy explicitly exempts JavaScript running in a WebView.
-- Colyseus: 0.17 in docs (auto-reconnect, `defineServer()`, client package renamed to `@colyseus/sdk`); 0.18 adds client-side prediction/lag compensation and is the last pre-1.0 release. `matchMaker.reserveSeatFor(room, clientOptions, authData)` makes `authData` available to the room as `client.auth`. Colyseus Cloud: from $15/mo, no free tier, no autoscaling, many regions, deploy via `npx @colyseus/cloud deploy`, requires `@colyseus/tools`.
-- PlayCanvas engine 2.19.x; standalone npm + Vite + TypeScript is the documented path (`create-playcanvas`); WebGPU supported.
-- Expo SDK 55+ is New-Architecture-only. Use the current stable SDK at scaffold time.
+- Colyseus: 0.18 is current (scaffolded: `colyseus@0.18.10`, `@colyseus/sdk@0.18.8`, `@colyseus/schema@5`). Server shape is `defineServer({ rooms: { name: defineRoom(Class) }, routes, express })`; rooms declare message handlers in a `messages = {}` map; schema state uses the `schema()` / `t.*` builders (decorators still work but need `experimentalDecorators`, which conflicts with modern toolchains). Client package is `@colyseus/sdk`; 0.18 adds client-side prediction/lag compensation and is the last pre-1.0 release. `matchMaker.reserveSeatFor(room, clientOptions, authData)` makes `authData` available to the room as `client.auth`. The built-in HTTP route is `POST /matchmake/<method>/<room>` and returns `{ name, sessionId, roomId, processId }` (verified locally in M0). Colyseus Cloud: from $15/mo, no free tier, no autoscaling, many regions, deploy via `npx @colyseus/cloud deploy`, requires `@colyseus/tools`.
+- PlayCanvas engine 2.23.x (scaffolded); standalone npm + Vite + TypeScript is the documented path (`npm create playcanvas@latest --format engine`); WebGPU supported. A minified engine chunk is ~2 MB / ~515 kB gzip.
+- Expo SDK 55+ is New-Architecture-only. Scaffolded on SDK 58 (`react-native@0.88`, `react@19.3`, TypeScript 6). `react-native-webview@14.0.1`; its root typings declare `WebView<P = undefined>` so props collapse to `never` under strict TS — the shell wraps it (`apps/mobile/src/game-host/webview.ts`).
 - react-native-webview: `file://` loading needs `allowingReadAccessToURL` (iOS) and has an `allowFileAccess` race on Android; a local static HTTP server avoids both. `@dr.pogodin/react-native-static-server` supports the New Architecture; its `extractBundledAssets()` is Android-only.
 - Supabase Realtime: `postgres_changes` `in.()` filters cap at 100 values; Broadcast-from-database (`realtime.send()` in triggers) with private channels + `realtime.messages` RLS is the scalable fan-out path.
 
@@ -69,7 +69,8 @@ Decisions:
 ```
 rally/
   apps/
-    mobile/              Expo app (expo-router). Host side of the bridge lives in src/game-host/
+    mobile/              Expo app (expo-router). UI: React Native Reusables on Uniwind (ADR 0005), components in
+                         src/components/ui/. Host side of the bridge lives in src/game-host/
     game-server/         Colyseus deployment: src/registry.ts imports every games/*/server + /party routes
     web/                 Static site: apple-app-site-association, assetlinks.json, /game/<id> index pages
   packages/
@@ -92,7 +93,7 @@ rally/
     dev-harness/         browser page that fakes the host bridge so games run in a desktop browser
   docs/
     architecture.md      this document, maintained
-    decisions/           ADRs: 0001 app shell, 0002 game runtime, 0003 engine, 0004 backend/hosting
+    decisions/           ADRs: 0001 app shell, 0002 game runtime, 0003 engine, 0004 backend/hosting, 0005 shell UI kit
 ```
 
 ---
@@ -148,7 +149,7 @@ Requests resolve a promise with a 10 s timeout; `evt` is fire-and-forget.
 **Build & publish (`tooling/publish-game.ts`):** `vite build` → `dist/` with content-hashed assets → upload to Supabase Storage public bucket `games/<slug>/<version>/…` (served through Supabase's CDN); hashed assets and all version-prefixed paths get `Cache-Control: public, max-age=31536000, immutable` → insert `game_versions` (manifest jsonb, sha256) → flip `games.current_version_id`. Rollback = flip the pointer. `min_app_version` gates incompatible bundles.
 
 **Loading in the WebView**
-- **MVP (M0–M5): remote HTTPS** from the CDN. Real per-game origin, secure context, WebSockets/CORS/SRI behave, HTTP cache gives best-effort warm loads. Do not add Service Workers on iOS before measuring (they require `WKAppBoundDomains`).
+- **MVP (M0–M5): remote HTTPS** from the CDN. The shell downloads the entry document itself, verifies it against `game_versions.sha256` and loads it as `source={{ html, baseUrl: <bundle directory> }}`, because Supabase Storage serves `text/html` objects as `text/plain` on purpose (anti-phishing on the shared `*.supabase.co` origin); scripts, styles and assets load straight from the CDN with their real content types, and the page keeps the CDN origin, so `'self'`, SRI and the bridge's URL gate are unchanged. Real per-game origin, secure context, WebSockets/CORS/SRI behave, HTTP cache gives best-effort warm loads. Do not add Service Workers on iOS before measuring (they require `WKAppBoundDomains`).
 - **Pre-submission (M6): on-device bundle cache + bundled copies.** Download the version's files with `expo-file-system`, verify sha256 per `manifest.files`, serve from `http://127.0.0.1:<port>/<slug>/<version>/` with `@dr.pogodin/react-native-static-server` (needs an EAS dev build, which we already use). Ship the MVP games inside the binary too: iOS serves them from the app bundle directory, Android extracts them with `extractBundledAssets()` on first launch. This gives offline solo play and means the reviewed binary contains the games; remote delivery only updates them. Pitfalls: all games share one `localhost` origin, so games must persist only through the SDK and the host clears WebView storage on exit (or use a per-game port); Android needs a cleartext exception for `localhost`; iOS suspends the server in background (restart on foreground).
 - **Never `file://`:** `fetch()` and ES modules break on a null origin, and the Android workaround (`allowUniversalAccessFromFileURLs`) lets a game read the app sandbox.
 
@@ -265,10 +266,47 @@ Who owns what: **Postgres + Realtime** = social truth (presence, parties, chat, 
 
 ---
 
+## Status
+
+- ADRs 0001–0005 written in `docs/decisions/`.
+- M0 scaffold in place: pnpm + Turborepo monorepo, `@rally/protocol` (envelope, methods, launch context, manifest), `@rally/sdk` (ESM + IIFE), `apps/game-server` with the `hello` room, `games/spike` (PlayCanvas stress scene + HUD + Colyseus join via host matchmaking), `apps/mobile` with the spike launcher and `GameHost` (WebView config from §2, nonce bridge, pause/resume/back/crash handling). Verified locally: typecheck/build/test across workspaces, Metro export of the shell, HTTP matchmaking → seat reservation → `consumeSeatReservation` round-trip, and an SDK ↔ host bridge end-to-end test over a fake transport.
+- **M0 results so far (2026-10-29, iPhone 14, iOS Safari over LAN Wi-Fi, dev server on a Windows PC):** Safari shares WebKit and the GPU path with WKWebView, so this measures the core bet directly.
+
+  | Setting | fps | frame avg | p95 | worst | draws | canvas | ready | ws RTT |
+  |---|---|---|---|---|---|---|---|---|
+  | 1000 cubes, portrait, DPR 2 | 60 | 16.7 ms | 19 ms | 21 ms | 1473 | 856×1562 | 29 ms | 14 ms |
+  | 1000 cubes, landscape, DPR 2 | 60 | 16.7 ms | 21 ms | 28 ms | 1973 | 1852×636 | 38 ms | 10 ms |
+  | 100 cubes, landscape, DPR 2 | 60 | 16.7 ms | 17 ms | 22 ms | 197 | 1852×636 | 38 ms | 12 ms |
+
+  Reading: pinned to the 60 Hz display; 100 cubes is a locked 60 with no missed vsync, 1000 shadowed cubes (a far heavier scene than any planned game) drops a few frames per second. Safari's toolbar reduced the landscape canvas to ~1.2 MP. Screenshots: `docs/screenshots/m0-iphone14-safari-*.png`.
+
+  **Through the Rally shell** (same phone, Expo Go hosting `GameHost`, full-screen WebView, host matchmaking → seat reservation → game-owned socket; spike served by the Vite dev server over LAN):
+
+  | Setting | fps | frame avg | p95 | worst | draws | canvas | ready | bridge RTT | ws RTT |
+  |---|---|---|---|---|---|---|---|---|---|
+  | 1000 cubes, landscape, DPR 2 | 60 | 16.7 ms | 19 ms | 24 ms | 1941 | 1852×856 | 744 ms | 1 ms | 8 ms |
+  | 300 cubes, landscape, DPR 2 | 60 | 16.7 ms | 19 ms | 20 ms | 576 | 1852×856 | 744 ms | 1 ms | 7 ms |
+  | 100 cubes, landscape, DPR 2 | 60 | 16.7 ms | 19 ms | 28 ms | 198 | 1852×856 | 744 ms | 2 ms | 9 ms |
+
+  Reading: the bridge costs nothing measurable; the full-screen fill (~1.6 MP) did not change the frame-time picture. `ready` of 744 ms is dominated by Vite's dev server streaming unbundled ES modules over Wi-Fi, not by the shell; the cold/warm load criterion (< 3 s warm) is measured against a built bundle once `tooling/publish-game` exists (M1). Screenshots: `docs/screenshots/m0-iphone14-shell-*.png`. **iPhone verdict: the core bet holds** for rendering, bridge and netcode; memory is the one criterion still unmeasured (needs Xcode Instruments). **Findings:** (1) iOS Low Power Mode caps `requestAnimationFrame` at 30 Hz in Safari and WKWebView alike; games must simulate on elapsed time, never per frame (PlayCanvas `dt` already does; `game-kit` netcode must assume it). (2) Backgrounding the app for more than ~5 s while a game is served by the Vite dev server reloads the page: iOS suspends the app, the HMR client's socket drops, and Vite's client forces a full reload on reconnect. Served from a built bundle the page survives backgrounding (session clock kept counting 80 → 110 s across a background on iPhone 14); the host now also resets its handshake on any main-frame reload so a real content-process kill recovers cleanly.
+- **Still to measure:** the same through the Expo shell at full-screen size (bridge RTT, load-to-ready), WebView memory via Xcode Instruments (needs a Mac), and a low-end Android. Publishing to Supabase Storage / Colyseus Cloud is deferred until those numbers are in.
+
+- **M1 built (2026-10-29), not yet run against a live Supabase project:** CI workflow; `packages/db` migrations (identity, catalog, consents, saves, stats, grants, avatars bucket) with a PGlite test suite (47 tests) and hand-written `Database` types; `apps/mobile` auth (age gate first, email, Apple/Google via anonymous user + `linkIdentity`), profiles, dashboard, game page, consent sheet, Supabase-backed bridge handlers (32 tests); `tooling/publish-game` (CSP + SRI hardening, immutable CDN upload, version pointer; 28 tests); `tooling/dev-harness` Vite plugin (fake host for desktop development, Playwright e2e). ADR 0005: Reusables on Uniwind for the shell UI.
+
+- **M1 verified on device (2026-10-30, iPhone 14, Expo Go, hosted Supabase):** migrations pushed with the CLI; email signup with the age gate created the profile; dashboard and game page read the seeded catalog; Play from the catalog showed the consent sheet once, launched the spike with the real profile (ready 73–80 ms from the LAN dev server, bridge 3–5 ms, socket 11–14 ms), pause/resume survived backgrounding, ✕ exited and recorded the play. Publishing to the CDN is deferred until a `wss://` game server exists (a CDN-hosted page cannot open a plain `ws://` socket to a dev machine).
+- **M2 decision:** the first solo game is **Stack** (tap to drop a sliding block on the tower, overhang trimmed, score = height): one input, trivial deterministic physics for server-side score bounds, strong feel in 30-second sessions. Alternatives considered: a ball-rolling runner, an orbital golf.
+
+- **Finding (2026-10-30, first CDN launch):** Stack published to Supabase Storage never called `ready()`: Supabase returns HTML objects as `text/plain`, so the WebView (and Safari) showed the source as text. Fixed in the shell as described under *Delivery*; the load-failure overlay now also lists page-level errors (CSP violations, failed script loads, exceptions) reported by the injected script, since no Web Inspector reaches a phone from a Windows PC.
+- **Performance pass 1 (2026-10-30):** Stack launches from the CDN in about 4 s on the iPhone 14 in Expo Go (dev build, so JS is not precompiled). Done so far: `lucide-react-native` barrel imports rewritten per icon by a Babel plugin (`apps/mobile/scripts/babel-lucide-icons.js`), iOS JS bundle 8.0 MB → 4.8 MB; Stack renders its first frame and calls `ready()` before the save slot round trip instead of after it; launch timings (entry download, page load start, `ready()`) are logged in dev builds and shown on the Developer screen's last run. PlayCanvas named imports made no difference to the 2.0 MB (515 KB gzip) engine chunk; the bundler already tree-shook the namespace import, so the engine itself is the floor for a PlayCanvas game. Next: measure the timings on device, then look at the WebView cold start and the engine chunk (a 2D game does not need PlayCanvas).
+- **FPS overlay:** Profile → "Show FPS in games" (device preference, `apps/mobile/src/lib/prefs.ts`). The injected host script samples `requestAnimationFrame` inside the game's page and reports once a second; the shell draws the number top-left. It measures the game's real frame rate, not the shell's.
+- **M2 verified on device (2026-10-30, iPhone 14, Expo Go, CDN bundle):** Stack loads from Supabase Storage through the shell; `ready()` 1363 ms cold (engine download + WebView process start), 446 ms and 327 ms on the next launches. A full game put the score on the leaderboard (`submit_solo_score`, shown as "You" with rank 1), unlocked 3 of 5 achievements, and the game page reads best score, board and achievements back; Stack 0.1.1 republished and live. M2's remaining items (EAS build, TestFlight, early App Review) wait for the Apple Developer Program.
+- **M2 built (2026-10-30):** `@rally/game-kit` (boot, safe area, input, audio, lifecycle, save, solo client, metrics); `games/stack` with a deterministic elapsed-time simulation and Playwright e2e through the dev harness; leaderboards/achievements/play_sessions schema with `submit_solo_score` bounded by `max_score_per_minute` (116 DB tests); mobile play sessions, leaderboard/achievement bridge handlers, Leaderboard and Achievements sections on the game page, public profiles at `/u/<username>`; `apps/web` Universal Link index with AASA/assetlinks. Default avatars (10 bundled) assigned at signup.
+
 ## Next steps
 
-1. Write the four ADRs in `docs/decisions/` (context, decision, consequences): app shell, game runtime, engine, backend + hosting.
-2. Start M0: scaffold the minimal monorepo and the spike described above; `games/spike/client` from `create-playcanvas` (vanilla-ts) wired to `@rally/sdk`.
+1. **Close M2:** merge the working branch into `main` once CI is green (device checks done: CDN launch, score on the board, achievements, Stack 0.1.1). EAS/TestFlight and the early App Review submission wait for the Apple Developer Program.
+2. **M3, first multiplayer game:** build against the LAN Colyseus server first (one phone + the dev harness on the PC is already a cross-platform match), then move the server to Colyseus Cloud or a small VPS. `RallyRoom` base (JWKS auth, `game_rooms` mirroring, reconnection), quick play, server browser, private rooms with codes, presence heartbeat, live counts; the game itself is a small 2–8 player arena with server-authoritative movement.
+3. **Carried over:** Apple/Google first-run detection relies on GoTrue's "Database error saving new user" message (verify live); abandoned OAuth signups hold a username (pg_cron purge of anonymous users > 1 day); avatar upload (image picker) and in-app account deletion; `@rally/sdk` bundles zod (~45 kB gzip) — consider `zod/mini`; generate `apps/game-server/src/registry.ts` from `games/*/game.json`; `apps/web` hosting + `associatedDomains`/`intentFilters` once a domain exists; `RALLY_COLYSEUS_URL` optional in `publish-game` for games without a server; timing on the Play-tap → game path and the shell's cold start; React Compiler; WebView memory and low-end Android numbers from M0.
 
 ## Verification (per milestone)
 

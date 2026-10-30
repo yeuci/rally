@@ -1,0 +1,11 @@
+packages:
+  - apps/*
+  - packages/*
+  - games/*/client
+  - games/*/server
+  - tooling/*
+
+# Native/postinstall scripts we trust (pnpm 10 blocks the rest by default).
+onlyBuiltDependencies:
+  - esbuild
+  - msgpackr-extract
