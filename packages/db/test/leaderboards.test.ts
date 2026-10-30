@@ -362,11 +362,16 @@ describe('play sessions', () => {
     assert.equal(await count(db, `select 1 from public.play_sessions where id = $1 and ended_at is null`, [id]), 1);
   });
 
-  test('record_play still works (M1 fallback)', async () => {
-    await asUser(db, bob, async () => {
+  test('record_play still works (M1 fallback) for a user without an open session', async () => {
+    const dora = await signUp(db, { username: 'dora', birth_date: '2000-01-01' });
+    await asUser(db, dora, async () => {
       await db.query(`select public.record_play('stack', 10)`);
     });
-    assert.equal(await count(db, `select 1 from public.game_stats where user_id = $1 and plays = 1`, [bob]), 1);
+    assert.equal(await count(db, `select 1 from public.game_stats where user_id = $1 and plays = 1`, [dora]), 1);
+    // bob has open sessions (above): the host must end those instead (20261030000400).
+    await asUser(db, bob, async () => {
+      await assert.rejects(db.query(`select public.record_play('stack', 10)`), /CONFLICT/);
+    });
   });
 
   test('sessions are owner-read only; no direct writes', async () => {
@@ -513,9 +518,11 @@ describe('submit_solo_score', () => {
       rank: 3,
       reason: null,
     });
-    assert.deepEqual(await submitAs(db, carol, 'stack', 'time', 0, sc), {
+    // Ascending boards need a score > 0 since 20261030000400 (0 was an instant rank 1).
+    await assert.rejects(submitAs(db, carol, 'stack', 'time', 0, sc), invalid);
+    assert.deepEqual(await submitAs(db, carol, 'stack', 'time', 0.5, sc), {
       accepted: true,
-      best: 0,
+      best: 0.5,
       rank: 1,
       reason: null,
     });
@@ -528,7 +535,8 @@ describe('submit_solo_score', () => {
       [61, 200, 201], // ceil(61/60) = 2
       [119, 200, 200.5],
       [179, 300, 301],
-      [3600 * 5 - 1, 30000, 30001], // 299.98 min -> 300
+      [3600 * 2 - 1, 12000, 12001], // 119.98 min -> 120
+      [3600 * 5 - 1, 12000, 12001], // an open session counts at most 2 h (20261030000400)
     ];
     for (const [ageS, ok, tooHigh] of cases) {
       await db.query(`delete from public.leaderboard_entries where user_id = $1`, [carol]);
@@ -708,9 +716,9 @@ describe('submit_solo_score', () => {
     });
   });
 
-  test('entries are readable by signed-in users, not writable; anon has no table access', async () => {
+  test('entries are not readable or writable directly (RPCs only since 20261030000400); anon has no table access', async () => {
     await asUser(db, carol, async () => {
-      assert.ok((await count(db, `select 1 from public.leaderboard_entries where user_id = $1`, [alice])) > 0);
+      await assert.rejects(db.query(`select 1 from public.leaderboard_entries`), /permission denied/);
       await assert.rejects(db.query(`update public.leaderboard_entries set score = 1e9`), /permission denied/);
       await assert.rejects(db.query(`delete from public.leaderboard_entries`), /permission denied/);
       const board = (await db.query<{ id: string }>(`select id from public.leaderboards where key = 'height'`)).rows[0]!
@@ -897,6 +905,11 @@ describe('achievements and public profile stats', () => {
     alice = await signUp(db, { username: 'alice', birth_date: '2000-01-01' });
     bob = await signUp(db, { username: 'bob', birth_date: '2000-01-01' });
     ghost = await signUpAnonymously(db, { username: 'ghost', birth_date: '2000-01-01' });
+    // New unlocks need a live or just-ended play session of the game (20261030000400). alice's ended a minute ago,
+    // so record_play (no open session) works for her too; bob's is still open.
+    const sa = await startSession(db, alice, 'stack', 120);
+    await db.query(`update public.play_sessions set ended_at = now() - interval '1 minute' where id = $1`, [sa]);
+    await startSession(db, bob, 'stack', 120);
   });
   after(() => db.close());
 
@@ -978,8 +991,7 @@ describe('achievements and public profile stats', () => {
   });
 
   test('public_profile_stats: achievements and distinct games played, computed server-side', async () => {
-    await asUser(db, alice, () => db.query(`select public.record_play('other', 5)`));
-    await asUser(db, alice, () => db.query(`select public.record_play('stack', 5)`));
+    await asUser(db, alice, () => db.query(`select public.record_play('other', 5)`)); // 'stack': previous test
     const stats = (uid: string, target: string) =>
       asUser(
         db,
@@ -1007,6 +1019,7 @@ describe('achievements and public profile stats', () => {
 
   test('deleting a user cascades their unlocks and entries', async () => {
     const tmp = await signUp(db, { username: 'tmp_user', birth_date: '2000-01-01' });
+    await startSession(db, tmp, 'stack', 30);
     await unlock(tmp, 'stack', 'first_drop');
     await db.query(`delete from auth.users where id = $1`, [tmp]);
     assert.equal(await count(db, `select 1 from public.user_achievements where user_id = $1`, [tmp]), 0);
@@ -1020,6 +1033,7 @@ test('function privileges: only leaderboard_top and period_key are callable sign
     ['public.leaderboard_top(text, text, text, int)', true, true],
     ['public.start_play_session(text, text)', false, true],
     ['public.end_play_session(uuid, int)', false, true],
+    ['public.abandon_play_session(uuid)', false, true],
     ['public.submit_solo_score(text, text, double precision, uuid)', false, true],
     ['public.unlock_achievement(text, text)', false, true],
     ['public.my_leaderboard_rank(text, text)', false, true],
@@ -1043,7 +1057,7 @@ test('function privileges: only leaderboard_top and period_key are callable sign
   assert.deepEqual(Object.fromEntries(tables.rows.map((r) => [r.t, [r.anon, r.auth]])), {
     'public.leaderboards': [true, true],
     'public.achievements': [true, true],
-    'public.leaderboard_entries': [false, true],
+    'public.leaderboard_entries': [false, false], // RPC reads only since 20261030000400
     'public.user_achievements': [false, true],
     'public.play_sessions': [false, true],
     'public.rate_limits': [false, false],

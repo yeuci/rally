@@ -205,7 +205,8 @@ signal; the test `signup without birth_date metadata is refused` pins that behav
   `username`, `display_name`, `avatar_url`, `bio`, `privacy`, which is what keeps `id` and `birth_date`
   immutable for users.
 - `20261029000200_m1_avatars.sql` adds the public `avatars` bucket: upload to `avatars/<user id>/<file>`
-  (2 MB, png/jpeg/webp), then store the public URL in `profiles.avatar_url`.
+  (2 MB, png/jpeg/webp), then store the bucket-relative path (`<user id>/<file>`) in `profiles.avatar_url` (the app
+  resolves it like the defaults; a public URL also passes the check of `20261030000400` only when it is `https://`).
 - `20261029000400_m1_review_fixes.sql`:
   - `profiles` is selectable only in `id, username, display_name, avatar_url, bio, created_at, updated_at`
     (exported as `PROFILE_COLUMNS`). `birth_date` and `privacy` are not readable by any client, not even
@@ -224,9 +225,9 @@ signal; the test `signup without birth_date metadata is refused` pins that behav
   |---|---|---|
   | `leaderboards` (`game_id`, `key`, `sort` asc/desc, `period` alltime/weekly/daily, `max_score_per_minute`) | anon + authenticated, published games only | `tooling/publish-game` (service role), from game.json |
   | `achievements` (`game_id`, `key`, `title`, `description`, `icon`, `hidden`) | anon + authenticated, published games only | `tooling/publish-game` |
-  | `leaderboard_entries` (`leaderboard_id`, `period_key`, `user_id`, `score`, `source`) | authenticated: every row (signed-out: `leaderboard_top`) | `submit_solo_score`; game server (M3) |
+  | `leaderboard_entries` (`leaderboard_id`, `period_key`, `user_id`, `score`, `source`) | nobody directly since `20261030000400`: `leaderboard_top` / `my_leaderboard_rank` | `submit_solo_score`; game server (M3) |
   | `user_achievements` (`user_id`, `achievement_id`, `unlocked_at`) | authenticated: every row (public profiles); anonymous sessions: own rows | `unlock_achievement` |
-  | `play_sessions` (`user_id`, `game_id`, `version`, `started_at`, `ended_at`, `playtime_s`) | owner | `start_play_session` / `end_play_session` |
+  | `play_sessions` (`user_id`, `game_id`, `version`, `started_at`, `ended_at`, `playtime_s`) | owner | `start_play_session` / `end_play_session` / `abandon_play_session` |
   | `rate_limits` (token buckets) | nobody | `take_rate_limit_token` (internal) |
 
   `period_key(period, at default now())` names the bucket a score lands in: `all`, the ISO week (`2026-W44`) or
@@ -254,7 +255,7 @@ signal; the test `signup without birth_date metadata is refused` pins that behav
   session not the caller's or for another game, score not finite or negative). Everything else returns
   `accepted: false` with a `reason`: `rate_limited` (30 submits per user per minute, token bucket, rejected
   submits count), `session_too_new` (< 3 s), `session_expired` (≥ 24 h), `bounds`
-  (score > `max_score_per_minute` × ceil(minutes since session start), at least 1 minute) or `not_best` (not
+  (score > `max_score_per_minute` × ceil(minutes played), 1..120; since `20261030000400` minutes played end at the session's end) or `not_best` (not
   strictly better than the current period's entry, per the board's sort). `best` / `rank` always describe the
   caller's entry for the current period (null without one); `rank` is 1 + the number of strictly better scores.
 
@@ -303,6 +304,28 @@ signal; the test `signup without birth_date metadata is refused` pins that behav
   accepted friends. Clients cannot read `profiles.privacy` (not even their own); the settings screen reads it with
   `my_privacy()`: the caller's stored object with `games` and `friends` always present (`'public'` when absent),
   callable by any signed-in session including anonymous ones, `UNAUTHENTICATED` when signed out.
+- `20261030000400_hardening.sql` (audit fixes; each one pinned by `test/hardening.test.ts`). Existing signatures are
+  unchanged; new errors use the M2 codes (`CONFLICT` = SQLSTATE 40001).
+
+  | Object | Change |
+  |---|---|
+  | `record_play` (fallback when no session could be started) | published games only (`NOT_FOUND`); `CONFLICT` while the caller has an open (< 24 h) session for the game; at most one play per minute per game and 12 per game per hour (`RATE_LIMITED`); playtime capped at 2 h and at the time since the previous play of the game |
+  | `abandon_play_session(p_session_id)` (new) | closes the caller's session (`ended_at = now()`) without counting a play or playtime, for a launch that never reached `ready()`; idempotent, no-op once ended; `NOT_FOUND` for someone else's session; linked accounts only |
+  | `submit_solo_score` | `bounds` uses minutes played = session start → `ended_at` (or now while open), 1..120; `session_expired` also when the session ended more than 5 minutes ago; ascending boards need `score > 0` (`INVALID`); the upsert only replaces an entry with a better score, so a concurrent worse submit gets `not_best` |
+  | `unlock_achievement` | a new unlock needs a session of that game that is open (< 24 h) or ended (or abandoned) less than 5 minutes ago (`NOT_FOUND` otherwise) and a token from a 60-per-hour bucket (`RATE_LIMITED`); a re-unlock still answers `alreadyHad: true` with neither |
+  | `save_put` | serialised per (user, game): concurrent first writes give `CONFLICT`, never `unique_violation`; at most 8 slots per user per game (`INVALID`); 10 writes per user per minute (`RATE_LIMITED`, mirrors the host) |
+  | `leaderboard_entries` | select revoked from `anon` / `authenticated` (anonymous sessions could read every row of every game); reads go through the security definer RPCs |
+  | `storage.objects`, bucket `games` | select policy dropped: clients cannot list bundles (drafts and hidden games included). Public objects are still served by URL; `tooling/publish-game` lists with the service role |
+  | `storage.objects`, bucket `avatars` | restrictive policies: anonymous sessions cannot upload or replace avatars |
+  | `profiles.avatar_url` | check `profiles_avatar_url_format`: at most 512 chars, either a bucket path (`[A-Za-z0-9_-][A-Za-z0-9_./-]*`, no `..`, no `//`) or `https://host[:port][/…]` without whitespace; `handle_new_user` stores a default avatar instead of invalid metadata |
+  | `release_username` | also requires `auth.users.is_anonymous` (a token minted before `linkIdentity` keeps the old claim) |
+  | `private.purge_stale_rows()`, pg_cron `purge-stale-play-sessions` (03:47 UTC) | deletes play sessions ended more than 90 days ago, sessions never ended after 24 h, and rate-limit buckets idle for a day; `game_stats` is untouched |
+  | `private.purge_unconfirmed_users()`, pg_cron `purge-unconfirmed-users` (04:27 UTC) | deletes email signups still unconfirmed after 7 days (no confirmed phone, no other identity); the profile cascades and the username is free again |
+
+  As with the anonymous purge, where pg_cron is unavailable the migration only raises a NOTICE; re-run its final `do`
+  block once the extension is enabled. Avatar files of deleted users are not removed: SQL can delete only the
+  `storage.objects` row, not the file behind it (that needs the Storage API, e.g. a scheduled Edge Function).
+  Anonymous users cannot upload any, so their purge leaves nothing behind.
 - The word filter matches whole words, case-insensitively; see the header of `seed.sql` for what that
   does and does not catch.
 

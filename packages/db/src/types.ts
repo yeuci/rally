@@ -659,6 +659,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      abandon_play_session: { Args: { p_session_id: string }; Returns: undefined }
       block_user: { Args: { p_user_id: string }; Returns: undefined }
       contains_banned_word: { Args: { input: string }; Returns: boolean }
       end_play_session: {

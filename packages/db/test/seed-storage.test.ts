@@ -38,7 +38,7 @@ test('every seeded word is matchable by the filter (no regex metacharacters)', a
   await db.close();
 });
 
-test('storage: games bucket public-read, avatars owner-write under <uid>/', async () => {
+test('storage: games bucket served by URL only (no client listing), avatars owner-write under <uid>/', async () => {
   const db = await createTestDb();
   const buckets = await db.query<{ id: string; public: boolean }>(`select id, public from storage.buckets order by id`);
   assert.deepEqual(buckets.rows, [
@@ -71,9 +71,10 @@ test('storage: games bucket public-read, avatars owner-write under <uid>/', asyn
   await asService(db, async () => {
     await put('games', `spike/0.1.0/index.html`);
   });
+  // Public buckets serve objects by URL without RLS; listing them is not a client right (20261030000400).
   await asAnon(db, async () => {
     const files = await db.query(`select name from storage.objects where bucket_id = 'games'`);
-    assert.equal(files.rows.length, 1);
+    assert.equal(files.rows.length, 0);
   });
   await db.close();
 });

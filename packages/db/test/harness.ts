@@ -51,6 +51,15 @@ export async function createTestDb(opts: { seed?: boolean } = {}): Promise<PGlit
       raw_user_meta_data jsonb not null default '{}'::jsonb,
       raw_app_meta_data jsonb not null default '{}'::jsonb,
       is_anonymous boolean not null default false,
+      email_confirmed_at timestamptz,
+      phone_confirmed_at timestamptz,
+      created_at timestamptz not null default now()
+    );
+    -- One row per linked sign-in method (provider 'email', 'google', 'apple', ...), as GoTrue keeps them.
+    create table auth.identities (
+      id uuid primary key default gen_random_uuid(),
+      user_id uuid not null references auth.users (id) on delete cascade,
+      provider text not null,
       created_at timestamptz not null default now()
     );
     create or replace function auth.uid() returns uuid language sql stable as $$
@@ -73,7 +82,7 @@ export async function createTestDb(opts: { seed?: boolean } = {}): Promise<PGlit
     $$;
     grant usage on schema auth to anon, authenticated, service_role;
     grant usage on schema auth to supabase_auth_admin;
-    grant all on auth.users to supabase_auth_admin;
+    grant all on auth.users, auth.identities to supabase_auth_admin;
     grant execute on function auth.uid(), auth.role(), auth.jwt() to anon, authenticated, service_role;
 
     -- storage: the subset of columns and helpers that policies and bucket inserts touch.

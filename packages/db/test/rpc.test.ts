@@ -38,24 +38,31 @@ describe('rpcs', () => {
   });
 
   test('record_play inserts then increments, clamping playtime', async () => {
+    // One play per minute per game since 20261030000400: age the previous play between calls.
+    const age = () =>
+      db.query(`update public.game_stats set last_played_at = now() - interval '1 day' where user_id = $1`, [alice]);
+    for (const playtime of [120, null, 999999, -50]) {
+      await asUser(db, alice, () =>
+        playtime === null
+          ? db.query(`select public.record_play('spike')`)
+          : db.query(`select public.record_play('spike', $1)`, [playtime]),
+      );
+      await age();
+    }
     await asUser(db, alice, async () => {
-      await db.query(`select public.record_play('spike', 120)`);
-      await db.query(`select public.record_play('spike')`);
-      await db.query(`select public.record_play('spike', 999999)`);
-      await db.query(`select public.record_play('spike', -50)`);
       const r = await db.query<{ plays: number; playtime_s: number; last_played_at: Date | null }>(
         `select plays, playtime_s, last_played_at from public.game_stats where user_id = $1 and game_id = 'spike'`,
         [alice],
       );
       assert.equal(r.rows[0]!.plays, 4);
-      assert.equal(r.rows[0]!.playtime_s, 120 + 0 + 86400 + 0);
+      assert.equal(r.rows[0]!.playtime_s, 120 + 0 + 7200 + 0); // capped at 2 h per call
       assert.ok(r.rows[0]!.last_played_at);
     });
   });
 
-  test('record_play for an unknown game fails on the foreign key', async () => {
+  test('record_play for an unknown game is NOT_FOUND (published games only since 20261030000400)', async () => {
     await asUser(db, alice, async () => {
-      await assert.rejects(db.query(`select public.record_play('nope', 1)`), /foreign key/);
+      await assert.rejects(db.query(`select public.record_play('nope', 1)`), /NOT_FOUND/);
     });
   });
 
