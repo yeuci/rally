@@ -1,10 +1,17 @@
 {
   "id": "stack",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "title": "Stack",
   "description": "Tap to drop the sliding block onto the tower. Trim the overhang, chain perfect drops, and see how high you can build.",
-  "genres": ["arcade"],
-  "screenshots": [],
+  "genres": [
+    "arcade"
+  ],
+  "icon": "art/icon.webp",
+  "cover": "art/cover.webp",
+  "screenshots": [
+    "art/shot-1.webp",
+    "art/shot-2.webp"
+  ],
   "engine": "playcanvas",
   "entry": "index.html",
   "orientation": "portrait",
@@ -12,7 +19,9 @@
     "min": 1,
     "max": 1
   },
-  "modes": ["solo"],
+  "modes": [
+    "solo"
+  ],
   "sdk": "^0.1",
   "ageRating": "4+",
   "leaderboards": [
