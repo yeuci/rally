@@ -74,30 +74,13 @@ export function snapInterval(itemWidth: number): number {
   return itemWidth + ROW_GAP;
 }
 
-/** Search-results grid: as many ≥130 pt columns as fit, at least 3. */
+/** Achievements grid: as many ≥130 pt columns as fit, at least 3. */
 export function gridColumns(contentW: number): number {
   return Math.max(3, Math.min(8, Math.floor((contentW + ROW_GAP) / (130 + ROW_GAP))));
 }
 
 export function gridTileWidth(contentW: number, columns: number): number {
   return Math.floor((contentW - ROW_GAP * (columns - 1)) / columns);
-}
-
-const FEATURED_PEEK = 28;
-const FEATURED_CARD_MAX = 560;
-
-/**
- * Featured card width. Wide: a banner spanning the content width. Narrow: one game fills the content width, several
- * leave the next card peeking past the edge.
- */
-export function featuredCardWidth(contentW: number, count: number, wide: boolean): number {
-  if (wide) return Math.round(contentW);
-  return Math.round(Math.min(count > 1 ? contentW - FEATURED_PEEK : contentW, FEATURED_CARD_MAX));
-}
-
-/** Featured card height: 16:7 banner when wide, 10:7 card when narrow. */
-export function featuredCardHeight(cardWidth: number, wide: boolean): number {
-  return Math.round(wide ? (cardWidth * 7) / 16 : cardWidth * 0.7);
 }
 
 /** Portrait game-page hero: about 4:3 below the status bar, never more than 60 % of the window. */

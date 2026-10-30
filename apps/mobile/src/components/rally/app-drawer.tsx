@@ -1,6 +1,7 @@
 import { router, usePathname } from 'expo-router';
 import {
   HouseIcon,
+  LayoutGridIcon,
   LogOutIcon,
   SearchIcon,
   SettingsIcon,
@@ -33,6 +34,7 @@ import { ProfileAvatar, ProfileAvatarSkeleton } from './profile-avatar';
 
 const ICONS: Record<DrawerItemKey, LucideIcon> = {
   home: HouseIcon,
+  browse: LayoutGridIcon,
   search: SearchIcon,
   friends: UsersIcon,
   profile: UserIcon,
@@ -43,6 +45,7 @@ const ICONS: Record<DrawerItemKey, LucideIcon> = {
 /** Path each item opens (its row is highlighted while that path is showing). */
 const PATHS: Record<DrawerItemKey, string> = {
   home: '/',
+  browse: '/browse',
   search: '/search',
   friends: '/friends',
   profile: '/profile',
@@ -117,6 +120,9 @@ function DrawerPanel({ pathname, onClose }: { pathname: string; onClose: () => v
     switch (key) {
       case 'home':
         router.dismissTo('/');
+        return;
+      case 'browse':
+        router.push('/browse');
         return;
       case 'search':
         router.push('/search');

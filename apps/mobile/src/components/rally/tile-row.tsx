@@ -12,7 +12,7 @@ type Pad = { left: number; right: number };
 
 /**
  * Dashboard row of square icon tiles (`GameTile`: `coverUriFor(game, 'tile')`), snapping tile by tile and bleeding
- * off the right edge, with an optional header accessory ("See all") and live counts ("12 playing"). Same geometry as `GameRow`; hidden when empty
+ * off the right edge, with an optional header accessory ("See all") and live counts ("12 playing"). Hidden when empty
  * unless `empty` is given. Re-keyed on its geometry, so nothing from the previous orientation survives a rotation.
  */
 export function TileRow({

@@ -5,7 +5,7 @@ import type { Tables } from '@rally/db';
  * tooling/publish-game into `games.icon_url`, `games.cover_url`, `games.screenshots`):
  *
  * - `tile`: square dashboard / search tiles → icon, else cover, else the first screenshot.
- * - `feature`: the featured card / wide banner → cover, else the first screenshot.
+ * - `feature`: the dashboard hero and category cards → cover, else the first screenshot.
  * - `hero`: the game page hero when there are no screenshots to page through → cover, else the first screenshot.
  *   With screenshots the hero is the screenshot gallery; the cover is for the dashboard.
  *

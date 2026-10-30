@@ -51,6 +51,8 @@ export default function AppLayout() {
         {/* Pushed from the dashboard pill; draws its own bar (search field + Cancel). */}
         <Stack.Screen name="search" options={{ headerShown: false, animation: 'fade' }} />
         <Stack.Screen name="friends" options={{ title: 'Friends' }} />
+        {/* The screen sets the genre's name as its title; the drawer's edge swipe is off here (lib/drawer.ts). */}
+        <Stack.Screen name="browse" options={{ title: 'Browse' }} />
         <Stack.Screen name="game/[id]/rooms" options={{ title: 'Rooms' }} />
       </Stack>
       {/* Over the stack: the toast ("That match has ended") and the rejoin sheet (a match left within its grace,

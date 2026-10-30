@@ -14,7 +14,7 @@ pnpm dev:mobile:go                    # Metro for Expo Go (email sign-in + Devel
 
 pnpm --filter @rally/mobile typecheck # app + tests
 pnpm --filter @rally/mobile lint      # expo lint (React Compiler rules), zero warnings
-pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects/anonymous plan, bridge + nav gate, handlers (saves, leaderboards, achievements, join limits, token policy), join targets + rejoin journal (target → matchmaking calls, sticky / resume-once, reportReconnection room check, journal expiry, minVersion refusal, room lookups), controller (play sessions, playtime across reloads, diagnostics), session journal, storage reset, progress formatting, cover art, social (friendship buttons, people ranking, privacy incl. presence, requests), presence (heartbeat scheduler: AppState, interval, grace, ok:false, sign-out; presence row model, Join targets, live counts), dashboard (hero / category geometry, genre rows, hero auto-advance rules), drawer (width, swipe routes, edge width, items), press guard (drawer swipe / drag vs tap), preferences (FPS, appearance, haptics), join UI (code input normalisation and lookup copy, room rows, rejoin countdown and offer rules, room code share text), gradients (page fades from the page colour at alpha 0, no visible colour blends), theme tokens (PALETTE ↔ global.css), recent searches, the friends filter, podium tints, game share copy
+pnpm --filter @rally/mobile test      # node:test via tsx: age gate, auth errors/redirects/anonymous plan, bridge + nav gate, handlers (saves, leaderboards, achievements, join limits, token policy), join targets + rejoin journal (target → matchmaking calls, sticky / resume-once, reportReconnection room check, journal expiry, minVersion refusal, room lookups), controller (play sessions, playtime across reloads, diagnostics), session journal, storage reset, progress formatting, cover art, social (friendship buttons, people ranking, privacy incl. presence, requests), presence (heartbeat scheduler: AppState, interval, grace, ok:false, sign-out; presence row model, Join targets, live counts), dashboard (hero / category geometry, genre rows, hero auto-advance rules), browse (route params, genre chip order, Popular / New / A–Z comparators, grid columns per window), drawer (width, swipe routes, edge width, items), press guard (drawer swipe / drag vs tap), preferences (FPS, appearance, haptics), join UI (code input normalisation and lookup copy, room rows, rejoin countdown and offer rules, room code share text), gradients (page fades from the page colour at alpha 0, no visible colour blends), theme tokens (PALETTE ↔ global.css), recent searches, the friends filter, podium tints, game share copy
 node scripts/generate-brand-assets.cjs  # (from apps/mobile) app icon, adaptive icon layers, splash, favicon from src/lib/brand.ts; needs Playwright
 ```
 
@@ -99,8 +99,9 @@ when they do surface (profile edits go through PostgREST, which passes them on).
 | `/sign-up?method=` | `src/app/(auth)/sign-up.tsx` | username (+ email/password), then account creation |
 | `/forgot-password`, `/check-email` | `src/app/(auth)/…` | reset link request, confirmation notice |
 | `/auth/callback`, `/auth/reset-password` | `src/app/auth/…` | deep-link targets (PKCE code exchange, new password) |
-| `/` | `src/app/(app)/index.tsx` | dashboard: full-bleed featured hero (paged, auto-advancing) under a floating top bar (menu → drawer, greeting, avatar with the request badge), search pill, Continue playing / New on Rally / Favorites, Browse by category, one row per genre ("See all" → category sheet); "12 playing" on multiplayer tiles and the hero (`game_live_counts`, every 30 s while in front) |
-| `/search` | `src/app/(app)/search.tsx` | Games (`searchGames` over the catalog) and People (`search_profiles`, debounced 250 ms, `@name` = people only) with Add / Requested / Friends / Accept; `?q=` prefills the field; with it empty, the last 8 searches (AsyncStorage `rally.recent-searches`, remembered on submit or on leaving with results; × / Clear) |
+| `/` | `src/app/(app)/index.tsx` | dashboard: full-bleed featured hero (paged, auto-advancing) under a floating top bar (menu → drawer, greeting, avatar with the request badge), search pill, Continue playing / New on Rally / Favorites, Browse by category, "Browse all games", one row per genre ("See all" and the category cards → `/browse?genre=`); "12 playing" on multiplayer tiles and the hero (`game_live_counts`, every 30 s while in front) |
+| `/browse?genre=&sort=&q=` | `src/app/(app)/browse.tsx` | the whole catalog as a tile grid (2 columns on a portrait phone, 3–4 when wide: `lib/browse.ts` `browseGrid`, sized like the dashboard rows' tiles). Genre chips ("All" first, then the biggest genre) and Popular / New / A–Z (`sort=popular\|new\|az`, default `popular`: live players, then featured rank, then newest) write back into the route with `router.setParams`; `genre` is a `games.genres` tag (any case), `q` is search's "See all" query (a dismissable "Matching …" pill). Title "Browse" or the genre; "12 playing" on multiplayer tiles; skeleton grid, pull to refresh, empty state per genre / query, Retry. Unknown params fall back to the defaults |
+| `/search` | `src/app/(app)/search.tsx` | Games (`searchGames` over the catalog; the first 5, "See all" → `/browse?q=`) and People (`search_profiles`, debounced 250 ms, `@name` = people only) with Add / Requested / Friends / Accept; `?q=` prefills the field; with it empty, the last 8 searches (AsyncStorage `rally.recent-searches`, remembered on submit or on leaving with results; × / Clear) |
 | `/friends` | `src/app/(app)/friends.tsx` | your friends (`my_friends`) with presence (`friends_presence`: "Online" / "In Sumo", playing friends first, **Join** when joinable → `join=friend`; every 30 s while in front) and requests (`my_friend_requests`: Accept / Decline, Cancel); a field that filters your friends on the device (name or @username); "Find players" opens search with `@`; `?tab=requests`; `?username=` lists another player's friends (`public_friends`) |
 | `/game/:id` | `src/app/(app)/game/[id]/index.tsx` | game page: screenshot gallery (else cover art), details (+ "Best" for solo games: tap → scrolls to the leaderboard and flashes your row), Share (native sheet: title, plus the web link with `EXPO_PUBLIC_WEB_ORIGIN`), favorite (spring + haptic), Play → consent sheet (multiplayer: Quick play, Rooms, Private → Create room / Join with code), leaderboard (gold / silver / bronze rank badges for the top 3; tapping your own row flashes it), achievements ("3 / 5") |
 | `/game/:id/rooms` | `src/app/(app)/game/[id]/rooms.tsx` | server browser for multiplayer games with the `browser` mode (see Multiplayer below) |
@@ -117,7 +118,7 @@ redirect also reaches the router; `src/app/+native-intent.tsx` drops it while an
 **Drawer.** `(app)/_layout.tsx` wraps its stack in `AppDrawer` (`components/rally/app-drawer.tsx`):
 `react-native-drawer-layout`, the component expo-router's own `Drawer` navigator renders, used directly so the stack
 keeps its push / back behaviour (expo-router's `Drawer` would turn every route into a drawer screen). Header (avatar,
-display name, @username → Profile), Home, Search, Friends (incoming-request badge), Profile, Settings (`/settings`),
+display name, @username → Profile), Home, Browse (`/browse`), Search, Friends (incoming-request badge), Profile, Settings (`/settings`),
 Developer (dev tools only), then Sign out and the app version; an item for the screen already showing just closes it.
 ≈78 % of the window, at most 340 pt (`lib/drawer.ts`). It opens from the dashboard's menu button or an edge swipe
 **on the dashboard only** (`drawerSwipeEnabled`; the strip is `DRAWER_EDGE_WIDTH` = 28 pt): pushed screens use that
@@ -140,8 +141,8 @@ the top bar and fades into the page), with dots, Play (same plan → consent →
 touched, while another screen covers the dashboard or while the drawer is open (`lib/dashboard.ts`
 `heroAutoAdvances`). Portrait: ≈10:13, at most 66 % of the window; wide: 16:7, at most 78 % of the window height.
 Genre rows and category cards come from the whole catalog (`useAllGames`, `groupByGenre`: biggest genre first, at
-most 10 rows; every genre gets a card). "See all" and the cards open `CategorySheet` (the search screen has no genre
-filter). The top bar turns solid once the hero scrolls behind it; with no featured games it is solid from the start.
+most 10 rows; every genre gets a card). "See all" and the cards push Browse on that genre (`/browse?genre=<key>`);
+"Browse all games" under the cards pushes `/browse`. The top bar turns solid once the hero scrolls behind it; with no featured games it is solid from the start.
 
 ## Social and loading states
 
@@ -154,7 +155,7 @@ filter). The top bar turns solid once the hero scrolls behind it; with no featur
   `remove_friend`.
 - **Skeletons:** `components/ui/skeleton.tsx` sweeps a `skeleton-highlight` band across a `skeleton` block (tokens in
   `global.css`, mirrored in `PALETTE`), in step across the screen (UI-thread frame clock), static under reduced motion.
-  Every data-driven component has a skeleton next to it with the same box (`GameTileSkeleton`, `FeaturedGameSkeleton`,
+  Every data-driven component has a skeleton next to it with the same box (`GameTileSkeleton`,
   `GameListRowSkeleton`, `LeaderboardSkeleton`, `AchievementsSectionSkeleton`, `PersonListSkeleton`,
   `PlayedGamesSkeleton`, `ProfileAvatarSkeleton`, `DashboardHeroSkeleton`, `TileRowSkeleton`, `CategoryCardSkeleton`,
   `SkeletonText` for single text lines). `components/rally/image.tsx`
@@ -377,14 +378,14 @@ identity, never the real profile.
   accent hue; `destructive` is the only colour), the logo mark's geometry (drawn in the foreground colour) and the
   splash layout (`SPLASH.imageWidth` mirrors `app.json`); `src/lib/cover-art.ts`: generated greyscale covers (grey
   gradient + shapes from a hash of the game id) for games without art; `src/lib/game-art.ts`: which uploaded art each
-  surface shows (`coverUriFor`: tiles = `icon_url` → `cover_url` → first screenshot; featured card and the game page
-  hero without screenshots = `cover_url` → first screenshot; the hero gallery = `screenshots`).
+  surface shows (`coverUriFor`: tiles = `icon_url` → `cover_url` → first screenshot; dashboard hero, category cards
+  and the game page hero without screenshots = `cover_url` → first screenshot; the hero gallery = `screenshots`).
 - `src/components/rally/`: app components (logo + wordmark, cold-start intro overlay, game cover / cards / rows, faint
   white glows, avatar with ring, empty states, form fields, consent dialog, segmented control, leaderboard and
-  achievements sections, app drawer, dashboard hero / top bar / tile rows / category cards and sheet, bottom sheet,
+  achievements sections, app drawer, dashboard hero / top bar / tile rows / category cards and the "Browse all games" row, bottom sheet,
   join-code and rejoin sheets, toast).
-- `src/lib/dashboard.ts`, `src/lib/drawer.ts`: the dashboard's and drawer's pure parts (geometry, genre grouping,
-  auto-advance rules, drawer items); `src/lib/use-app-drawer.ts`: the drawer's context (`useAppDrawer`).
+- `src/lib/dashboard.ts`, `src/lib/browse.ts`, `src/lib/drawer.ts`: the dashboard's, Browse's and drawer's pure parts
+  (geometry, genre grouping, auto-advance rules; Browse's params, chips, sorts and grid; drawer items); `src/lib/use-app-drawer.ts`: the drawer's context (`useAppDrawer`).
 - `src/components/ui/`: [React Native Reusables](https://reactnativereusables.com) on [Uniwind](https://docs.uniwind.dev)
   (ADR 0005). Owned source; theme tokens in `global.css`. Add more with
   `npx @react-native-reusables/cli@latest add <name> --styling-library uniwind`. Opacity modifiers on theme colours

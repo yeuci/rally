@@ -12,16 +12,16 @@ test('drawer width: ≈78 % of a phone, capped at 340 pt (landscape, tablets)', 
 
 test('the edge swipe opens the drawer on the dashboard only, never over the game host or a pushed screen', () => {
   assert.equal(drawerSwipeEnabled('/'), true);
-  for (const path of ['/game/abc/play', '/game/abc', '/search', '/friends', '/profile', '/profile/edit', '/u/sam', '/dev']) {
+  for (const path of ['/game/abc/play', '/game/abc', '/browse', '/search', '/friends', '/profile', '/profile/edit', '/u/sam', '/dev']) {
     assert.equal(drawerSwipeEnabled(path), false, path);
   }
 });
 
-test('drawer items: Home, Search, Friends (request badge), Profile, Settings; Developer only with dev tools', () => {
+test('drawer items: Home, Browse, Search, Friends (request badge), Profile, Settings; Developer only with dev tools', () => {
   const plain = drawerItems({ devTools: false, incomingRequests: null });
   assert.deepEqual(
     plain.map((i) => i.key),
-    ['home', 'search', 'friends', 'profile', 'settings'],
+    ['home', 'browse', 'search', 'friends', 'profile', 'settings'],
   );
   assert.equal(plain.find((i) => i.key === 'friends')!.badge, null);
   // Settings has its own screen now: no "opens your profile" hint.

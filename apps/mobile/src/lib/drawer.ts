@@ -27,7 +27,7 @@ export function drawerSwipeEnabled(pathname: string): boolean {
   return pathname === '/';
 }
 
-export type DrawerItemKey = 'home' | 'search' | 'friends' | 'profile' | 'settings' | 'developer';
+export type DrawerItemKey = 'home' | 'browse' | 'search' | 'friends' | 'profile' | 'settings' | 'developer';
 
 export type DrawerItem = {
   key: DrawerItemKey;
@@ -39,8 +39,8 @@ export type DrawerItem = {
 };
 
 /**
- * Items top to bottom (Settings opens `/settings`). Developer only when dev tools are on (`config.devTools`). Sign
- * out sits apart at the bottom of the panel.
+ * Items top to bottom (Browse opens `/browse`, Settings `/settings`). Developer only when dev tools are on
+ * (`config.devTools`). Sign out sits apart at the bottom of the panel.
  */
 export function drawerItems({
   devTools,
@@ -51,6 +51,7 @@ export function drawerItems({
 }): DrawerItem[] {
   const items: DrawerItem[] = [
     { key: 'home', label: 'Home', badge: null },
+    { key: 'browse', label: 'Browse', badge: null },
     { key: 'search', label: 'Search', badge: null },
     {
       key: 'friends',

@@ -33,7 +33,7 @@ export function categoryCardHeight(cardWidth: number): number {
 
 /** Genre rows shown on the dashboard (the most populated first); every genre still has a card in "Browse by category". */
 export const GENRE_ROWS_MAX = 10;
-/** Tiles per genre row; the category sheet lists them all. */
+/** Tiles per genre row; Browse (`/browse?genre=`) lists them all. */
 export const GENRE_ROW_GAMES_MAX = 20;
 
 /** Stable key of a genre as stored in `games.genres` (case and padding ignored). */

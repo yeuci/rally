@@ -13,7 +13,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import { useUniwind } from 'uniwind';
-import { CategoryRow, CategorySheet } from '@/components/rally/category-card';
+import { BrowseAllRow, CategoryRow } from '@/components/rally/category-card';
 import { LaunchConsentDialog } from '@/components/rally/consent-dialog';
 import { DashboardHero, DashboardHeroSkeleton } from '@/components/rally/dashboard-hero';
 import { DashboardTopBar, TOP_BAR_ROW } from '@/components/rally/dashboard-top-bar';
@@ -32,6 +32,7 @@ import {
   useRecentlyPlayed,
   type GameCard,
 } from '@/lib/catalog';
+import { browseParams } from '@/lib/browse';
 import {
   GENRE_ROW_GAMES_MAX,
   GENRE_ROWS_MAX,
@@ -57,9 +58,10 @@ const GENRE_SKELETON_ROWS = [0, 1];
 /**
  * Dashboard: a full-bleed featured hero (paged, auto-advancing) under a floating top bar (menu → drawer, greeting,
  * avatar), the search pill, then rows of square tiles (Continue playing, New on Rally, Favorites), "Browse by
- * category" (wide genre cards) and one row per genre with "See all" (the category sheet). Multiplayer games with
- * players right now show "12 playing" on their tiles and hero page (`game_live_counts`, every 30 s while the
- * dashboard is in front). Every section has its own skeleton; pull to refresh refetches everything.
+ * category" (wide genre cards, then "Browse all games") and one row per genre with "See all": the cards and every
+ * "See all" push Browse on that genre (`/browse?genre=`). Multiplayer games with players right now show "12 playing" on
+ * their tiles and hero page (`game_live_counts`, every 30 s while the dashboard is in front). Every section has its
+ * own skeleton; pull to refresh refetches everything.
  */
 export default function Dashboard() {
   // Every size below is recomputed from the live window on each render; rotation re-renders through useLayout.
@@ -83,7 +85,6 @@ export default function Dashboard() {
   // Only the pull gesture shows the spinner: background refetches (focus, reconnect, a finished play invalidating
   // "Continue playing") would otherwise pop it up and shift the content.
   const [refreshing, setRefreshing] = useState(false);
-  const [sheet, setSheet] = useState<{ group: GenreGroup<GameCard>; open: boolean } | null>(null);
 
   const failed = featured.isError && newest.isError;
   const featuredGames = featured.data ?? [];
@@ -100,7 +101,8 @@ export default function Dashboard() {
   const genres = groupByGenre(catalog.data ?? []);
   const covers = categoryCoverGames(genres);
   const name = profile.data ? profile.data.display_name || profile.data.username : null;
-  const openCategory = (group: GenreGroup<GameCard>) => setSheet({ group, open: true });
+  const openCategory = (group: GenreGroup<GameCard>) =>
+    router.push({ pathname: '/browse', params: browseParams({ genre: group.key }) });
   const glow = Math.max(width, 360) * 1.4;
   const playFeatured = (game: GameCard) => launcher.launch(game, { join: 'quick' });
   const counts = liveCounts.data;
@@ -250,14 +252,21 @@ export default function Dashboard() {
                   />
                 }
               />
-              <CategoryRow
-                groups={genres}
-                covers={covers}
-                loading={catalog.isLoading}
-                cardWidth={cardWidth}
-                pad={pad}
-                onOpen={openCategory}
-              />
+              <View className="gap-4">
+                <CategoryRow
+                  groups={genres}
+                  covers={covers}
+                  loading={catalog.isLoading}
+                  cardWidth={cardWidth}
+                  pad={pad}
+                  onOpen={openCategory}
+                />
+                {catalog.data && catalog.data.length > 0 ? (
+                  <View style={padStyle}>
+                    <BrowseAllRow count={catalog.data.length} onPress={() => router.push('/browse')} />
+                  </View>
+                ) : null}
+              </View>
               {catalog.isLoading
                 ? GENRE_SKELETON_ROWS.map((i) => <TileRowSkeleton key={i} tileWidth={tileWidth} pad={pad} />)
                 : genres
@@ -290,11 +299,6 @@ export default function Dashboard() {
         onMenu={drawer.openDrawer}
       />
 
-      <CategorySheet
-        group={sheet?.group ?? null}
-        open={!!sheet?.open}
-        onClose={() => setSheet((s) => (s ? { ...s, open: false } : s))}
-      />
       <LaunchConsentDialog launcher={launcher} />
       {focused && overHeroArt && overArt && theme === 'light' ? <StatusBar style="light" /> : null}
     </View>

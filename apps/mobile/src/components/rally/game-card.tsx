@@ -1,5 +1,5 @@
 import { Link } from 'expo-router';
-import { ChevronRightIcon, PlayIcon, UsersIcon } from 'lucide-react-native';
+import { ChevronRightIcon, UsersIcon } from 'lucide-react-native';
 import { memo } from 'react';
 import { View } from 'react-native';
 import { Badge } from '@/components/ui/badge';
@@ -9,103 +9,12 @@ import { TapPressable } from '@/components/ui/tap-pressable';
 import { Text } from '@/components/ui/text';
 import { playersLabel, type GameCard as GameCardData } from '@/lib/catalog';
 import { coverUriFor } from '@/lib/game-art';
-import { featuredCardHeight } from '@/lib/layout';
 import { cn } from '@/lib/utils';
 import { GameCover } from './game-cover';
 import { PresenceDot } from './presence-dot';
 
 /**
- * Hero card for the featured carousel: full-bleed cover (game.json `cover`, else the first screenshot), big title, age
- * chip, Play pill (opens the game page). `banner` (wide windows): a 16:7 banner with the title, meta and Play pill
- * over its left third.
- */
-export const FeaturedGameCard = memo(function FeaturedGameCard({
-  game,
-  width,
-  banner = false,
-}: {
-  game: GameCardData;
-  width: number;
-  banner?: boolean;
-}) {
-  const meta = [game.genres[0] && capitalize(game.genres[0]), playersLabel(game)].filter(Boolean).join(' · ');
-  return (
-    <Link href={{ pathname: '/game/[id]', params: { id: game.id } }} asChild>
-      <TapPressable
-        accessibilityRole="button"
-        accessibilityLabel={`${game.title}, ${meta}`}
-        accessibilityHint="Opens the game page"
-        className="active:opacity-70"
-        style={{ width }}
-      >
-        <GameCover
-          id={game.id}
-          title={game.title}
-          uri={coverUriFor(game, 'feature')}
-          variant="feature"
-          showTitle={false}
-          scrim={banner ? 'side' : 'dark'}
-          className="border-border rounded-3xl border"
-          style={{ height: featuredCardHeight(width, banner) }}
-        >
-          <View className={cn('absolute flex-row gap-2', banner ? 'left-5 top-5' : 'left-4 top-4')}>
-            <Badge variant="overlay">
-              <Text>Featured</Text>
-            </Badge>
-          </View>
-          {banner ? (
-            <View className="absolute bottom-0 left-0 gap-3 p-5" style={{ width: Math.max(Math.round(width * 0.4), 280) }}>
-              <Text className="text-[32px] font-extrabold leading-[36px] tracking-tight text-white" numberOfLines={2}>
-                {game.title}
-              </Text>
-              <View className="flex-row items-center gap-2">
-                <Badge variant="overlay">
-                  <Text>{game.age_rating}</Text>
-                </Badge>
-                <Text className="shrink text-[13px] font-medium text-white/80" numberOfLines={1}>
-                  {meta}
-                </Text>
-              </View>
-              <View className="flex-row">
-                <PlayPill />
-              </View>
-            </View>
-          ) : (
-            <View className="absolute bottom-0 left-0 right-0 gap-3 p-4">
-              <Text className="text-[28px] font-extrabold leading-[32px] tracking-tight text-white" numberOfLines={2}>
-                {game.title}
-              </Text>
-              <View className="flex-row items-center justify-between gap-3">
-                <View className="shrink flex-row items-center gap-2">
-                  <Badge variant="overlay">
-                    <Text>{game.age_rating}</Text>
-                  </Badge>
-                  <Text className="shrink text-[13px] font-medium text-white/80" numberOfLines={1}>
-                    {meta}
-                  </Text>
-                </View>
-                <PlayPill />
-              </View>
-            </View>
-          )}
-        </GameCover>
-      </TapPressable>
-    </Link>
-  );
-});
-
-/** Primary "Play" pill (decorative inside a pressable card). */
-function PlayPill() {
-  return (
-    <View className="bg-primary h-10 flex-row items-center gap-1.5 rounded-full pl-3.5 pr-4" importantForAccessibility="no">
-      <Icon as={PlayIcon} className="text-primary-foreground fill-primary-foreground size-3.5" />
-      <Text className="text-primary-foreground text-[15px] font-bold">Play</Text>
-    </View>
-  );
-}
-
-/**
- * Compact tile for horizontal rows and the search grid: box-art cover (game.json `icon`, else `cover`, else the first
+ * Compact tile for the dashboard rows and the Browse grid: box-art cover (game.json `icon`, else `cover`, else the first
  * screenshot) with the title set in, one meta line.
  */
 export const GameTile = memo(function GameTile({
@@ -163,30 +72,6 @@ export function GameTileSkeleton({ width, className }: { width: number; classNam
       <Skeleton className="rounded-2xl" style={{ width, height: width }} />
       <SkeletonText lineHeight={18} width={Math.round(width * 0.45)} className="px-1" />
     </View>
-  );
-}
-
-/** Same box as FeaturedGameCard (`featuredCardHeight`), with the badge, title and meta / Play pill placeholders. */
-export function FeaturedGameSkeleton({ width, banner = false }: { width: number; banner?: boolean }) {
-  return (
-    <Skeleton className="rounded-3xl" style={{ width, height: featuredCardHeight(width, banner) }}>
-      <View className={cn('bg-fill absolute h-[26px] w-20 rounded-full', banner ? 'left-5 top-5' : 'left-4 top-4')} />
-      {banner ? (
-        <View className="absolute bottom-0 left-0 gap-3 p-5" style={{ width: Math.max(Math.round(width * 0.4), 280) }}>
-          <View className="bg-fill h-8 w-56 rounded-lg" />
-          <View className="bg-fill h-[26px] w-36 rounded-full" />
-          <View className="bg-fill h-10 w-20 rounded-full" />
-        </View>
-      ) : (
-        <View className="absolute bottom-0 left-0 right-0 gap-3 p-4">
-          <View className="bg-fill h-8 w-48 rounded-lg" />
-          <View className="flex-row items-center justify-between">
-            <View className="bg-fill h-[26px] w-32 rounded-full" />
-            <View className="bg-fill h-10 w-20 rounded-full" />
-          </View>
-        </View>
-      )}
-    </Skeleton>
   );
 }
 

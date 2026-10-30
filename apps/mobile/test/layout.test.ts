@@ -7,8 +7,6 @@ import {
   ROW_TILES_VISIBLE,
   columnPadding,
   contentWidth,
-  featuredCardHeight,
-  featuredCardWidth,
   gameCoverColumnWidth,
   gameHeroHeight,
   gridColumns,
@@ -68,11 +66,11 @@ test('row tiles: ≈2.45 visible in portrait, ≈4.4 in landscape', () => {
 });
 
 test('rotation round-trip recomputes identical portrait numbers (no state, no caching)', () => {
-  const before = [rowTileWidth(393, 16, false), featuredCardWidth(361, 3, false), gameHeroHeight(PORTRAIT, 59)];
+  const before = [rowTileWidth(393, 16, false), gridTileWidth(361, gridColumns(361)), gameHeroHeight(PORTRAIT, 59)];
   rowTileWidth(852, 75, true);
-  featuredCardWidth(702, 3, true);
+  gridTileWidth(702, gridColumns(702));
   gameHeroHeight(LANDSCAPE, 0);
-  const after = [rowTileWidth(393, 16, false), featuredCardWidth(361, 3, false), gameHeroHeight(PORTRAIT, 59)];
+  const after = [rowTileWidth(393, 16, false), gridTileWidth(361, gridColumns(361)), gameHeroHeight(PORTRAIT, 59)];
   assert.deepEqual(after, before);
 });
 
@@ -81,16 +79,7 @@ test('snap interval is item width plus the row gap', () => {
   assert.equal(snapInterval(0), ROW_GAP);
 });
 
-test('featured: peeking cards in portrait, a full-width 16:7 banner when wide', () => {
-  assert.equal(featuredCardWidth(361, 1, false), 361);
-  assert.equal(featuredCardWidth(361, 3, false), 361 - 28);
-  assert.equal(featuredCardWidth(900, 3, false), 560); // capped card in a narrow layout
-  assert.equal(featuredCardWidth(702, 3, true), 702);
-  assert.equal(featuredCardHeight(333, false), Math.round(333 * 0.7));
-  assert.equal(featuredCardHeight(702, true), Math.round((702 * 7) / 16));
-});
-
-test('search grid: at least 3 columns, more as the window widens, tiles fill the width', () => {
+test('achievements grid: at least 3 columns, more as the window widens, tiles fill the width', () => {
   assert.equal(gridColumns(361), 3);
   assert.equal(gridColumns(568), 4);
   assert.ok(gridColumns(702) >= 4);

@@ -12,6 +12,7 @@ import { Icon } from '@/components/ui/icon';
 import { Separator } from '@/components/ui/separator';
 import { TapPressable } from '@/components/ui/tap-pressable';
 import { Text } from '@/components/ui/text';
+import { browseParams } from '@/lib/browse';
 import { useAllGames, type GameCard } from '@/lib/catalog';
 import { usePeopleSearch } from '@/lib/friends';
 import { formatScore } from '@/lib/progress-format';
@@ -31,7 +32,7 @@ import { recentSearches, useRecentSearches } from '@/lib/use-recent-searches';
 import { useColumnPadding, useLayout } from '@/lib/use-layout';
 import { cn } from '@/lib/utils';
 
-/** Game rows shown before "See all". */
+/** Game rows shown; "See all" opens Browse with the query (`/browse?q=`). */
 const GAMES_PREVIEW = 5;
 
 /**
@@ -48,7 +49,6 @@ export default function SearchScreen() {
   const { q } = useLocalSearchParams<{ q?: string }>();
   const [query, setQuery] = useState(typeof q === 'string' ? q : '');
   const recent = useRecentSearches();
-  const [allGames, setAllGames] = useState(false);
   const debounced = useDebouncedValue(query, PEOPLE_SEARCH_DEBOUNCE_MS);
 
   const catalog = useAllGames();
@@ -95,7 +95,11 @@ export default function SearchScreen() {
           className="px-0"
           accessory={
             games.length > GAMES_PREVIEW ? (
-              <HeaderAction label={allGames ? 'Show less' : 'See all'} onPress={() => setAllGames((v) => !v)} />
+              <HeaderAction
+                label="See all"
+                accessibilityLabel={`See all games matching ${trimmed}`}
+                onPress={() => router.push({ pathname: '/browse', params: browseParams({ q: trimmed }) })}
+              />
             ) : undefined
           }
         />
@@ -118,7 +122,7 @@ export default function SearchScreen() {
           />
         ) : (
           <View className="bg-card border-border overflow-hidden rounded-2xl border">
-            {(allGames ? games : games.slice(0, GAMES_PREVIEW)).map((g, i) => (
+            {games.slice(0, GAMES_PREVIEW).map((g, i) => (
               <View key={g.id}>
                 {i > 0 && <Separator className="ml-[80px]" />}
                 <GameListRow game={g} />
