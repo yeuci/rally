@@ -160,7 +160,9 @@ export function LeaderboardSection({
         <View className="bg-card border-border overflow-hidden rounded-2xl border">
           {rows.map((row, i) => (
             <View key={`${row.rank}-${row.userId}`}>
-              {i > 0 && <Separator className="ml-[60px]" />}
+              {/* Inset like the rest of the list, except next to your tinted row: an inset divider there reads as
+                  a step in the tint's edge, so it runs full width and the tint gets one straight edge. */}
+              {i > 0 && <Separator className={row.isMe || rows[i - 1]?.isMe ? undefined : 'ml-[60px]'} />}
               <Row row={row} flash={flash} onHighlight={() => setTapped((n) => n + 1)} />
             </View>
           ))}
