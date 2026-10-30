@@ -18,11 +18,17 @@ All of `pnpm turbo run typecheck lint test build` passes on `92479e4`; CI on `ma
 - `e65b45c` DB hardening migration `20261030000400_hardening.sql` (session-bound scores and unlocks, record_play limits, save races/caps, retention jobs, avatar constraints, `abandon_play_session`).
 - game-server/Sumo hardening (this commit): usernames from `profiles` via the player's token + anon key, guests explicit and always `guest-…`, private rooms require their code on `joinById`, throttles on code lookup and room creation, no reconnection grace after a flood kick, HelloRoom on RallyRoom, monitor behind basic auth, CORS allow-list, client stick release on pause, pointer-id joystick, exit during join; game-kit save double-apply/retry halt/audio re-arm.
 
+## Done since (all committed; 47/47 repo tasks green)
+
+M3 phase 2 steps 1–9 (see docs/m3-phase2.md §9), the dashboard redesign + drawer, the UI polish pass (press guard for the drawer swipe, page dots, Settings screen, haptics, room-code pill), presence, Sumo 0.2.0 art. Latest commit on the branch is the presence step.
+
 ## Next
 
-1. **M3 phase 2 design and build** (never produced): shell quick play / server browser (`GET /rooms/<name>`) / private rooms (create with code; join by code → `GET /rooms/code/<CODE>` → `joinById` with `{ code }`) on the game page; Developer launcher room selection (hardcoded `hello` in `apps/mobile/src/app/dev/play.tsx`); presence heartbeat + `game_rooms` mirroring in the `onRoom*`/`onPlayer*` hooks; `reportMatchResult` → service-role RPC writing `game_stats`, `leaderboard_entries` (`wins`), `user_achievements`, idempotent on `matchId`, skipping guests; "Rejoin match?" within 60 s; `user_sanctions` in `onAuth`; hosting (Colyseus Cloud vs VPS vs Fly.io) with `wss://` and JWKS; Sumo art.
+1. **Device verification of M3** (owner): the checks in docs/architecture.md "Verification" M3 line, using one iPhone + Chrome tabs through the harness; then the Sumo release order in games/sumo/README.md (VPS first).
 2. Session storage in SecureStore (chunked, with a migration) — documented in apps/mobile/README.md, not done.
-3. Android release cleartext: decide whether preview builds keep loading LAN bundles over http (`expo-build-properties` is a static flag).
+3. Android release cleartext decision (`expo-build-properties` is a static flag).
+4. M4 remainder: Realtime inbox fan-out for requests/invites, notifications + push, deep links (`apps/web` hosting once a domain exists), report/mute UI (mutes exist server-side), parties (M5).
+5. Nice-to-haves noted by agents: live counts on the game page; `FeaturedGameCard`/`GameRow` are unused (delete); `kill_timeout` in ecosystem.config.cjs for graceful drains; Sumo art replaced by hand-made art if the owner prefers.
 
 ## Owner's to-do on the phone (after `git pull`)
 
