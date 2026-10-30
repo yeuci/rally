@@ -209,7 +209,8 @@ async function main() {
     await page.close();
 
     // 6. ?resume=<roomId>:<token>: a player (a Node SDK client, as a guest) drops without consent; a fresh page
-    //    reconnects into the held seat through POST /matchmake/reconnect (same room, same session).
+    //    reconnects into the held seat through POST /matchmake/reconnect (same room, same session). Opened with ?hold,
+    //    so its own reloads drop the socket without consent too (the default is a consented leave on pagehide).
     const sdk = new Client(COLYSEUS_URL);
     const dropped = await sdk.joinOrCreate('hello');
     const token = dropped.reconnectionToken;
@@ -217,7 +218,7 @@ async function main() {
     dropped.reconnection.enabled = false; // the page, not this client, takes the seat back
     await dropped.leave(false);
     const resumed = await context.newPage();
-    await resumed.goto(`${SPIKE_URL}?resume=${encodeURIComponent(token)}`, { waitUntil: 'domcontentloaded' });
+    await resumed.goto(`${SPIKE_URL}?hold&resume=${encodeURIComponent(token)}`, { waitUntil: 'domcontentloaded' });
     await resumed.waitForFunction(() => document.querySelector('#status')?.textContent === 'in room', null, {
       timeout: 30_000,
     });

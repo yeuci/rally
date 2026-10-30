@@ -37,8 +37,14 @@ export const ROOMS_POLL_MS = 5000;
 export interface RoomRow {
   roomId: string;
   name: string;
-  /** Seated players (metadata, which counts seats inside their reconnection grace), else connected clients. */
+  /** Seated players (metadata, which counts seats inside their reconnection grace), else the listing's clients. */
   players: number;
+  /** Seats with a live socket (metadata `connected`; older servers: all of them). */
+  connected: number;
+  /** Seats held for the reconnection grace (a refreshed or closed tab): `players − connected`. */
+  reconnecting: number;
+  /** "2 playing · 1 reconnecting" when someone is reconnecting, else null. */
+  status: string | null;
   maxPlayers: number;
   /** From the game's `phase` metadata (Sumo): `waiting` → Waiting, any other phase → In match; none → null. */
   phase: 'Waiting' | 'In match' | null;
@@ -52,13 +58,15 @@ export interface RoomRow {
   current: boolean;
 }
 
-/** Room listings → panel rows, in the server's order (fullest first). */
+/** Room listings → panel rows, most connected players first (ties keep the server's order: fullest first). */
 export function roomRows(listings: RoomListing[], currentRoomId: string | null): RoomRow[] {
-  return listings.map((r) => {
+  const rows = listings.map((r): RoomRow => {
     const m = r.metadata ?? {};
     const int = (v: unknown, fallback: number) =>
       typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : fallback;
     const players = int(m.players, r.clients);
+    const connected = Math.min(players, int(m.connected, players));
+    const reconnecting = players - connected;
     const maxPlayers = int(m.maxPlayers, r.maxClients);
     const phase = typeof m.phase === 'string' && m.phase ? (m.phase === 'waiting' ? 'Waiting' : 'In match') : null;
     const code = typeof m.code === 'string' && m.code ? m.code : undefined;
@@ -66,6 +74,9 @@ export function roomRows(listings: RoomListing[], currentRoomId: string | null):
       roomId: r.roomId,
       name: typeof m.name === 'string' && m.name.trim() ? m.name.trim() : r.roomId,
       players,
+      connected,
+      reconnecting,
+      status: reconnecting > 0 ? `${connected} playing · ${reconnecting} reconnecting` : null,
       maxPlayers,
       phase,
       private: m.private === true,
@@ -75,6 +86,7 @@ export function roomRows(listings: RoomListing[], currentRoomId: string | null):
       current: r.roomId === currentRoomId,
     };
   });
+  return rows.map((row, i) => ({ row, i })).sort((a, b) => b.row.connected - a.row.connected || a.i - b.i).map((x) => x.row);
 }
 
 const HOST_EVENTS: HostEvent[] = ['pause', 'resume', 'exitRequested', 'lowMemory', 'partyUpdated'];
@@ -319,6 +331,10 @@ export class Panel {
       name.textContent = `${r.private ? 'private · ' : ''}${r.name}`;
       const count = document.createElement('span');
       count.textContent = `${r.players}/${r.maxPlayers}`;
+      if (r.status) {
+        count.textContent += ` (${r.status})`;
+        count.title = 'seats held for the reconnection grace (a refreshed or closed tab, or one opened with ?hold)';
+      }
       const badge = document.createElement('span');
       badge.className = 'badge';
       badge.textContent = r.current ? 'you' : (r.phase ?? '');

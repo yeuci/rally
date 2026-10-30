@@ -79,10 +79,11 @@ describe('SumoRoom', () => {
       {
         gameId: room.metadata.gameId,
         players: room.metadata.players,
+        connected: room.metadata.connected,
         maxPlayers: room.metadata.maxPlayers,
         private: room.metadata.private,
       },
-      { gameId: 'sumo', players: 2, maxPlayers: 8, private: false },
+      { gameId: 'sumo', players: 2, connected: 2, maxPlayers: 8, private: false },
     );
   });
 
@@ -279,11 +280,22 @@ describe('SumoRoom', () => {
     await waitFor(() => view(alice).players.get(bobId)?.connected === false, 'bob shown disconnected');
     assert.equal(room.seatCount, 2, 'seat held');
     assert.equal(room.metadata.players, 2);
+    await waitFor(() => room.metadata.connected === 1, 'metadata: one live socket');
+    // The server browser sees both seats taken (joins and the full check count them), one of them reconnecting.
+    const listed = (await colyseus.http.get('/rooms/sumo')).data as {
+      rooms: { roomId: string; clients: number; metadata: { players: number; connected: number } }[];
+    };
+    const row = listed.rooms.find((r) => r.roomId === room.roomId)!;
+    assert.deepEqual(
+      { clients: row.clients, players: row.metadata.players, connected: row.metadata.connected },
+      { clients: 2, players: 2, connected: 1 },
+    );
 
     const back = await colyseus.sdk.reconnect(token);
     back.onMessage('fx', () => {});
     assert.equal(back.sessionId, bobId, 'same session');
     await waitFor(() => view(alice).players.get(bobId)?.connected === true, 'bob back');
+    await waitFor(() => room.metadata.connected === 2, 'metadata: both live again');
 
     back.reconnection.enabled = false;
     room.clients.get(bobId)!.leave(CloseCode.MAY_TRY_RECONNECT);
@@ -291,6 +303,7 @@ describe('SumoRoom', () => {
     await waitFor(() => !view(alice).players.get(bobId), 'seat freed after the grace', 3000);
     assert.equal(room.seatCount, 1);
     await waitFor(() => room.metadata.players === 1, 'metadata updated');
+    assert.equal(room.metadata.connected, 1);
   });
 
   it('a client kicked for flooding loses its seat at once (no reconnection grace); a stale socket keeps it', async () => {

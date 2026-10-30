@@ -18,8 +18,10 @@
 //   4. The harness panel's name field renames the player (reload with ?name=).
 //   5. exitRequested from the panel → the game leaves the room → the other player sees one player fewer.
 //   6. exitRequested while the room's socket is still connecting → the game leaves as soon as it lands (no ghost).
-//   7. A closed tab keeps its seat for the 60 s reconnection grace (shown offline to the others); a new tab with
-//      ?resume=<roomId>:<token> reconnects into the same seat (same session id).
+//   7. A closed tab opened with ?hold keeps its seat for the 60 s reconnection grace (shown offline to the others,
+//      `connected` < `players` in the room listing); a new tab with ?resume=<roomId>:<token> reconnects into the same
+//      seat (same session id).
+//   8. A refresh without ?hold leaves with consent: the old seat is freed at once (no ghost player).
 // Env: SUMO_URL, COLYSEUS_URL (another port: the game server is started there and pages get ?colyseus=),
 // E2E_SCREENSHOT=<png path prefix> (default <tmp>/sumo).
 'use strict';
@@ -156,7 +158,8 @@ async function main() {
       null,
       { timeout: 10_000 },
     );
-    const bob = await open(browser, 'name=Bob', errors);
+    // Bob holds his seat when his tab goes away (?hold), for the ?resume check in 7; everyone else leaves with consent.
+    const bob = await open(browser, 'name=Bob&hold', errors);
     for (const page of [alice, bob]) {
       await page.waitForFunction(() => window.__sumo.names().join() === 'guest-Alice,guest-Bob', null, {
         timeout: 10_000,
@@ -308,9 +311,11 @@ async function main() {
     await dan.click('#rally-dev-harness >> [data-role="name-form"] button');
     await dan.waitForURL(/name=Danny/, { waitUntil: 'commit', timeout: 30_000 });
     await dan.waitForFunction(() => window.__sumo && window.__sumo.joined, null, { timeout: 30_000 });
-    // ?code= survives the reload, so Danny lands in Cleo's room again ("Dan" is held offline for the grace).
+    // ?code= survives the reload, so Danny lands in Cleo's room again; "Dan" left with consent on the reload (no
+    // ?hold), so no offline seat stays behind.
     await cleo.waitForFunction(() => window.__sumo.names().includes('guest-Danny'), null, { timeout: 15_000 });
-    console.log('✓ harness panel "set name" → reload as Danny, back in the same private room');
+    assert.ok(!(await cleo.evaluate(() => window.__sumo.names())).includes('guest-Dan'), 'no ghost seat for Dan');
+    console.log('✓ harness panel "set name" → reload as Danny, back in the same private room (old seat freed)');
 
     // 5. exitRequested → the game leaves its room (consented) → Bob sees Alice gone.
     await alice.click('#rally-dev-harness >> button[data-action="exitRequested"]');
@@ -359,9 +364,11 @@ async function main() {
     await bob.context().close();
     await fay.waitForFunction(() => window.__sumo.connectedOf('guest-Bob') === false, null, { timeout: 10_000 });
     const held = await (await fetch(`${COLYSEUS_URL}/rooms/sumo`)).json();
-    assert.equal(held.rooms.find((r) => r.roomId === bobSeat.roomId)?.metadata.players, 2, 'seat held for the grace');
+    const heldRow = held.rooms.find((r) => r.roomId === bobSeat.roomId);
+    assert.equal(heldRow?.metadata.players, 2, 'seat held for the grace');
+    assert.equal(heldRow?.metadata.connected, 1, 'one of them reconnecting');
     await fay.waitForTimeout(3000); // a few seconds away, well inside the 60 s
-    const bob2 = await open(browser, `name=Bob&resume=${encodeURIComponent(token)}`, errors);
+    const bob2 = await open(browser, `name=Bob&hold&resume=${encodeURIComponent(token)}`, errors);
     assert.deepEqual(
       { roomId: await sumo(bob2, 'roomId'), sessionId: await sumo(bob2, 'sessionId') },
       bobSeat,
@@ -374,6 +381,22 @@ async function main() {
     console.log(
       `✓ Bob closed his tab: seat held (offline), then ?resume reconnected him to the same seat after ${((Date.now() - closedAt) / 1000).toFixed(1)} s`,
     );
+
+    // 8. A refresh without ?hold leaves with consent (the harness asks the game to exit on pagehide): no ghost seat.
+    const faySession = await sumo(fay, 'sessionId');
+    await fay.reload({ waitUntil: 'domcontentloaded' });
+    await fay.waitForFunction(() => window.__sumo && window.__sumo.joined, null, { timeout: 30_000 });
+    assert.notEqual(await sumo(fay, 'sessionId'), faySession, 'a new seat');
+    assert.equal(await sumo(fay, 'roomId'), bobSeat.roomId, 'quick play put her back in the same room');
+    await fay.waitForFunction(() => window.__sumo.names().join() === 'guest-Bob,guest-Fay', null, { timeout: 10_000 });
+    const afterReload = (await (await fetch(`${COLYSEUS_URL}/rooms/sumo`)).json()).rooms.find(
+      (r) => r.roomId === bobSeat.roomId,
+    );
+    assert.deepEqual(
+      { clients: afterReload?.clients, players: afterReload?.metadata.players, connected: afterReload?.metadata.connected },
+      { clients: 2, players: 2, connected: 2 },
+    );
+    console.log('✓ Fay refreshed her tab: the old seat was freed at once (2 players, none reconnecting)');
 
     // Leave with consent, so a rerun does not wait for these seats' grace.
     for (const page of [bob2, fay]) {

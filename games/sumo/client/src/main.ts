@@ -1,4 +1,5 @@
 import {
+  RenderClock,
   SnapshotBuffer,
   applySafeAreaVars,
   createApp,
@@ -10,7 +11,7 @@ import {
   safeArea,
 } from '@rally/game-kit';
 import { rally } from '@rally/sdk';
-import { ClientMessage, type FxEvent } from '@rally/game-sumo-server';
+import { ClientMessage, DT, PATCH_MS, type FxEvent } from '@rally/game-sumo-server';
 import { createControls } from './controls.ts';
 import { createHud } from './hud.ts';
 import { connect, type Net } from './net.ts';
@@ -64,8 +65,17 @@ let joining: Promise<Net> | null = null;
 let me = '';
 let readyMs = -1;
 let exiting = false;
-/** Other players are drawn 100 ms in the past, interpolated between server patches (20 Hz). */
-const remote = new SnapshotBuffer({ fields: ['x', 'y'] as const, delayMs: 100 });
+/**
+ * Other players: every patch is one snapshot on the SERVER's timeline (`tick` × DT, not its arrival time), drawn
+ * 2–3 patch intervals behind the estimated server time (Hermite curves through positions and velocities; at most
+ * one interval of extrapolation if patches stop, then held). See game-kit netclock.ts.
+ */
+const clock = new RenderClock({ intervalMs: PATCH_MS });
+const remote = new SnapshotBuffer({
+  fields: ['x', 'y', 'vx', 'vy'] as const,
+  rates: { x: 'vx', y: 'vy' },
+  extrapolateMs: PATCH_MS,
+});
 /** Our own puck is predicted (see predict.ts for exactly what is and is not). */
 const predictor = new Predictor();
 /** Our `result` message for the match-over banner. */
@@ -76,6 +86,8 @@ const labels = new Map<string, HTMLElement>();
 let lastPhase = '';
 let lastRound = -1;
 let lastCountdown = -1;
+/** Dev only (e2e / jitter measurement): the rendered position of one player, every frame. */
+let trace: { name: string; samples: { t: number; x: number; y: number }[] } | null = null;
 
 /**
  * Stop our puck on the server now. The frame loop only sends sticks while frames run; a paused or backgrounded
@@ -149,7 +161,10 @@ function onFx(fx: FxEvent[]) {
   }
 }
 
-/** Every state patch: feed the interpolation buffer and rebase the prediction. */
+/**
+ * Every state patch (`onStateChange`: once per patch, after the whole patch is decoded, so all pucks and the tick
+ * are from the same server step): feed the interpolation buffer and rebase the prediction.
+ */
 function onPatch(t: number) {
   if (!net) return;
   const st = net.state;
@@ -159,12 +174,16 @@ function onPatch(t: number) {
     remote.clear();
     lastRound = st.round;
   }
-  const entries: [string, { x: number; y: number }][] = [];
-  st.players.forEach((p, id) => entries.push([id, { x: p.x, y: p.y }]));
-  remote.push(t, entries);
+  const serverMs = st.tick * DT * 1000;
+  clock.observe(serverMs, t);
+  const entries: [string, { x: number; y: number; vx: number; vy: number }][] = [];
+  st.players.forEach((p, id) => entries.push([id, { x: p.x, y: p.y, vx: p.vx, vy: p.vy }]));
+  remote.push(serverMs, entries);
   const mine = st.players.get(me);
   predictor.rttMs = net.rttMs ?? 0;
-  if (mine?.alive) predictor.rebase({ x: mine.x, y: mine.y, vx: mine.vx, vy: mine.vy }, t);
+  // The snapshot's content time on the local clock (when that tick's data is expected to arrive), not its arrival
+  // time: a patch carries 1 or 2 ticks and arrives in bursts, which would otherwise show up as a correction.
+  if (mine?.alive) predictor.rebase({ x: mine.x, y: mine.y, vx: mine.vx, vy: mine.vy }, clock.server.toLocal(serverMs), t);
   else predictor.reset();
 }
 
@@ -200,14 +219,16 @@ function frame(dt: number) {
   scene.setRadius(st.radius);
   const seen = new Set<string>();
   const predicting = PREDICT && shouldPredict(st.phase);
+  const renderAt = clock.renderTime(now);
   st.players.forEach((p, id) => {
     seen.add(id);
     const mine = id === me;
     const pos = (mine && predicting && p.alive ? predictor.sample(now) : null) ??
-      remote.sample(id, now) ?? { x: p.x, y: p.y };
+      (renderAt === null ? null : remote.sampleAt(id, renderAt)) ?? { x: p.x, y: p.y };
     if (wasAlive.get(id) && !p.alive) scene.fall(id, p.vx, p.vy);
     wasAlive.set(id, p.alive);
     scene.setPuck(id, { x: pos.x, y: pos.y, color: p.color, me: mine, visible: p.alive });
+    if (import.meta.env.DEV && trace?.name === p.name) trace.samples.push({ t: now, x: pos.x, y: pos.y });
 
     let label = labels.get(id);
     if (!label) {
@@ -407,6 +428,16 @@ if (import.meta.env.DEV) {
       const out: string[] = [];
       net?.state?.players?.forEach((p) => out.push(p.name));
       return out.sort();
+    },
+    /** Start recording where the puck of the player shown as `name` is drawn, every frame. */
+    traceStart(name: string) {
+      trace = { name, samples: [] };
+    },
+    /** Stop recording; returns `{ t, x, y }` per frame (t = performance.now() of the frame). */
+    traceStop() {
+      const out = trace?.samples ?? [];
+      trace = null;
+      return out;
     },
     position(name: string) {
       let found: { x: number; y: number; alive: boolean } | null = null;

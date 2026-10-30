@@ -136,10 +136,14 @@ test('roomRows: metadata name/players/phase, fallbacks, joinable and current', (
     ],
     'C',
   );
-  assert.deepEqual(rows[0], {
+  // B (6 connected: no `connected` metadata, an older server) sorts before A (3).
+  assert.deepEqual(rows[1], {
     roomId: 'A',
     name: 'Sumo AB12',
     players: 3,
+    connected: 3,
+    reconnecting: 0,
+    status: null,
     maxPlayers: 6,
     phase: 'In match',
     private: false,
@@ -148,11 +152,32 @@ test('roomRows: metadata name/players/phase, fallbacks, joinable and current', (
     current: false,
   });
   assert.deepEqual(
-    rows.slice(1).map((r) => [r.name, r.players, r.maxPlayers, r.phase, r.joinable, r.current, r.code]),
+    [rows[0]!, ...rows.slice(2)].map((r) => [r.name, r.players, r.maxPlayers, r.phase, r.joinable, r.current, r.code]),
     [
       ['B', 6, 6, 'Waiting', false, false, undefined],
       ['C', 1, 8, null, false, true, undefined],
       ['Mine', 1, 4, null, true, false, 'K7M2PQ'],
     ],
   );
+});
+
+test('roomRows: seats held for the reconnection grace show as reconnecting and sort by connected players', () => {
+  const room = (roomId: string, players: number, connected: number | undefined) => ({
+    roomId,
+    clients: players,
+    maxClients: 8,
+    locked: false,
+    metadata: { name: roomId, players, maxPlayers: 8, ...(connected === undefined ? {} : { connected }) },
+  });
+  // Server order is fullest first (by seats): G has 3 seats but only 1 live socket (two refreshed tabs).
+  const rows = roomRows([room('G', 3, 1), room('H', 2, 2), room('I', 2, 9)], null);
+  assert.deepEqual(
+    rows.map((r) => [r.roomId, r.players, r.connected, r.reconnecting, r.status]),
+    [
+      ['H', 2, 2, 0, null],
+      ['I', 2, 2, 0, null], // connected is clamped to the seats
+      ['G', 3, 1, 2, '1 playing · 2 reconnecting'],
+    ],
+  );
+  assert.equal(rows[2]!.joinable, true, 'held seats still count against maxPlayers (here 3/8)');
 });

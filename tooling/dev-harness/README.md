@@ -59,12 +59,25 @@ with or without `?nohost`.
 For games with a `server`, the panel also has:
 
 - **set name**: the display name for this browser (see `?name=`).
-- **rooms**: `GET /rooms/<room>` every 5 s while the panel is open (not collapsed): name, `players/maxPlayers` and a
-  phase badge (_Waiting_ / _In match_, from Sumo-style `phase` metadata); this page's room is marked `you`, full or
-  locked rooms are disabled. Clicking a room reloads with `?room=<id>` (plus `&code=` when the listing carries one;
+- **rooms**: `GET /rooms/<room>` every 5 s while the panel is open (not collapsed): name, `players/maxPlayers` (plus
+  "(2 playing · 1 reconnecting)" when the room's `connected` metadata is below its seats: tabs inside their
+  reconnection grace) and a phase badge (_Waiting_ / _In match_, from Sumo-style `phase` metadata), most connected
+  players first; this page's room is marked `you`, full or locked rooms are disabled. Clicking a room reloads with `?room=<id>` (plus `&code=` when the listing carries one;
   the server lists public rooms only).
 - **reload with ?resume**: shown while a rejoin record exists, with its countdown. It reloads with a bare `?resume`,
-  which drops the socket without consent and takes the seat back, like the shell relaunching within the grace.
+  dropping the socket without consent (even without `?hold`) and taking the seat back, like the shell relaunching
+  within the grace.
+
+### Leaving the page
+
+On `pagehide` (refresh, closed tab, navigation, the panel's room list or **set name**) the harness sends the game the
+`exitRequested` host event, delivered synchronously (no timer runs after `pagehide`), so a game using game-kit's
+`createLifecycle` leaves its room with consent at once (`room.leave(true)`: the SDK writes the leave message on the
+socket before the page goes) and the server frees the seat. Without this every refresh left the old seat held for
+the 60 s grace: one more puck in the room and one more player in the server browser ("3/8" with every tab closed).
+The rejoin record is cleared, since that seat is gone. Exceptions, where the socket just drops and the seat is held:
+pages opened with `?hold`, the panel's **reload with ?resume**, a page that never joined, and a game that already
+exited. Games that ignore `exitRequested` keep the old behaviour.
 
 ### Options and query parameters
 
@@ -88,9 +101,10 @@ rallyDevHarness({
 | `?room=<roomId>`           | `joinById` (intent `joinById`); with `&code=<CODE>`, `{ code }` is sent directly (a private room by id, as the room list does).                                                                                                                                                                                                                                            |
 | `?resume=<roomId>:<token>` | `POST /matchmake/reconnect/<roomId>` with `{ reconnectionToken: <token> }`: the SDK's `room.reconnectionToken`, split on its first `:` (`?resume=<token>&room=<id>` also works). Launch context: the original intent and `resume: { reconnectionToken }`.                                                                                                                  |
 | `?resume`                  | The same with the stored rejoin record (what the game last reported with `session.reportReconnection`). Nothing stored or expired → `session.join` fails with `MATCHMAKE_FAILED`, as does a reconnect after the grace (`that match has ended (…)`, record cleared); there is no fallback to quick play.                                                                    |
+| `?hold`                    | Leaving the page (refresh, close, navigation) drops the socket **without** consent, so the server holds the seat for its 60 s reconnection grace (shown offline to the others), as when a phone loses the network. Use it for rejoin testing: the tab you close or reload to `?resume` must have it. Without it, see "Leaving the page" below.                         |
 
-`?resume` wins over the other join parameters. To rejoin from a closed tab, open the game with `?resume` within the
-grace (a plain URL would quick-join, which clears the record). The server issues a new token on every join, so a bare
+`?resume` wins over the other join parameters. To rejoin from a closed tab, that tab must have been opened with
+`?hold`; then open the game with `?resume` within the grace (a plain URL would quick-join, which clears the record). The server issues a new token on every join, so a bare
 `?resume` (fed by the game's latest report) survives repeated reloads where a pasted token does not.
 
 ## How the script gets into the page
@@ -121,7 +135,7 @@ already running, drives Chromium (`--use-angle=swiftshader --enable-unsafe-swift
 "in room" plus a bridge and socket RTT, pause/resume from the panel, save versions and `CONFLICT`,
 `NOT_SUPPORTED` / `UNKNOWN_METHOD` / `INVALID_PARAMS`, wrong-nonce messages dropped, `exitRequested` → the game
 calls `exit()` → overlay, `?nohost` → standalone, the panel's room list showing the page's room, and `?resume`: a Node
-SDK client drops without consent and a fresh page reconnects into its seat (same room and session), a reported token is
+SDK client drops without consent and a fresh page (`?hold&resume=…`) reconnects into its seat (same room and session), a reported token is
 stored for the joined room only, and a bare `?resume` with a dead token fails ("that match has ended") and clears the
 record. It stops the servers it started. It is not part of
 `pnpm test` because it needs those servers and a browser. Env: `SPIKE_URL`, `COLYSEUS_URL`, `E2E_SCREENSHOT`.

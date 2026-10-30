@@ -44,8 +44,11 @@ export interface HostBridgeOptions {
   nonce: string;
   /** Full URL of the game's entry document; messages from any other URL prefix are dropped. */
   bundleUrl: string;
-  /** Deliver a JSON envelope into the page (the real host uses `injectJavaScript`). */
-  deliver: (json: string) => void;
+  /**
+   * Deliver a JSON envelope into the page (the real host uses `injectJavaScript`, which is asynchronous). `now` asks
+   * for synchronous delivery: an event sent while the page unloads, when no timer will run any more.
+   */
+  deliver: (json: string, now?: boolean) => void;
   handlers: RequestHandlers;
   onGameEvent?: (event: GameEventMessage) => void;
   onDrop?: (reason: string, raw: string) => void;
@@ -106,17 +109,20 @@ export class HostBridge {
     this.opts.onDrop?.('unexpected res from game', data);
   }
 
-  sendEvent<E extends HostEvent>(event: E, payload: HostEventPayload<E>): void {
+  sendEvent<E extends HostEvent>(event: E, payload: HostEventPayload<E>, opts: { now?: boolean } = {}): void {
     if (this.closed) return;
     HostEventSchemas[event].parse(payload);
-    this.send({
+    this.send(
+      {
       v: PROTOCOL_VERSION,
       nonce: this.opts.nonce,
       id: `h-${Date.now().toString(36)}`,
-      kind: 'evt',
-      method: event,
-      params: payload,
-    });
+        kind: 'evt',
+        method: event,
+        params: payload,
+      },
+      opts.now,
+    );
   }
 
   private async handleRequest(env: BridgeEnvelope): Promise<void> {
@@ -174,7 +180,7 @@ export class HostBridge {
     this.opts.onGameEvent?.({ method: env.method, params: parsed.data } as GameEventMessage);
   }
 
-  private send(env: BridgeEnvelope): void {
-    this.opts.deliver(JSON.stringify(env));
+  private send(env: BridgeEnvelope, now?: boolean): void {
+    this.opts.deliver(JSON.stringify(env), now);
   }
 }

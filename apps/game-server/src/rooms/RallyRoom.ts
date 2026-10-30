@@ -32,8 +32,13 @@ export interface RallyRoomMetadata {
   gameId: string;
   /** Display name for the server browser. */
   name: string;
-  /** Seated players, including ones inside their reconnection grace. */
+  /** Seated players, including ones inside their reconnection grace (the same count as the listing's `clients`). */
   players: number;
+  /**
+   * Seats with a live socket: `players − connected` are inside their reconnection grace (a refreshed or closed tab, a
+   * phone that lost the network). The server browser shows them as reconnecting.
+   */
+  connected: number;
   maxPlayers: number;
   private: boolean;
   /** Private rooms only: the 6-character join code (`GET /rooms/code/<code>` → roomId). */
@@ -81,7 +86,9 @@ function roomMirror(): RoomMirror | null {
  * - **Seats and reconnection:** a non-consented drop keeps the seat for `reconnectSeconds` (state shows the player
  *   disconnected via {@link onGameDrop}); the seat is freed after the grace ({@link onGameLeave}). A client kicked
  *   for flooding gets no grace.
- * - **Metadata:** `{ gameId, name, players, maxPlayers, private, code?, serverVersion, ...extraMetadata() }`.
+ * - **Metadata:** `{ gameId, name, players, connected, maxPlayers, private, code?, serverVersion, ...extraMetadata() }`;
+ *   `players` counts every seat (as the listing's `clients`, which joins and the full check use), `connected` only
+ *   the ones with a live socket.
  * - **Private rooms:** `setPrivate(true)` (hidden from `joinOrCreate` and listings) plus a join code, required by
  *   `joinById` (routes.ts). Not `lock()`: Colyseus' `joinById` refuses locked rooms.
  *
@@ -247,6 +254,7 @@ export abstract class RallyRoom<S extends object = object> extends Room<{
     const seat = this.seats.get(client.sessionId);
     if (seat) seat.connected = false;
     await this.onGameDrop(client);
+    await this.syncMetadata();
     // The returned deferred rejects when the grace runs out (then Colyseus calls onLeave) or when the room is
     // disposing; neither is an error here.
     void Promise.resolve(this.allowReconnection(client, this.reconnectSeconds)).catch(() => {});
@@ -256,6 +264,7 @@ export abstract class RallyRoom<S extends object = object> extends Room<{
     const seat = this.seats.get(client.sessionId);
     if (seat) seat.connected = true;
     await this.onGameReconnect(client);
+    await this.syncMetadata();
   }
 
   override async onLeave(client: RallyClient, _code?: CloseCode | number) {
@@ -275,6 +284,13 @@ export abstract class RallyRoom<S extends object = object> extends Room<{
   /** Seated players (connected or within their grace), by sessionId. */
   get seatCount(): number {
     return this.seats.size;
+  }
+
+  /** Seats with a live socket (not inside their reconnection grace). */
+  get connectedCount(): number {
+    let n = 0;
+    for (const seat of this.seats.values()) if (seat.connected) n++;
+    return n;
   }
 
   isConnected(sessionId: string): boolean {
@@ -327,6 +343,7 @@ export abstract class RallyRoom<S extends object = object> extends Room<{
       gameId: this.gameId,
       name: this.roomTitle,
       players: this.seats.size,
+      connected: this.connectedCount,
       maxPlayers: this.maxClients,
       private: this.isPrivateRoom,
       ...(this.joinCode ? { code: this.joinCode } : {}),

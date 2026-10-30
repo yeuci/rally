@@ -11,6 +11,7 @@
     "lint": "eslint . ../scripts --max-warnings 0",
     "test": "node --conditions=rally-source --experimental-strip-types --no-warnings=ExperimentalWarning --test test/*.test.ts",
     "test:e2e": "node test/e2e.cjs",
+    "test:jitter": "node test/jitter.cjs",
     "art": "node --experimental-strip-types --no-warnings=ExperimentalWarning ../scripts/art.ts"
   },
   "dependencies": {

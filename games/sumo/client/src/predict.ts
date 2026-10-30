@@ -8,11 +8,12 @@ import { DT, SUBSTEPS, integrate, type Body, type Phase, type Vec2 } from '@rall
  * - Not predicted: collisions with other pucks, knock-back, falling off, the shrinking edge, round resets. Those
  *   arrive from the server; the prediction is rebased on every authoritative snapshot, and the difference is
  *   blended out over ~120 ms so a hit shows as a quick shove rather than a teleport.
- * - Other players are never predicted: they are interpolated ~100 ms in the past (SnapshotBuffer).
+ * - Other players are never predicted: they are interpolated 2–3 patch intervals in the past (SnapshotBuffer).
  *
- * Timeline: a snapshot received at local time `t` describes the server ≈ rtt/2 earlier and already contains the
- * inputs we sent up to ≈ `t - rtt`. Replaying from it over `now - t + rtt` with the sticks we sent from `t - rtt`
- * onward gives where the server will have us once everything we have sent so far is applied.
+ * Timeline: a snapshot whose tick is expected to arrive at local time `t` (the clock estimate tracks the earliest
+ * arrivals, so `t` is free of patch batching and delivery jitter) already contains the inputs we sent up to
+ * ≈ `t - rtt`. Replaying from it over `now - t + rtt` with the sticks we sent from `t - rtt` onward gives where the
+ * server will have us once everything we have sent so far is applied.
  */
 export interface OwnSnapshot {
   x: number;
@@ -70,18 +71,23 @@ export class Predictor {
     this.offset = { x: 0, y: 0 };
   }
 
-  /** An authoritative snapshot of our puck arrived at local time `t`. The rendered position stays continuous. */
-  rebase(s: OwnSnapshot, t: number): void {
-    const before = this.base ? this.predict(t) : null;
+  /**
+   * An authoritative snapshot of our puck. `t` is its content time on the local clock: when data of that server tick
+   * is expected to arrive (`RenderClock.server.toLocal(tick time)`), so neither the 1-or-2 ticks per patch nor bursty
+   * delivery leak into the replay; `now` is when it actually arrived. The drawn position stays continuous at `now`.
+   */
+  rebase(s: OwnSnapshot, t: number, now = t): void {
+    const before = this.base ? this.sample(now) : null;
     this.base = { s: { ...s }, t };
-    if (!before) return;
-    const after = this.predict(t);
-    const shown = { x: before.x + this.currentOffset(t).x, y: before.y + this.currentOffset(t).y };
-    const dx = shown.x - after.x;
-    const dy = shown.y - after.y;
-    if (Math.hypot(dx, dy) > SNAP_DISTANCE) this.offset = { x: 0, y: 0 };
-    else this.offset = { x: dx, y: dy };
-    this.offsetAt = t;
+    this.offsetAt = now;
+    if (!before) {
+      this.offset = { x: 0, y: 0 };
+      return;
+    }
+    const after = this.predict(now);
+    const dx = before.x - after.x;
+    const dy = before.y - after.y;
+    this.offset = Math.hypot(dx, dy) > SNAP_DISTANCE ? { x: 0, y: 0 } : { x: dx, y: dy };
   }
 
   /** Where to draw our puck at local time `now` (prediction + decaying correction), or null before any snapshot. */

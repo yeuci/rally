@@ -104,6 +104,12 @@ function main(): void {
   const rejoin = localRejoinJournal(cfg.game.id, user.id);
   const stored = rejoin.get();
   const roomName = cfg.room;
+  /**
+   * `?hold`: leaving the page (refresh, close, navigation) drops the socket WITHOUT consent, so the server holds the
+   * seat for its reconnection grace, as when a phone loses the network (rejoin testing with `?resume`). Without it the
+   * game is asked to leave with consent first (see the `pagehide` handler), so a refresh does not leave a ghost seat.
+   */
+  let holdSeatOnUnload = params.has('hold');
   /** Room of the last successful session.join (highlighted in the panel's room list). */
   let joinedRoomId: string | null = null;
 
@@ -125,6 +131,8 @@ function main(): void {
         ? {
             current: () => rejoin.get(),
             onRejoin: () => {
+              // This reload must keep the seat it is about to take back.
+              holdSeatOnUnload = true;
               location.href = joinTargetHref(location.href, { kind: 'stored' });
             },
           }
@@ -196,8 +204,6 @@ function main(): void {
   // The game learns it is resuming from the launch context (`resume.reconnectionToken`, the SDK's format).
   const resume = join.kind === 'resume' ? { reconnectionToken: `${join.roomId}:${join.token}` } : cfg.launch.resume;
   if (join.kind === 'invalid') log(join.reason, 'warn');
-  // Leaving the page drops the socket: the server's grace starts now, so the record's expiry does too (§4).
-  window.addEventListener('pagehide', () => rejoin.restamp());
 
   const buildLaunchContext = (): LaunchContext => ({
     game: cfg.game,
@@ -217,7 +223,7 @@ function main(): void {
     nonce,
     bundleUrl: location.href,
     // The shell delivers with injectJavaScript, which never runs inside the game's postMessage call.
-    deliver: (json) => setTimeout(() => window.__rally?.recv(json), 0),
+    deliver: (json, now) => (now ? window.__rally?.recv(json) : setTimeout(() => window.__rally?.recv(json), 0)),
     handlers: createHarnessHandlers({
       buildLaunchContext,
       colyseusUrl,
@@ -300,6 +306,21 @@ function main(): void {
     // react-native-webview reports the page URL as nativeEvent.url; the bridge checks it against the bundle path.
     postMessage: (message: string) => bridge.handleMessage(String(message), location.href),
   };
+
+  // Leaving the page (refresh, close, navigation). By default the game leaves its room with consent, through the
+  // same `exitRequested` path as the panel button, delivered synchronously (no timer runs after pagehide); the SDK's
+  // consented leave sends its message on the socket at once, so the server frees the seat instead of holding it for
+  // the 60 s grace (which showed every refresh as one more player in the room list). The rejoin record is cleared:
+  // that seat is gone. With `?hold` (or the panel's "reload with ?resume") the socket just drops: the server's grace
+  // starts now, so the record's expiry does too (§4).
+  window.addEventListener('pagehide', () => {
+    if (holdSeatOnUnload || joinedRoomId === null || bridge.isClosed) {
+      rejoin.restamp();
+      return;
+    }
+    bridge.sendEvent('exitRequested', {}, { now: true });
+    rejoin.clear();
+  });
 
   function sendHostEvent(event: HostEvent): void {
     if (bridge.isClosed) return;

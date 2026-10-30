@@ -53,6 +53,8 @@ pnpm --filter @rally/game-sumo dev            # Vite + dev harness on :5182 (VIT
   get anyone into a private room). The shell's UI for codes is phase 2.
 - `?nohost` runs standalone (no bridge): it joins `ws://<host>:2567` directly (or `?colyseus=<url>`).
 - `?predict=0` turns off local prediction of your own puck so you can compare.
+- Refreshing or closing a harness tab leaves the room with consent (no ghost puck, no extra player in the server
+  browser). Add `?hold` to keep the seat for the 60 s grace instead, for `?resume` testing (tooling/dev-harness).
 
 A lone player sees "Waiting for players" and can push their puck around to practise (falling off just respawns).
 With two or more players, a 3-2-1 countdown starts round 1.
@@ -69,19 +71,37 @@ With two or more players, a 3-2-1 countdown starts round 1.
 
 The server (apps/game-server `SumoRoom`, rules in `games/sumo/server`) owns everything: puck positions and velocities,
 collisions, falls, the shrinking edge, rounds, scores and the match result. It steps the simulation at a fixed
-30 Hz (2 physics sub-steps) from client inputs and patches state to clients at 20 Hz.
+30 Hz (`TICK_HZ`, 2 physics sub-steps) from client inputs and patches state to clients at 20 Hz (`PATCH_MS` = 50, on
+Colyseus' own timer). Every patch carries the synced `tick` (fixed steps so far), so the client knows exactly which
+moment of the simulation it shows: server time = `tick × DT`.
 
 - **Inputs:** clients send only a stick direction `{ x, y, s }` (|v| ≤ 1, sequence number), only when it changes and
   at most 20 per second (`client/src/stick.ts`). On pause, blur, a hidden page and exit a zero stick is sent at once
   (a backgrounded page runs no frames, and the server keeps applying the last stick). The server clamps the vector, drops malformed, stale and out-of-order messages, and applies at
   most 30 per second per client. A dropped client's puck gets no input.
-- **Other players** are drawn 100 ms in the past, interpolated between patches (`SnapshotBuffer` from game-kit).
-  Nothing is extrapolated.
+- **Other players** are interpolated on the server's timeline (game-kit `RenderClock` + `SnapshotBuffer`):
+  - each patch is one snapshot (`onStateChange` fires once per decoded patch, so `x, y, vx, vy` of every puck and
+    the `tick` always come from the same server step), stored at `tick × DT`, **not** at its arrival time;
+  - the client estimates `local − server` time from the earliest arrivals over a 3 s window (smoothed; a late patch
+    is queueing, not a clock change) and the jitter as how much later than that the latest arrival came;
+  - remote pucks are drawn at `estimated server time − delay`, where the delay is one patch interval plus the
+    jitter, clamped to 2–3 intervals (100–150 ms; 100 ms on a quiet LAN). Changes of the estimate are eased in
+    (time constant 1 s, render time never more than ±5 % off real time, never backwards);
+  - between the two snapshots around that time a puck follows a cubic Hermite curve through both positions and
+    velocities (speed stays continuous across patches); if patches stop it is extrapolated from its velocity for at
+    most one interval (50 ms), then held. A new round clears the buffer (everyone teleports).
+
+  Why: a patch carries 1 or 2 ticks (30 Hz in 20 Hz) and arrives on a jittery event loop, so the old scheme
+  (snapshots stamped with their arrival time, 100 ms behind) drew remote pucks alternating between ⅔ and 4⁄3 of
+  their real speed. Measured with `test:jitter` (below): per-frame speed std 27–29 % of the server speed before,
+  0.1–0.4 % after.
 - **Your own puck** is predicted in the phases where the server moves pucks (`waiting` practice, `playing`,
   `roundOver`; not `countdown` or `matchOver`): the client replays the exact server integrator (`integrate`: acceleration, friction,
   speed cap) from the latest authoritative state over one round trip, using the sticks it sent. Collisions,
   knock-back, falling and round resets are **not** predicted. They arrive from the server, and the difference is
-  blended out over ~120 ms (a teleport, such as a respawn, snaps). See `client/src/predict.ts`.
+  blended out over ~120 ms (a teleport, such as a respawn, snaps). The authoritative state is placed at its tick's
+  expected arrival time (same clock estimate), not its actual arrival, so the 1-or-2 ticks per patch do not show up
+  as corrections. See `client/src/predict.ts`.
 
 The physics is deterministic for the same inputs on the same JS engine (fixed dt, no randomness, bodies always in
 id order), which the unit tests check bit for bit.
@@ -116,6 +136,7 @@ pnpm --filter @rally/game-sumo test           # prediction, result line, art pos
 pnpm --filter @rally/game-server test         # SumoRoom over real sockets (@colyseus/testing), auth, join codes
 pnpm --filter @rally/game-sumo test:e2e       # Playwright: two Chrome contexts through the harness (needs Chromium;
                                               # playwright via NODE_PATH); starts both servers if they are not up
+pnpm --filter @rally/game-sumo test:jitter    # remote-puck smoothness (Playwright + a Node client; same needs)
 pnpm --filter @rally/publish-game publish-game sumo --dry-run
 ```
 
@@ -123,10 +144,20 @@ The e2e checks that Alice and Bob land in one room and see each other in the HUD
 starts and arrow keys move a puck on the server, that a whole match ends with the guest notice on both match-over
 banners, that `?private` / `?code=` work and a bare `joinById` does not, that a long name keeps "(you)" visible, that
 a second finger does not end the joystick drag, the harness rename, that `exitRequested` leaves the room, that an exit
-while the socket is still connecting leaves no ghost seat, and that a closed tab keeps its seat (offline) and a new tab
-with `?resume=<roomId>:<token>` takes it back. It waits up to 75 s for leftover public rooms from an earlier run
+while the socket is still connecting leaves no ghost seat, that a closed tab opened with `?hold` keeps its seat
+(offline; the listing's `connected` is one below `players`) and a new tab with `?resume=<roomId>:<token>` takes it back,
+and that a refresh without `?hold` frees the old seat at once (the harness leaves with consent on `pagehide`). It waits up to 75 s for leftover public rooms from an earlier run
 (their seats are held for the 60 s reconnection grace). With `COLYSEUS_URL=http://localhost:<port>` it starts (or
 uses) a game server on that port and points the pages at it (`?colyseus=`).
+
+`test:jitter` (`client/test/jitter.cjs`) measures what the owner sees as "my puck is smooth, the others jitter": a
+scripted Node client holds a constant stick (2 u/s on the server) while a Chromium player records where it draws that
+puck every animation frame for 3 s (dev-only `__sumo.traceStart/traceStop`). It prints the per-frame displacement
+mean ± std, the per-frame speed std as a % of the server speed (independent of frame timing), stalls and jumps
+(> 2× the median), and the patch cadence. Its game server runs on :2577 (`COLYSEUS_URL`), and the page is 160×90 so
+software WebGL holds a steady 60 fps. `MAX_JITTER_PCT=2` makes it fail above that speed std. Before/after this netcode
+(three runs each, 60 fps): displacement 0.0326 ± 0.0097–0.0125 u (CV 30–35 %) → 0.0328 ± 0.0008–0.0027 u (CV 3–8 %,
+which is the frame-time variation itself); speed std 27–29 % → 0.1–0.4 %; no stalls or jumps after.
 
 ## Art
 

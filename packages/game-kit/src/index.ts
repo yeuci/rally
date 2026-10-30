@@ -32,3 +32,11 @@ export {
   type Stick,
 } from './keyboard.ts';
 export { SnapshotBuffer, type Sample, type SnapshotBufferOptions } from './interpolation.ts';
+export {
+  RenderClock,
+  ServerClock,
+  interpolationDelay,
+  type DelayOptions,
+  type RenderClockOptions,
+  type ServerClockOptions,
+} from './netclock.ts';

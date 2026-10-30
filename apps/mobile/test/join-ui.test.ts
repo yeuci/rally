@@ -133,6 +133,8 @@ test('roomRow: name, players/max from metadata, phase badge, joinable', () => {
   assert.equal(row.phaseLabel, 'Waiting');
   assert.equal(row.joinable, true);
   assert.equal(row.accessibilityLabel, 'Dojo, 3 of 8 players, waiting');
+  // A server without `connected` metadata: everyone counts as connected.
+  assert.deepEqual([row.connected, row.reconnecting, row.statusLabel], [3, 0, null]);
 
   const playing = roomRow(listing({ md: { phase: 'playing' } }));
   assert.equal(playing.phaseLabel, 'In match');
@@ -151,6 +153,40 @@ test('roomRow: falls back to clients/maxClients and a generated name; full or lo
   assert.equal(roomRow(listing({ locked: true })).joinable, false);
   assert.equal(roomRow(listing({ md: { name: '   ' } })).name, 'Room R1AB');
   assert.equal(roomRow(listing({ md: { players: -1 } })).players, 2);
+});
+
+test('roomRow: seats held for the reconnection grace read as reconnecting and still count toward full', () => {
+  const row = roomRow(listing({ md: { players: 3, connected: 2 } }));
+  assert.deepEqual([row.players, row.connected, row.reconnecting], [3, 2, 1]);
+  assert.equal(row.playersLabel, '3/8');
+  assert.equal(row.statusLabel, '2 playing · 1 reconnecting');
+  assert.equal(row.accessibilityLabel, 'Dojo, 3 of 8 players (2 playing, 1 reconnecting), waiting');
+  // All seats held (every tab closed): still listed, nobody playing.
+  const ghost = roomRow(listing({ md: { players: 3, connected: 0 } }));
+  assert.equal(ghost.statusLabel, '0 playing · 3 reconnecting');
+  // Garbage or more connected than seats is clamped.
+  assert.equal(roomRow(listing({ md: { connected: 'x' } })).connected, 3);
+  assert.equal(roomRow(listing({ md: { connected: 9 } })).reconnecting, 0);
+  const full = roomRow(listing({ md: { players: 8, connected: 5 } }));
+  assert.equal(full.joinable, false, 'held seats are taken seats');
+});
+
+test('roomRows: joinable first, then most connected players first (ties keep the server order)', () => {
+  const rows = roomRows(
+    [
+      listing({ roomId: 'ghosts', md: { players: 5, connected: 1 } }),
+      listing({ roomId: 'fullHeld', md: { players: 8, connected: 6 } }),
+      listing({ roomId: 'busy', md: { players: 4, connected: 4 } }),
+      listing({ roomId: 'tieA', md: { players: 2, connected: 2 } }),
+      listing({ roomId: 'tieB', md: { players: 2 } }),
+      listing({ roomId: 'fullLive', md: { players: 8, connected: 8 } }),
+    ],
+    0,
+  );
+  assert.deepEqual(
+    rows.map((r) => r.roomId),
+    ['busy', 'tieA', 'tieB', 'ghosts', 'fullLive', 'fullHeld'],
+  );
 });
 
 test('roomRows hides rooms below minVersion and private ones, joinable first', () => {

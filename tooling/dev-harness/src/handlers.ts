@@ -180,7 +180,7 @@ export function joinTargetHref(
       break;
   }
   // `?private=` → `?private` (flag parameters read better bare; parseJoinTarget only checks presence).
-  return url.toString().replace(/([?&](?:private|nohost|resume))=(?=&|$)/g, '$1');
+  return url.toString().replace(/([?&](?:private|nohost|resume|hold))=(?=&|$)/g, '$1');
 }
 
 /** The rejoin journal (one record per game and harness user). Expired records read as null and are dropped. */

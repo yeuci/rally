@@ -95,8 +95,10 @@ Every Rally room extends `RallyRoom<State>` and implements `onGame*` hooks inste
   gets no grace: its seat is freed at once. `onGameReconnect` runs on return (same sessionId). `onGameLeave` runs
   when the seat is really gone. `maxClients` and `gameId` come from the room definition in registry.ts (definition options
   override client options).
-- **Metadata.** `{ gameId, name, players, maxPlayers, private, code?, serverVersion, ...extraMetadata() }`, kept current
-  on join/leave (Sumo adds `phase`, `round`).
+- **Metadata.** `{ gameId, name, players, connected, maxPlayers, private, code?, serverVersion, ...extraMetadata() }`,
+  kept current on join/leave/drop/reconnect (Sumo adds `phase`, `round`). `players` counts every seat, including ones
+  held for the reconnection grace (the same as the listing's `clients`, which joins and the full check use);
+  `connected` counts only seats with a live socket, so the server browser can show "2 playing · 1 reconnecting".
 - **Private rooms.** `{ private: true }` → `setPrivate(true)` plus a 6-character join code from an alphabet without
   0/O/1/I/L (`joinCode.ts`), required by `joinById` (reconnection excepted). Not `lock()`: Colyseus' `joinById`
   refuses locked rooms. Private rooms are hidden from `joinOrCreate` and from `GET /rooms/<name>`.

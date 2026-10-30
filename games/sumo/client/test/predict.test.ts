@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DT, SUBSTEPS, SumoMatch, integrate, type Body, type Phase } from '@rally/game-sumo-server';
-import { Predictor, shouldPredict } from '../src/predict.ts';
+import { ServerClock } from '@rally/game-kit';
+import { DT, PATCH_MS, SUBSTEPS, SumoMatch, integrate, type Body, type Phase } from '@rally/game-sumo-server';
+import { Predictor, shouldPredict, type OwnSnapshot } from '../src/predict.ts';
 
 test('with no new input the prediction is the server state coasting under friction', () => {
   const p = new Predictor();
@@ -47,6 +48,51 @@ test('corrections blend out instead of jumping; big ones snap', () => {
   // A respawn across the platform snaps.
   p.rebase({ x: -6, y: 0, vx: 0, vy: 0 }, 1900);
   assert.equal(p.sample(1900)!.x, -6);
+});
+
+test('rebased on tick time (not arrival time), a steady push through 1-or-2-tick patches is drawn at a steady speed', () => {
+  // The server: 30 Hz ticks, full stick held, already at terminal speed. Patches every 50 ms carry the newest tick
+  // (1 or 2 since the last one) and arrive 20–45 ms later (network + event loop jitter, deterministic).
+  const stick = { x: 1, y: 0 };
+  const body: Body = { id: 's', x: 0, y: 0, vx: 0, vy: 0, alive: true };
+  const states: OwnSnapshot[] = [];
+  for (let tick = 0; tick < 600; tick++) {
+    for (let i = 0; i < SUBSTEPS; i++) integrate(body, stick, DT / SUBSTEPS);
+    states.push({ x: body.x, y: body.y, vx: body.vx, vy: body.vy });
+  }
+  let seed = 3;
+  const jitter = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 25;
+  const tickMs = DT * 1000;
+  const arrivals: { tick: number; at: number }[] = [];
+  for (let send = 10_007.3; send < 19_000; send += PATCH_MS) {
+    arrivals.push({ tick: Math.floor(send / tickMs), at: send + 20 + jitter() });
+  }
+  const run = (contentTime: boolean) => {
+    const p = new Predictor();
+    const clock = new ServerClock();
+    p.rttMs = 40;
+    p.recordStick(0, stick);
+    let k = 0;
+    let last: number | null = null;
+    const speeds: number[] = [];
+    for (let now = 10_000; now < 19_000; now += 1000 / 60) {
+      while (k < arrivals.length && arrivals[k]!.at <= now) {
+        const { tick, at } = arrivals[k++]!;
+        clock.observe(tick * tickMs, at);
+        p.rebase(states[tick]!, contentTime ? clock.toLocal(tick * tickMs) : at, at);
+      }
+      const x = p.sample(now)?.x;
+      if (x === undefined) continue;
+      if (last !== null && now > 12_000) speeds.push((x - last) * 60);
+      last = x;
+    }
+    const mean = speeds.reduce((a, b) => a + b, 0) / speeds.length;
+    return Math.sqrt(speeds.reduce((a, b) => a + (b - mean) ** 2, 0) / speeds.length) / mean;
+  };
+  const byArrival = run(false);
+  const byTick = run(true);
+  assert.ok(byArrival > 0.03, `arrival times make the drawn speed wobble (${(byArrival * 100).toFixed(1)} %)`);
+  assert.ok(byTick < 0.002, `tick times keep it steady (${(byTick * 100).toFixed(2)} %)`);
 });
 
 test('stickAt follows the recorded history', () => {

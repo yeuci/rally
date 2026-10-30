@@ -211,7 +211,10 @@ function Notice({ text }: { text: string }) {
   );
 }
 
-/** One room: name, "3/8" and the phase badge; a full room is dimmed and not pressable. Rows form one card. */
+/**
+ * One room: name, "3/8" and the phase badge, plus "2 playing · 1 reconnecting" while seats are held for the
+ * reconnection grace; a full room is dimmed and not pressable. Rows form one card.
+ */
 function RoomListRow({
   row,
   first,
@@ -257,6 +260,11 @@ function RoomListRow({
             <Text>{row.phaseLabel}</Text>
           </Badge>
         </View>
+        {row.statusLabel ? (
+          <Text className="text-muted-foreground text-[13px] tabular-nums leading-[18px]" numberOfLines={1}>
+            {row.statusLabel}
+          </Text>
+        ) : null}
       </View>
       {joining ? (
         <ActivityIndicator color={spinnerColor} />

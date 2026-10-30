@@ -3,8 +3,13 @@
  * Shared by the server (authoritative simulation) and the client (rendering, prediction of the local puck).
  */
 
-/** Server simulation rate (fixed timestep). State patches go out at Colyseus' default 20 Hz. */
+/** Server simulation rate (fixed timestep). The synced `tick` counts these steps: server time = tick × DT. */
 export const TICK_HZ = 30;
+/**
+ * State patches go out at Colyseus' default 20 Hz (`Room.patchRate` 50 ms), on their own timer: a patch carries 1
+ * or 2 ticks. Clients size their interpolation delay from this interval.
+ */
+export const PATCH_MS = 50;
 /** Fixed step in seconds. */
 export const DT = 1 / TICK_HZ;
 /** Physics sub-steps per tick (60 Hz integration keeps fast collisions from tunnelling). */
