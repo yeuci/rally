@@ -73,6 +73,39 @@ export type Database = {
         }
         Relationships: []
       }
+      blocks: {
+        Row: {
+          blocked_id: string
+          blocker_id: string
+          created_at: string
+        }
+        Insert: {
+          blocked_id: string
+          blocker_id: string
+          created_at?: string
+        }
+        Update: {
+          blocked_id?: string
+          blocker_id?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "blocks_blocked_id_fkey"
+            columns: ["blocked_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "blocks_blocker_id_fkey"
+            columns: ["blocker_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       default_avatars: {
         Row: {
           path: string
@@ -114,6 +147,45 @@ export type Database = {
           },
           {
             foreignKeyName: "favorites_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      friendships: {
+        Row: {
+          accepted_at: string | null
+          created_at: string
+          friend_id: string
+          status: Database["public"]["Enums"]["friendship_status"]
+          user_id: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          created_at?: string
+          friend_id: string
+          status?: Database["public"]["Enums"]["friendship_status"]
+          user_id: string
+        }
+        Update: {
+          accepted_at?: string | null
+          created_at?: string
+          friend_id?: string
+          status?: Database["public"]["Enums"]["friendship_status"]
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "friendships_friend_id_fkey"
+            columns: ["friend_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "friendships_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
@@ -587,11 +659,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      block_user: { Args: { p_user_id: string }; Returns: undefined }
       contains_banned_word: { Args: { input: string }; Returns: boolean }
       end_play_session: {
         Args: { p_playtime_s?: number; p_session_id: string }
         Returns: undefined
       }
+      friendship_with: { Args: { p_user_id: string }; Returns: string }
       leaderboard_top: {
         Args: {
           p_board_key: string
@@ -608,11 +682,54 @@ export type Database = {
           username: string
         }[]
       }
+      my_friend_requests: {
+        Args: never
+        Returns: {
+          avatar_url: string
+          created_at: string
+          direction: string
+          display_name: string
+          user_id: string
+          username: string
+        }[]
+      }
+      my_friends: {
+        Args: { p_limit?: number }
+        Returns: {
+          avatar_url: string
+          display_name: string
+          since: string
+          user_id: string
+          username: string
+        }[]
+      }
       my_leaderboard_rank: {
         Args: { p_board_key: string; p_game_id: string }
         Returns: Json
       }
       period_key: { Args: { at?: string; period: string }; Returns: string }
+      public_friends: {
+        Args: { p_limit?: number; p_user_id: string }
+        Returns: {
+          avatar_url: string
+          display_name: string
+          since: string
+          user_id: string
+          username: string
+        }[]
+      }
+      public_profile_games: {
+        Args: { p_limit?: number; p_user_id: string }
+        Returns: {
+          best_score: number
+          cover_url: string
+          game_id: string
+          icon_url: string
+          last_played_at: string
+          plays: number
+          title: string
+        }[]
+      }
       public_profile_stats: { Args: { p_user_id: string }; Returns: Json }
       random_default_avatar: { Args: never; Returns: string }
       record_play: {
@@ -620,6 +737,11 @@ export type Database = {
         Returns: undefined
       }
       release_username: { Args: never; Returns: undefined }
+      remove_friend: { Args: { p_user_id: string }; Returns: undefined }
+      respond_friend_request: {
+        Args: { p_accept: boolean; p_user_id: string }
+        Returns: string
+      }
       save_put: {
         Args: {
           p_data: Json
@@ -629,6 +751,17 @@ export type Database = {
         }
         Returns: number
       }
+      search_profiles: {
+        Args: { p_limit?: number; p_query: string }
+        Returns: {
+          avatar_url: string
+          display_name: string
+          friendship: string
+          user_id: string
+          username: string
+        }[]
+      }
+      send_friend_request: { Args: { p_user_id: string }; Returns: string }
       start_play_session: {
         Args: { p_game_id: string; p_version?: string }
         Returns: string
@@ -651,6 +784,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      unblock_user: { Args: { p_user_id: string }; Returns: undefined }
       unlock_achievement: {
         Args: { p_game_id: string; p_key: string }
         Returns: Json
@@ -659,6 +793,7 @@ export type Database = {
     }
     Enums: {
       age_rating: "4+" | "9+" | "12+" | "17+"
+      friendship_status: "pending" | "accepted"
       game_engine: "playcanvas" | "phaser" | "custom"
       game_mode: "solo" | "quick" | "browser" | "private" | "party"
       game_orientation: "portrait" | "landscape" | "any"
@@ -791,6 +926,7 @@ export const Constants = {
   public: {
     Enums: {
       age_rating: ["4+", "9+", "12+", "17+"],
+      friendship_status: ["pending", "accepted"],
       game_engine: ["playcanvas", "phaser", "custom"],
       game_mode: ["solo", "quick", "browser", "private", "party"],
       game_orientation: ["portrait", "landscape", "any"],
