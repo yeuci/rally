@@ -1,12 +1,5 @@
 export { createApp, MAX_PIXEL_RATIO, type AppHandle, type CreateAppOptions } from './app.ts';
-export {
-  applySafeAreaVars,
-  onViewportChange,
-  safeArea,
-  viewport,
-  type Insets,
-  type ViewportInfo,
-} from './viewport.ts';
+export { applySafeAreaVars, onViewportChange, safeArea, viewport, type Insets, type ViewportInfo } from './viewport.ts';
 export {
   createInput,
   type DragEvent,
@@ -31,3 +24,11 @@ export {
 } from './solo.ts';
 export { createFrameMetrics, FrameMetrics, jsHeapMb, round, type FrameSnapshot } from './metrics.ts';
 export { errorCode, isUnsupported, type RallyLike } from './host.ts';
+export {
+  createDirectionKeys,
+  stickFromDirections,
+  type DirectionKeysHandle,
+  type DirectionKeysOptions,
+  type Stick,
+} from './keyboard.ts';
+export { SnapshotBuffer, type Sample, type SnapshotBufferOptions } from './interpolation.ts';

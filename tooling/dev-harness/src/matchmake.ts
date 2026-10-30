@@ -44,6 +44,22 @@ export async function matchmake(
   return body as Record<string, unknown>;
 }
 
+/** `GET /rooms/code/<code>` (apps/game-server routes.ts) → the private room's id. */
+export async function roomIdForCode(colyseusHttpUrl: string, code: string): Promise<string> {
+  const url = `${colyseusHttpUrl}/rooms/code/${encodeURIComponent(code.trim())}`;
+  let res: Response;
+  try {
+    res = await fetch(url, { headers: { Accept: 'application/json' } });
+  } catch (err) {
+    throw new HostError('MATCHMAKE_FAILED', `cannot reach ${url}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (res.status === 404) throw new HostError('MATCHMAKE_FAILED', `no room with code "${code}"`);
+  const body = (await res.json().catch(() => null)) as { roomId?: unknown } | null;
+  if (!res.ok || typeof body?.roomId !== 'string')
+    throw new HostError('MATCHMAKE_FAILED', `${res.status}: bad code lookup`);
+  return body.roomId;
+}
+
 /** `ws://host:2567` → `http://host:2567` (and wss → https); trailing slashes dropped. */
 export function toHttpUrl(url: string): string {
   return url

@@ -9,7 +9,7 @@
     "node": ">= 22.0.0"
   },
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch --conditions=rally-source src/index.ts",
     "start": "node build/index.js",
     "build": "rimraf build && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
@@ -19,8 +19,10 @@
   "dependencies": {
     "@colyseus/schema": "^5.0.42",
     "@colyseus/tools": "^0.18.11",
+    "@rally/game-sumo-server": "workspace:*",
     "colyseus": "^0.18.10",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "jose": "^6.2.14"
   },
   "devDependencies": {
     "@colyseus/sdk": "^0.18.8",

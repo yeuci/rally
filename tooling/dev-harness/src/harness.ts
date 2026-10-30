@@ -16,7 +16,7 @@ import {
   type LaunchContext,
 } from '@rally/protocol';
 import type { HarnessConfig } from './config.ts';
-import { createHarnessHandlers, localSaveStore } from './handlers.ts';
+import { createHarnessHandlers, localSaveStore, type JoinTarget } from './handlers.ts';
 import { HostBridge } from './host-bridge.ts';
 import { toHttpUrl } from './matchmake.ts';
 import { Panel, type LogLevel } from './panel.ts';
@@ -25,6 +25,41 @@ import { localProgressStore } from './progress.ts';
 /** Same as the shell's GameHost: how long the game may take to call ready(). */
 const READY_TIMEOUT_MS = 20_000;
 const TAG = '[rally-harness]';
+/** Display name chosen in the panel (all games share it: it is "who is at this browser"). */
+const NAME_KEY = 'rally-harness:name';
+
+function storedName(): string | null {
+  try {
+    return window.localStorage.getItem(NAME_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A phone opening the dev server at http://<pc-ip>:5182 must not matchmake against its own localhost: when the
+ * configured URL is a localhost one and the page is not, use the page's host (same port as configured).
+ */
+function lanDefault(url: string): string {
+  try {
+    const u = new URL(url);
+    const local = (h: string) => h === 'localhost' || h === '127.0.0.1' || h === '[::1]';
+    if (local(u.hostname) && location.hostname && !local(location.hostname)) u.hostname = location.hostname;
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
+/** `?code=K7M2PQ` → join that private room; `?room=<id>` → joinById; `?private` / `?intent=private` → new private room. */
+function joinTargetFrom(params: URLSearchParams, intent: string | undefined): JoinTarget {
+  const code = params.get('code');
+  if (code) return { kind: 'code', code };
+  const roomId = params.get('room');
+  if (roomId) return { kind: 'room', roomId };
+  if (params.has('private') || intent === 'private') return { kind: 'private' };
+  return { kind: 'quick' };
+}
 
 interface InstalledHost {
   nonce: string;
@@ -54,16 +89,37 @@ function main(): void {
   const cfg = window.__RALLY_HARNESS_CONFIG__ ?? DEFAULT_CONFIG;
   const params = new URLSearchParams(location.search);
   const hostOn = !params.has('nohost');
-  const colyseusUrl = toHttpUrl(params.get('colyseus') || cfg.colyseusUrl);
+  const colyseusUrl = toHttpUrl(params.get('colyseus') || lanDefault(cfg.colyseusUrl));
   const saves = localSaveStore(cfg.game.id);
   const progress = localProgressStore(cfg.game.id);
   // Older plugin builds may inline a config without these fields.
   const leaderboards = cfg.leaderboards ?? [];
   const achievements = cfg.achievements ?? [];
 
+  // Who is at this browser: ?name= (or the older ?user=), else the name set in the panel, else the plugin config.
+  const nameParam = (params.get('name') ?? params.get('user'))?.trim().slice(0, 20) || null;
+  const chosenName = nameParam || storedName()?.trim().slice(0, 20) || null;
+  const user = chosenName
+    ? { id: `dev-${chosenName.toLowerCase().replace(/[^a-z0-9_-]+/g, '-')}`, username: chosenName, avatarUrl: null }
+    : (cfg.launch.user ?? { id: 'dev-user', username: 'dev', avatarUrl: null });
+
   const panel = new Panel({
     hostOn,
     visible: cfg.panel,
+    name: user.username,
+    onSetName: cfg.room
+      ? (name) => {
+          try {
+            window.localStorage.setItem(NAME_KEY, name);
+          } catch {
+            /* storage blocked: the ?name= parameter below still applies */
+          }
+          const url = new URL(location.href);
+          url.searchParams.delete('user');
+          url.searchParams.set('name', name);
+          location.href = url.toString();
+        }
+      : undefined,
     onHostEvent: (e) => sendHostEvent(e),
     onToggleHost: () => {
       const url = new URL(location.href);
@@ -112,15 +168,20 @@ function main(): void {
   const startedAt = performance.now();
   let readyAt: number | null = null;
   const intentParam = LaunchIntent.safeParse(params.get('intent') ?? undefined);
-  const userParam = params.get('user');
-  const user = userParam
-    ? { id: `dev-${userParam}`, username: userParam, avatarUrl: null }
-    : (cfg.launch.user ?? { id: 'dev-user', username: 'dev', avatarUrl: null });
+  const join = joinTargetFrom(params, intentParam.success ? intentParam.data : cfg.launch.intent);
+  const intent =
+    join.kind === 'code' || join.kind === 'room'
+      ? 'joinById'
+      : join.kind === 'private'
+        ? 'private'
+        : intentParam.success
+          ? intentParam.data
+          : (cfg.launch.intent ?? 'quick');
 
   const buildLaunchContext = (): LaunchContext => ({
     game: cfg.game,
     user,
-    intent: intentParam.success ? intentParam.data : (cfg.launch.intent ?? 'quick'),
+    intent,
     ...(cfg.launch.party ? { party: cfg.launch.party } : {}),
     ...(cfg.launch.resume ? { resume: cfg.launch.resume } : {}),
     device: {
@@ -140,6 +201,8 @@ function main(): void {
       buildLaunchContext,
       colyseusUrl,
       room: cfg.room,
+      join,
+      matchOptions: { username: user.username, ...(user.avatarUrl ? { avatarUrl: user.avatarUrl } : {}) },
       saves,
       leaderboards,
       achievements,
@@ -163,7 +226,10 @@ function main(): void {
       },
       onJoined: ({ roomId, sessionId }) => {
         panel.setStatus(`in room ${String(roomId)}`);
-        log(`matchmade ${cfg.room} via ${colyseusUrl} → room ${String(roomId)}, session ${String(sessionId)}`, 'ok');
+        log(
+          `matchmade ${cfg.room} via ${colyseusUrl} (${join.kind}, as "${user.username}") → room ${String(roomId)}, session ${String(sessionId)}`,
+          'ok',
+        );
       },
       onReconnection: ({ roomId, ttlSec }) => log(`reconnection token stored for room ${roomId} (${ttlSec} s)`),
       onScore: ({ boardId, score, accepted, best, note }) =>
@@ -172,7 +238,10 @@ function main(): void {
           accepted ? 'ok' : note ? 'warn' : 'info',
         ),
       onUnlock: ({ key, title, alreadyHad }) =>
-        log(`achievement "${title}" (${key}) ${alreadyHad ? 'already unlocked' : 'unlocked'}`, alreadyHad ? 'info' : 'ok'),
+        log(
+          `achievement "${title}" (${key}) ${alreadyHad ? 'already unlocked' : 'unlocked'}`,
+          alreadyHad ? 'info' : 'ok',
+        ),
     }),
     onRequest: (env) => {
       if (env.method !== 'ping') log(`→ ${env.method}`, 'info');

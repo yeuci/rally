@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#101420" />
+    <title>Sumo</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <canvas id="stage" aria-label="Sumo arena"></canvas>
+    <div id="labels" aria-hidden="true"></div>
+    <div id="stick" class="stick" hidden><i></i></div>
+    <div id="hud">
+      <div class="topbar">
+        <button id="exit" class="exit" type="button" aria-label="Leave the game">✕</button>
+        <div id="scores" class="scores" aria-live="polite"></div>
+        <div class="meta"><span id="round"></span><span id="clock"></span><span id="ping"></span></div>
+      </div>
+      <div id="banner" class="banner" hidden>
+        <div id="banner-title" class="banner-title"></div>
+        <div id="banner-sub" class="banner-sub"></div>
+      </div>
+      <div id="hint" class="hint">Drag anywhere to push · WASD / arrow keys</div>
+      <div id="paused" class="veil" hidden><div class="veil-title">Paused</div></div>
+      <div id="loading" class="veil solid">
+        <div class="veil-title">Sumo</div>
+        <div class="bar"><i id="loading-bar"></i></div>
+      </div>
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

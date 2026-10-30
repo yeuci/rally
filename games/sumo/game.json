@@ -1,0 +1,60 @@
+{
+  "id": "sumo",
+  "version": "0.1.0",
+  "title": "Sumo",
+  "description": "Push your friends off the platform. Drag to shove your puck, bump the others over the edge, and be the last one standing. The ring shrinks, so nobody hides for long. 2–8 players, first to 3 rounds.",
+  "genres": ["party", "arcade"],
+  "screenshots": [],
+  "engine": "playcanvas",
+  "entry": "index.html",
+  "orientation": "landscape",
+  "players": {
+    "min": 2,
+    "max": 8
+  },
+  "modes": ["quick", "private"],
+  "server": {
+    "room": "sumo",
+    "minVersion": 0
+  },
+  "sdk": "^0.1",
+  "ageRating": "4+",
+  "leaderboards": [
+    {
+      "id": "wins",
+      "sort": "desc"
+    }
+  ],
+  "achievements": [
+    {
+      "key": "first_win",
+      "title": "Yokozuna",
+      "hidden": false,
+      "description": "Win a Sumo match.",
+      "icon": "🏆"
+    },
+    {
+      "key": "flawless",
+      "title": "Flawless",
+      "hidden": false,
+      "description": "Win a match without losing a single round.",
+      "icon": "✨"
+    },
+    {
+      "key": "ring_out",
+      "title": "Ring Out",
+      "hidden": false,
+      "description": "Push 3 opponents off the platform in one match.",
+      "icon": "💥"
+    },
+    {
+      "key": "full_house",
+      "title": "Full House",
+      "hidden": false,
+      "description": "Finish a match in a room of 6 or more players.",
+      "icon": "🏟️"
+    }
+  ],
+  "capabilities": [],
+  "minAppVersion": "0.0.0"
+}

@@ -1,6 +1,6 @@
 import { LaunchContextSchema, type LaunchContext } from '@rally/protocol';
 import { HostError, type RequestHandlers } from './host-bridge.ts';
-import { matchmake, toWsUrl } from './matchmake.ts';
+import { matchmake, roomIdForCode, toWsUrl } from './matchmake.ts';
 import type { AchievementDef, BoardDef, HarnessUser, ProgressStore } from './progress.ts';
 
 /** Port of apps/mobile/src/game-host/rate-limit.ts: `capacity` calls, refilled continuously over `perMs`. */
@@ -27,12 +27,31 @@ export class TokenBucket {
   }
 }
 
+/**
+ * How `session.join` matchmakes. The shell only does `quick` today (joinOrCreate with the user's JWT); the others
+ * exercise the private-room endpoints of apps/game-server ahead of the shell.
+ */
+export type JoinTarget =
+  | { kind: 'quick' }
+  /** `joinOrCreate` with `{ private: true }`: always a fresh private room with a join code. */
+  | { kind: 'private' }
+  /** `GET /rooms/code/<code>` → `joinById`. */
+  | { kind: 'code'; code: string }
+  | { kind: 'room'; roomId: string };
+
 export interface HarnessHandlerDeps {
   buildLaunchContext: () => LaunchContext;
   /** Colyseus HTTP base URL. */
   colyseusUrl: string;
   /** `server.room` from game.json, or null for games without a server. */
   room: string | null;
+  /** Default `{ kind: 'quick' }`. */
+  join?: JoinTarget;
+  /**
+   * Matchmaking body: `{ username, avatarUrl }` of the harness user, which the game server uses as the display name
+   * of a guest (the harness has no Supabase session, so it never sends a token).
+   */
+  matchOptions?: Record<string, unknown>;
   saves: SaveStore;
   /** `leaderboards` / `achievements` from game.json. */
   leaderboards: BoardDef[];
@@ -111,7 +130,19 @@ export function createHarnessHandlers(deps: HarnessHandlerDeps): RequestHandlers
     'session.join': async () => {
       if (!ready) throw new HostError('NOT_READY', 'call ready() before session.join()');
       if (!deps.room) throw new HostError('NOT_SUPPORTED', 'game.json has no server.room');
-      const seatReservation = await matchmake(deps.colyseusUrl, 'joinOrCreate', deps.room, {});
+      const join = deps.join ?? { kind: 'quick' };
+      const opts = deps.matchOptions ?? {};
+      const seatReservation =
+        join.kind === 'code'
+          ? await matchmake(deps.colyseusUrl, 'joinById', await roomIdForCode(deps.colyseusUrl, join.code), opts)
+          : join.kind === 'room'
+            ? await matchmake(deps.colyseusUrl, 'joinById', join.roomId, opts)
+            : await matchmake(
+                deps.colyseusUrl,
+                'joinOrCreate',
+                deps.room,
+                join.kind === 'private' ? { ...opts, private: true } : opts,
+              );
       deps.onJoined({ roomId: (seatReservation as { roomId?: unknown }).roomId, sessionId: seatReservation.sessionId });
       return { endpoint: toWsUrl(deps.colyseusUrl), seatReservation };
     },
@@ -148,7 +179,10 @@ export function createHarnessHandlers(deps: HarnessHandlerDeps): RequestHandlers
 
     'leaderboard.submit': ({ boardId, score }) => {
       if (deps.room) {
-        throw new HostError('NOT_SUPPORTED', 'multiplayer results are recorded by the game server, not leaderboard.submit');
+        throw new HostError(
+          'NOT_SUPPORTED',
+          'multiplayer results are recorded by the game server, not leaderboard.submit',
+        );
       }
       const b = board(boardId);
       if (!ready) throw new HostError('NOT_READY', 'call ready() before leaderboard.submit()');

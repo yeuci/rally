@@ -2,7 +2,7 @@
   "name": "@rally/game-kit",
   "version": "0.1.0",
   "private": true,
-  "description": "Client helpers every Rally game uses: PlayCanvas boot with a DPR cap, safe area, tap/drag input, WebAudio unlock, host lifecycle (pause/resume/exit/lowMemory), optimistic-concurrency saves, frame metrics.",
+  "description": "Client helpers every Rally game uses: PlayCanvas boot with a DPR cap, safe area, tap/drag input, direction keys, WebAudio unlock, host lifecycle (pause/resume/exit/lowMemory), optimistic-concurrency saves, frame metrics, snapshot interpolation.",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",

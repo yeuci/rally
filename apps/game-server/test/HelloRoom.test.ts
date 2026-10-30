@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict';
-import { boot, type ColyseusTestServer } from '@colyseus/testing';
-import appConfig from '../src/app.config.js';
+import type { ColyseusTestServer } from '@colyseus/testing';
+import type appConfig from '../src/app.config.js';
 import type { HelloState } from '../src/rooms/schema/HelloState.js';
+import { testServer } from './server.js';
 
 describe('HelloRoom', () => {
   let colyseus: ColyseusTestServer<typeof appConfig>;
 
   before(async () => {
-    colyseus = await boot(appConfig);
+    colyseus = await testServer();
   });
-  after(async () => colyseus.shutdown());
   beforeEach(async () => colyseus.cleanup());
 
   it('joins, counts players and answers ping with pong', async () => {

@@ -9,6 +9,10 @@ export interface PanelOptions {
   onHostEvent: (event: HostEvent) => void;
   onToggleHost: () => void;
   onClearSaves: () => void;
+  /** Display name of the harness player (sent as the matchmaking `username`). */
+  name?: string;
+  /** Save a new display name and reload. Omit to hide the name row. */
+  onSetName?: (name: string) => void;
 }
 
 const HOST_EVENTS: HostEvent[] = ['pause', 'resume', 'exitRequested', 'lowMemory', 'partyUpdated'];
@@ -34,6 +38,9 @@ button { font: inherit; color: inherit; background: #21262d; border: 1px solid #
 button:hover:not(:disabled) { background: #30363d; }
 button:disabled { opacity: 0.4; cursor: default; }
 button.toggle.on { border-color: #3fb950; } button.toggle.off { border-color: #d29922; }
+.name { display: flex; gap: 4px; margin-bottom: 6px; }
+.name input { flex: 1; min-width: 0; font: inherit; color: inherit; background: #0d1117; border: 1px solid #363b42;
+  border-radius: 4px; padding: 2px 6px; user-select: text; }
 .progress { height: 2px; background: #30363d; margin-bottom: 6px; border-radius: 1px; overflow: hidden; }
 .progress > i { display: block; height: 100%; width: 0; background: #58a6ff; transition: width 0.2s; }
 .log { max-height: 140px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; user-select: text;
@@ -86,7 +93,14 @@ export class Panel {
     <span class="dot ${this.opts.hostOn ? 'on' : 'off'}"></span><b>rally host</b><span class="status" data-role="status"></span>
   </div>
   <div class="body">
-    <div class="progress"><i data-role="progress"></i></div>
+    <div class="progress"><i data-role="progress"></i></div>${
+      this.opts.onSetName
+        ? `<form class="name" data-role="name-form" title="Display name for matchmaking (also ?name=…); saved in localStorage">
+      <input data-role="name" maxlength="20" placeholder="display name" autocomplete="off" spellcheck="false" />
+      <button type="submit">set name</button>
+    </form>`
+        : ''
+    }
     <div class="row">${HOST_EVENTS.map((e) => `<button data-action="${e}" ${this.opts.hostOn ? '' : 'disabled'}>${e}</button>`).join('')}</div>
     <div class="row">
       <button class="toggle ${this.opts.hostOn ? 'on' : 'off'}" data-action="toggle-host" title="Reload with or without ?nohost">host: ${this.opts.hostOn ? 'on' : 'off'}</button>
@@ -97,6 +111,13 @@ export class Panel {
   </div>
 </div>`;
 
+    const nameInput = root.querySelector<HTMLInputElement>('[data-role="name"]');
+    if (nameInput) nameInput.value = this.opts.name ?? '';
+    root.querySelector('[data-role="name-form"]')?.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const name = nameInput?.value.trim() ?? '';
+      if (name) this.opts.onSetName?.(name);
+    });
     this.logEl = root.querySelector('[data-role="log"]');
     this.statusEl = root.querySelector('[data-role="status"]');
     this.progressEl = root.querySelector('[data-role="progress"]');
@@ -125,6 +146,7 @@ export class Panel {
       'touchstart',
       'touchend',
       'keydown',
+      'keyup',
       'wheel',
     ]) {
       host.addEventListener(type, (ev) => ev.stopPropagation());

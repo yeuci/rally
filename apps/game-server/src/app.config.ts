@@ -1,8 +1,16 @@
 import { defineServer, monitor, playground, createRouter, createEndpoint } from 'colyseus';
+import { describeConfig, readServerConfig } from './config.js';
 import { rooms } from './registry.js';
+import { installPrivateRoomRouting, listRooms, roomByCode } from './routes.js';
+import { SERVER_VERSION } from './version.js';
 
-/** Bumped on every server deploy; the host compares it with the manifest's server.minVersion (architecture §6). */
-export const SERVER_VERSION = 1;
+export { SERVER_VERSION } from './version.js';
+
+// Fail fast on a bad production config (SUPABASE_URL missing) instead of at the first join.
+const config = readServerConfig();
+console.info(`[rally] game server v${SERVER_VERSION}, ${describeConfig(config)}`);
+
+installPrivateRoomRouting();
 
 const server = defineServer({
   rooms,
@@ -12,6 +20,8 @@ const server = defineServer({
       serverVersion: SERVER_VERSION,
       rooms: Object.keys(rooms),
     })),
+    listRooms,
+    roomByCode,
   }),
 
   express: (app) => {
