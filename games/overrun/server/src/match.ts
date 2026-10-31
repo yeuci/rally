@@ -1167,6 +1167,13 @@ export class OverrunMatch {
     this.flowDirty = true;
   }
 
+  /** Drop a pickup of `kind` at a point (dev/tests): the same pickup a kill drops, with its usual lifetime. */
+  drop(kind: number, x: number, y: number): void {
+    if (!Number.isInteger(kind) || kind < 0 || kind >= WEAPONS.length || this.pickups.size >= MAX_PICKUPS) return;
+    const id = this.nextEntityId++;
+    this.pickups.set(id, { id, kind, x, y, ttl: PICKUP_TTL });
+  }
+
   /** Zombies still queued for this wave (tests). */
   get queued(): number {
     return this.spawnQueue.length;

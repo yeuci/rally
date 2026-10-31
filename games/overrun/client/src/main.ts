@@ -742,6 +742,11 @@ if (import.meta.env.DEV) {
           }
         : null;
     },
+    pickups() {
+      const out: { id: string; kind: number; x: number; y: number }[] = [];
+      net?.state?.pickups?.forEach((p, id) => out.push({ id, kind: p.kind, x: p.x, y: p.y }));
+      return out;
+    },
     zombies() {
       const out: { id: string; kind: number; x: number; y: number; hp: number }[] = [];
       net?.state?.zombies?.forEach((z, id) => out.push({ id, kind: z.kind, x: z.x, y: z.y, hp: z.hp }));

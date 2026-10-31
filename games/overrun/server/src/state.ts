@@ -174,6 +174,8 @@ export type DevCommand =
   | { cmd: 'hurt'; name?: string; damage: number }
   /** Teleport a player (by display name, or yourself). */
   | { cmd: 'place'; name?: string; x: number; y: number }
+  /** Drop a pickup (`PICKUP_HEALTH` or a weapon index) on the ground. */
+  | { cmd: 'drop'; kind: number; x: number; y: number }
   /** End the current wave now (the queue is dropped, alive zombies removed). */
   | { cmd: 'endWave' };
 

@@ -128,6 +128,11 @@ export class BoxBatch {
     return this.positions.length === 0;
   }
 
+  /**
+   * A mesh shared by every entity drawn with it, for the scene's lifetime. It keeps a reference of its own:
+   * PlayCanvas destroys a mesh when the last MeshInstance using it is destroyed, so without one, picking up the last
+   * med kit on the ground freed the med-kit mesh, and the next one drawn threw on every frame (the 3D view froze).
+   */
   mesh(device: GraphicsDevice): Mesh {
     const mesh = new Mesh(device);
     mesh.setPositions(this.positions);
@@ -135,6 +140,7 @@ export class BoxBatch {
     mesh.setColors32(this.colors);
     mesh.setIndices(this.indices);
     mesh.update(PRIMITIVE_TRIANGLES);
+    mesh.incRefCount();
     return mesh;
   }
 }

@@ -271,6 +271,44 @@ async function main() {
     assert.equal(await bob.evaluate(() => window.__overrun.player('guest-Bob').active), true);
     passed('Alice went down; Bob stood next to her and revived her at 50 % HP');
 
+    // 3b. Med kits. Every pickup of a kind shares one mesh: picking up the last one on the ground must not destroy
+    // it, or the next drop of that kind draws a destroyed mesh and every frame throws (the 3D view froze on phones
+    // while the HUD kept going). Alice (50 HP) takes one, then a second one drops in front of both cameras.
+    const mark = errors.length;
+    await dev(alice, { cmd: 'god', on: true });
+    const kitIds = () =>
+      bob.evaluate(() =>
+        window.__overrun
+          .pickups()
+          .filter((p) => p.kind === 0)
+          .map((p) => p.id),
+      );
+    const dropKit = async (x, y) => {
+      const before = await kitIds();
+      await dev(alice, { cmd: 'drop', kind: 0, x, y });
+      await bob.waitForFunction(
+        (ids) => window.__overrun.pickups().some((p) => p.kind === 0 && !ids.includes(p.id)),
+        before,
+        {
+          timeout: 5_000,
+        },
+      );
+      return (await kitIds()).find((id) => !before.includes(id));
+    };
+    const first = await dropKit(0, -1.5);
+    await bob.waitForTimeout(300);
+    await dev(alice, { cmd: 'place', x: 0, y: -1.5 });
+    await bob.waitForFunction((id) => !window.__overrun.pickups().some((p) => p.id === id), first, { timeout: 5_000 });
+    assert.equal(await alice.evaluate(() => window.__overrun.player('guest-Alice').hp), 80, 'med kit: +30 HP');
+    await bob.waitForTimeout(300);
+    const second = await dropKit(0, 2.5);
+    await bob.waitForTimeout(800);
+    assert.deepEqual(errors.slice(mark), [], 'drawing the next med kit after one was picked up');
+    await dev(alice, { cmd: 'place', x: 0, y: 2.5 });
+    await bob.waitForFunction((id) => !window.__overrun.pickups().some((p) => p.id === id), second, { timeout: 5_000 });
+    await dev(alice, { cmd: 'god', on: false });
+    passed('med kits: Alice picked one up, the next one dropped and drew without errors');
+
     // 4. Everyone down: the run ends, both see the run-over banner with the guest result line.
     const roomId = await probe(alice, 'roomId');
     const run = await probe(alice, 'run');

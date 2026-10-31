@@ -625,3 +625,22 @@ test('dev rules from a client are sanitized', () => {
   });
   assert.deepEqual(sanitizeRules(null), {});
 });
+
+test('drop (dev): a med kit or ammo on the ground, picked up like a kill drop; nonsense kinds are ignored', () => {
+  const m = arena();
+  const a = m.players.get('a')!;
+  m.drop(0, a.x + 4, a.y);
+  m.drop(WEAPONS.length, a.x, a.y);
+  m.drop(-1, a.x, a.y);
+  m.drop(0.5, a.x, a.y);
+  assert.deepEqual(
+    [...m.pickups.values()].map((p) => [p.kind, p.x - a.x, p.y - a.y]),
+    [[0, 4, 0]],
+  );
+  a.hp = 50;
+  m.place('a', a.x + 4, a.y);
+  const events = run(m, 0.1);
+  assert.equal(m.pickups.size, 0);
+  assert.equal(a.hp, 80);
+  assert.ok(events.some((e) => e.type === 'pickup' && e.by === 'a' && e.kind === 0));
+});

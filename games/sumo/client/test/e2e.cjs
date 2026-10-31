@@ -198,9 +198,20 @@ async function main() {
       await page.waitForFunction(() => window.__sumo.names().join() === 'guest-Alice,guest-Bob', null, {
         timeout: 10_000,
       });
-      await page.waitForFunction(() => document.querySelectorAll('#scores .chip').length === 2, null, {
-        timeout: 5_000,
-      });
+      // A guest's seat starts under a random `guest-xxxx` name until their `profile` message renames them, and the
+      // HUD rebuilds its chips from the state on the next frame (a software-rendered frame can lag well behind the
+      // patch): wait for the chips themselves, not just the state, to show both names.
+      await page
+        .waitForFunction(
+          () =>
+            [...document.querySelectorAll('#scores .chip')]
+              .map((e) => e.dataset.name)
+              .sort()
+              .join() === 'guest-Alice,guest-Bob',
+          null,
+          { timeout: 5_000 },
+        )
+        .catch(() => {});
       assert.deepEqual(await chipNames(page), ['guest-Alice', 'guest-Bob']);
     }
     assert.equal(await alice.textContent('#scores .chip.me .name'), 'guest-Alice');
