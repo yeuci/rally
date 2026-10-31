@@ -312,9 +312,21 @@ Who owns what: **Postgres + Realtime** = social truth (presence, parties, chat, 
 
 ## Next steps
 
-1. **Close M2:** merge the working branch into `main` once CI is green (device checks done: CDN launch, score on the board, achievements, Stack 0.1.1). EAS/TestFlight and the early App Review submission wait for the Apple Developer Program.
-2. **M3, first multiplayer game:** build against the LAN Colyseus server first (one phone + the dev harness on the PC is already a cross-platform match), then move the server to Colyseus Cloud or a small VPS. `RallyRoom` base (JWKS auth, `game_rooms` mirroring, reconnection), quick play, server browser, private rooms with codes, presence heartbeat, live counts; the game itself is a small 2–8 player arena with server-authoritative movement.
-3. **Carried over:** Apple/Google first-run detection relies on GoTrue's "Database error saving new user" message (verify live); abandoned OAuth signups hold a username (pg_cron purge of anonymous users > 1 day); avatar upload (image picker) and in-app account deletion; `@rally/sdk` bundles zod (~45 kB gzip) — consider `zod/mini`; generate `apps/game-server/src/registry.ts` from `games/*/game.json`; `apps/web` hosting + `associatedDomains`/`intentFilters` once a domain exists; timing on the Play-tap → game path and the shell's cold start; React Compiler; WebView memory and low-end Android numbers from M0.
+1. **Apple Developer Program → EAS dev build + TestFlight.** Closes M2 (external TestFlight, early App Review). It also unblocks push notifications, friends installing Rally without a PC running Metro, and the native static server that offline play needs.
+2. **Downloadable games and offline play** (right after TestFlight). The design is in §3, *Pre-submission (M6): on-device bundle cache + bundled copies*. Product rules:
+   - A **Download** button on each game page.
+   - The app fetches the version's files and verifies every sha256 against `manifest.files`; nothing unverified is ever served.
+   - Downloaded games launch from `http://127.0.0.1` instantly and work offline.
+   - **Background updates:** published versions are immutable, so a new version downloads in the background and replaces the old one once complete.
+   - **Storage screen:** size per game; delete a download.
+   - **Offline solo:** saves queue and sync when back online. Offline scores count for personal bests only, never public leaderboards (nothing can verify them offline).
+   - **Multiplayer** still needs a connection (the server runs the match), but launches instantly and uses only match traffic.
+   - Ship one or two solo games inside the binary, so a fresh install has something to play offline (the §9 "MVP games ship inside the binary" mitigation).
+3. **M4 remainder:** DMs with filtering, the report/mute UI (mutes and sanctions exist server-side), push (needs 1), and deep links (`apps/web` hosting needs a domain).
+4. **Coin-locked games:** enforce `owns_game` in the catalog, at launch, in `record_play`, and at game-server joins ([coins.md](coins.md)).
+5. **Migrate Overrun onto the shared model pipeline** (`tooling/model-pipeline`, `packages/game-kit/src/models.ts`), as Gun Run already uses them.
+6. **M5 parties.**
+7. **Carried over:** Apple/Google first-run detection relies on GoTrue's "Database error saving new user" message (verify live); abandoned OAuth signups hold a username (pg_cron purge of anonymous users > 1 day); avatar upload (image picker) and in-app account deletion; `@rally/sdk` bundles zod (~45 kB gzip) — consider `zod/mini`; generate `apps/game-server/src/registry.ts` from `games/*/game.json`; `apps/web` hosting + `associatedDomains`/`intentFilters` once a domain exists; timing on the Play-tap → game path and the shell's cold start; React Compiler; WebView memory and low-end Android numbers from M0.
 
 ## Verification (per milestone)
 
