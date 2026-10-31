@@ -35,6 +35,11 @@ function fakeSupabase(state: {
   existingAchievements?: string[];
   /** Object names already in `<slug>/art/`. */
   existingArt?: string[];
+  /**
+   * Per object key, what its next uploads get before one succeeds: an HTTP status, or `'network'` (fetch rejects
+   * the way undici does when a connection drops: `TypeError: fetch failed`). Consumed in order.
+   */
+  uploadFailures?: Record<string, (number | 'network')[]>;
 }) {
   const calls: Call[] = [];
   const fetchImpl = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
@@ -48,6 +53,12 @@ function fakeSupabase(state: {
     const json = (data: unknown, status = 200) =>
       new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });
     const p = url.pathname;
+
+    const failure = state.uploadFailures?.[p.slice('/storage/v1/object/games/'.length)]?.shift();
+    if (failure === 'network') throw new TypeError('fetch failed');
+    if (failure !== undefined) {
+      return json({ statusCode: String(failure), error: 'Failed', message: `HTTP ${failure} from the fake` }, failure);
+    }
 
     if (p === '/storage/v1/object/list/games') {
       const names = /\/art$/.test((body as { prefix?: string }).prefix ?? '')
@@ -299,18 +310,25 @@ test('plan rows: leaderboards and achievements map from game.json with database 
 
 test('plan rows: mode syncs from game.json (default best), also when it changes back to best', async () => {
   const server = { room: 'demo', minVersion: 1 };
-  const total = await fixturePlan({}, {
-    modes: ['quick'],
-    server,
-    leaderboards: [
-      { id: 'wins', sort: 'desc', mode: 'total' },
-      { id: 'wave', sort: 'desc', mode: 'best' },
-      { id: 'kills', sort: 'desc' },
-    ],
-  });
+  const total = await fixturePlan(
+    {},
+    {
+      modes: ['quick'],
+      server,
+      leaderboards: [
+        { id: 'wins', sort: 'desc', mode: 'total' },
+        { id: 'wave', sort: 'desc', mode: 'best' },
+        { id: 'kills', sort: 'desc' },
+      ],
+    },
+  );
   assert.deepEqual(
     total.plan.db.leaderboards.map((b) => [b.key, b.mode]),
-    [['wins', 'total'], ['wave', 'best'], ['kills', 'best']],
+    [
+      ['wins', 'total'],
+      ['wave', 'best'],
+      ['kills', 'best'],
+    ],
   );
   assert.equal(total.plan.db.gameVersion.manifest.leaderboards[0]!.mode, 'total');
   // The printout (dry run) shows the mode of every row.
@@ -335,7 +353,11 @@ test('plan rows: mode syncs from game.json (default best), also when it changes 
 
 test("the repo's multiplayer games: Sumo's wins is a total, Overrun's wave and kills keep the best run", async () => {
   const rows = async (slug: string) =>
-    leaderboardRowsFromManifest(await loadManifest(path.join(REPO_ROOT, 'games', slug))).map((b) => [b.key, b.sort, b.mode]);
+    leaderboardRowsFromManifest(await loadManifest(path.join(REPO_ROOT, 'games', slug))).map((b) => [
+      b.key,
+      b.sort,
+      b.mode,
+    ]);
   assert.deepEqual(await rows('sumo'), [['wins', 'desc', 'total']]);
   assert.deepEqual(await rows('overrun'), [
     ['wave', 'desc', 'best'],
@@ -501,4 +523,77 @@ test('executePublish without art never lists the art folder', async () => {
   const row = calls.find((c) => c.path === '/rest/v1/games' && c.method === 'POST')!.body as Record<string, unknown>;
   assert.equal(row.icon_url, null);
   assert.equal(row.cover_url, null);
+});
+
+test('executePublish retries an upload that got no answer or a 408 / 429 / 5xx, upserting on the retries', async () => {
+  const { dist, plan } = await fixturePlan();
+  const asset = 'demo/1.2.3/assets/app-abc123.js';
+  const { sb, calls } = fakeSupabase({ uploadFailures: { [asset]: ['network', 503, 429] } });
+  const logs: string[] = [];
+  const { versionId } = await executePublish(sb, plan, dist, (l) => logs.push(l), { retryDelaysMs: [1, 1, 1] });
+  assert.equal(versionId, 'new-version-id');
+
+  const tries = calls.filter((c) => c.path === `/storage/v1/object/games/${asset}`);
+  assert.deepEqual(
+    tries.map((c) => c.headers['x-upsert']),
+    ['false', 'true', 'true', 'true'],
+    'the first try keeps upsert off; a retry may find its own earlier attempt stored',
+  );
+  for (const t of tries) assert.deepEqual(t.body, tries[0]!.body, 'same bytes every time');
+  assert.equal(calls.filter((c) => c.path === '/storage/v1/object/games/demo/1.2.3/index.html').length, 1);
+  assert.deepEqual(
+    logs.filter((l) => l.includes('retrying')),
+    [
+      `  ! ${asset}: fetch failed; retrying in 1 ms`,
+      `  ! ${asset}: HTTP 503 from the fake (HTTP 503); retrying in 1 ms`,
+      `  ! ${asset}: HTTP 429 from the fake (HTTP 429); retrying in 1 ms`,
+    ],
+  );
+  assert.ok(
+    calls.some((c) => c.path === '/rest/v1/game_versions' && c.method === 'POST'),
+    'then the version row',
+  );
+});
+
+test('executePublish gives up on an upload after the last retry, and never retries a 4xx', async () => {
+  const { dist, plan } = await fixturePlan();
+  const asset = 'demo/1.2.3/assets/app-abc123.js';
+  const down = fakeSupabase({ uploadFailures: { [asset]: ['network', 'network', 'network'] } });
+  await assert.rejects(
+    executePublish(down.sb, plan, dist, () => {}, { retryDelaysMs: [1, 1] }),
+    new RegExp(`upload games/${asset} failed after 3 attempts: fetch failed`),
+  );
+  assert.equal(down.calls.filter((c) => c.path === `/storage/v1/object/games/${asset}`).length, 3);
+  assert.equal(down.calls.filter((c) => c.path.startsWith('/rest/v1/') && c.method !== 'GET').length, 0, 'no rows');
+
+  for (const status of [400, 403, 409, 413]) {
+    const refused = fakeSupabase({ uploadFailures: { [asset]: [status] } });
+    await assert.rejects(
+      executePublish(refused.sb, plan, dist, () => {}, { retryDelaysMs: [1, 1] }),
+      new RegExp(`upload games/${asset} failed: HTTP ${status} from the fake$`),
+    );
+    assert.equal(refused.calls.filter((c) => c.path === `/storage/v1/object/games/${asset}`).length, 1, `${status}`);
+  }
+});
+
+test('art uploads retry too', async () => {
+  const gameDir = path.join(import.meta.dirname, 'fixtures', 'games', 'arty');
+  const manifest = await loadManifest(gameDir);
+  const art = await planArt({ manifest, gameDir, supabaseUrl: SUPABASE_URL });
+  const dist = await tempDir();
+  await writeTree(dist, { 'index.html': '<!doctype html>' });
+  const plan = buildPlan({
+    manifest,
+    files: await hashDirectory(dist),
+    supabaseUrl: SUPABASE_URL,
+    csp: "default-src 'self'",
+    art: art.uploads,
+  });
+  const cover = art.uploads.find((u) => u.source.includes('cover'))!.objectKey;
+  const { sb, calls } = fakeSupabase({ uploadFailures: { [cover]: [502] } });
+  await executePublish(sb, plan, dist, () => {}, { gameDir, retryDelaysMs: [1] });
+  assert.deepEqual(
+    calls.filter((c) => c.path === `/storage/v1/object/games/${cover}`).map((c) => c.headers['x-upsert']),
+    ['true', 'true'],
+  );
 });
