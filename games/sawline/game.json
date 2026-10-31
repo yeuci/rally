@@ -1,0 +1,59 @@
+{
+  "id": "sawline",
+  "version": "0.1.0",
+  "title": "Sawline",
+  "description": "Run a sawmill line for one shift. Hold to strip the bark, tap to cut the logs right on the mark, and keep the trucks loaded with planks. Spend your earnings on automation, faster belts and lasers before the whistle blows.",
+  "genres": ["arcade", "tycoon"],
+  "screenshots": [],
+  "engine": "playcanvas",
+  "entry": "index.html",
+  "orientation": "portrait",
+  "players": {
+    "min": 1,
+    "max": 1
+  },
+  "modes": ["solo"],
+  "sdk": "^0.1",
+  "ageRating": "4+",
+  "leaderboards": [
+    {
+      "id": "earnings",
+      "sort": "desc",
+      "maxScorePerMinute": 3000
+    }
+  ],
+  "achievements": [
+    {
+      "key": "first_truck",
+      "title": "First Delivery",
+      "hidden": false,
+      "description": "Load and send off your first truck."
+    },
+    {
+      "key": "perfect_10",
+      "title": "Sharp Eye",
+      "hidden": false,
+      "description": "Make 10 perfect cuts in a row."
+    },
+    {
+      "key": "earn_3000",
+      "title": "Busy Mill",
+      "hidden": false,
+      "description": "Earn $3,000 in one shift."
+    },
+    {
+      "key": "earn_5000",
+      "title": "Sawmill Tycoon",
+      "hidden": false,
+      "description": "Earn $5,000 in one shift."
+    },
+    {
+      "key": "full_line",
+      "title": "Fully Loaded",
+      "hidden": false,
+      "description": "Buy every upgrade in one shift."
+    }
+  ],
+  "capabilities": [],
+  "minAppVersion": "0.0.0"
+}
