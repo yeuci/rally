@@ -170,8 +170,12 @@ lobby, and `exitRequested`. It passes pinned to two cores:
 `taskset -c 0,1 env NODE_PATH=/usr/local/lib/node_modules_global pnpm --filter @rally/game-overrun test:e2e` (≈ 25 s).
 
 **Render rate** (`perf`, 844 × 390, normal quality, 120 zombies chasing a firing player): Chromium without a GPU
-renders WebGL in software (swiftshader) on the CPU, so these are floors, not a phone: ≈ 16–18 fps at DPR 1 and ≈ 6 fps
-at DPR 2 with shadows, ≈ 24–28 fps at DPR 1 without (`?noshadow`). The horde is 5 instanced draw calls (+ 5 in the
+renders WebGL in software (swiftshader) on the CPU, so these are floors, not a phone. With the box-built zombies of
+0.1.x: ≈ 17 fps at DPR 1 with shadows. With the Quaternius zombies (0.2.x): ≈ 8.5 fps at DPR 1 with shadows (measured
+side by side on the same loaded machine: 17.3 vs 8.5), ≈ 22 fps with the horde hidden. Software rasterizing pays per
+triangle (each zombie is ≈ 500, against ≈ 150 boxes' worth before, and the shadow pass draws them again); the bone
+texture reads cost little (removing skinning altogether changed nothing measurable). A phone GPU does not mind ~150k
+triangles a frame: the 1,100-triangle zombies of 0.2.0 played smoothly on an iPhone 14. The horde is 5 instanced draw calls (+ 5 in the
 shadow pass), the level one merged mesh, blood decals part of the floor texture (no extra pass); shadows are hard
 single-tap (PCF1, a third cheaper than PCF3 in software) and clustered lighting is off (one directional light).
 
@@ -193,8 +197,9 @@ this repo's **`art-source` release** (sha256-pinned; keep that release, or pass 
 
 - **Characters** (one 23-bone skeleton for all of them, 17 clips). Every material is a flat colour, so materials become
   vertex colours and the primitives merge into one (one draw call per character); the mesh is welded by position and
-  colour, simplified with meshoptimizer (colour seams kept; survivors ≈ 1,300 triangles, zombies ≈ 1,100) and split
-  flat again. Survivors' GLBs hold only the mesh; `survivor-clips.glb` holds the clips the game plays, once, with
+  colour, simplified with meshoptimizer (colour seams kept; survivors ≈ 1,300 triangles, zombies ≈ 500) and split
+  flat again, except the zombies: they stay indexed (≈ 400 shared vertices instead of three per triangle) and the horde
+  material shades them flat from screen-space derivatives (`flatShading`). Survivors' GLBs hold only the mesh; `survivor-clips.glb` holds the clips the game plays, once, with
   redundant keyframes dropped. In the game a survivor has a legs layer (Idle, Run, Run backwards when backpedalling,
   Death when down, StandUp when revived) and an upper-body layer (the one-handed shot: held as the aim, looped while
   firing); one clothing material wears the player's colour.

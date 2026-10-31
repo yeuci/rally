@@ -44,7 +44,7 @@ const ZOMBIE_CLIPS = ['Idle', 'Walk', 'Run', 'Punch', 'RecieveHit', 'Death'] as 
 /** Bone matrices per second of zombie animation (the shader blends neighbouring frames). */
 const ZOMBIE_FPS = 20;
 const SURVIVOR_TRIANGLES = 1300;
-const ZOMBIE_TRIANGLES = 1100;
+const ZOMBIE_TRIANGLES = 500;
 const PROPS = ['FirstAidKit', 'PropaneTank', 'Pistol_1', 'Shotgun_1'] as const;
 /** Props are small on screen (a med kit is half a metre across). */
 const PROP_TRIANGLES = 360;
@@ -55,6 +55,8 @@ interface Soup {
   colors: Uint8Array;
   joints?: Uint8Array;
   weights?: Uint8Array;
+  /** Indexed meshes only (shared vertices, smooth normals: the material shades them flat). */
+  indices?: Uint16Array;
 }
 
 // ---- sources ------------------------------------------------------------------------------------------------------
@@ -89,7 +91,9 @@ const byte = (v: number) => Math.max(0, Math.min(255, Math.round(v * 255)));
 
 /**
  * Weld by position and colour, simplify to about `triangles`, and split into flat-shaded triangles again (each
- * triangle gets its own three vertices and its face normal: the packs' low-poly look).
+ * triangle gets its own three vertices and its face normal: the packs' low-poly look). With `indexed`, the welded
+ * vertices stay shared instead (about a fifth as many, for meshes drawn many times over: the horde) with smooth
+ * normals, and the material shades them flat from the screen-space derivatives of the position.
  */
 function rebuild(
   positions: number[],
@@ -97,6 +101,7 @@ function rebuild(
   indices: number[],
   triangles: number,
   skin?: { joints: number[]; weights: number[] },
+  indexed = false,
 ): Soup {
   const map = new Map<string, number>();
   const pos: number[] = [];
@@ -148,6 +153,8 @@ function rebuild(
         )
       : [new Uint32Array(welded)];
 
+  if (indexed) return compact(simplified, pos, col, skin ? { jnt, wgt } : undefined);
+
   const n = simplified.length;
   const out: Soup = {
     positions: new Float32Array(n * 3),
@@ -176,17 +183,64 @@ function rebuild(
       out.normals.set([nx, ny, nz], o * 3);
       out.colors.set([col[v * 3]!, col[v * 3 + 1]!, col[v * 3 + 2]!, 255], o * 4);
       if (skin) {
-        const w = [0, 1, 2, 3].map((i) => wgt[v * 4 + i]!);
-        const sum = w.reduce((s, x) => s + x, 0) || 1;
-        const q = w.map((x) => Math.round((x / sum) * 255));
-        q[q.indexOf(Math.max(...q))]! += 255 - q.reduce((s, x) => s + x, 0); // bytes sum to exactly 255
         out.joints!.set(
           [0, 1, 2, 3].map((i) => jnt[v * 4 + i]!),
           o * 4,
         );
-        out.weights!.set(q, o * 4);
+        out.weights!.set(weightBytes(wgt, v), o * 4);
       }
     });
+  }
+  return out;
+}
+
+/** A vertex's four weights as bytes that sum to exactly 255. */
+function weightBytes(wgt: number[], v: number): number[] {
+  const w = [0, 1, 2, 3].map((i) => wgt[v * 4 + i]!);
+  const sum = w.reduce((s, x) => s + x, 0) || 1;
+  const q = w.map((x) => Math.round((x / sum) * 255));
+  q[q.indexOf(Math.max(...q))]! += 255 - q.reduce((s, x) => s + x, 0);
+  return q;
+}
+
+/** The vertices `tris` uses, renumbered, with area-weighted smooth normals. */
+function compact(tris: Uint32Array, pos: number[], col: number[], skin?: { jnt: number[]; wgt: number[] }): Soup {
+  const index = new Map<number, number>();
+  const used: number[] = [];
+  const indices = new Uint16Array(tris.length);
+  tris.forEach((v, i) => {
+    let n = index.get(v);
+    if (n === undefined) {
+      n = used.length;
+      index.set(v, n);
+      used.push(v);
+    }
+    indices[i] = n;
+  });
+  if (used.length > 65535) throw new Error('indexed mesh has more than 65535 vertices');
+  const n = used.length;
+  const out: Soup = {
+    positions: new Float32Array(used.flatMap((v) => [pos[v * 3]!, pos[v * 3 + 1]!, pos[v * 3 + 2]!])),
+    normals: new Float32Array(n * 3),
+    colors: new Uint8Array(used.flatMap((v) => [col[v * 3]!, col[v * 3 + 1]!, col[v * 3 + 2]!, 255])),
+    indices,
+    ...(skin && {
+      joints: new Uint8Array(used.flatMap((v) => [0, 1, 2, 3].map((i) => skin.jnt[v * 4 + i]!))),
+      weights: new Uint8Array(used.flatMap((v) => weightBytes(skin.wgt, v))),
+    }),
+  };
+  const p = out.positions;
+  for (let t = 0; t < indices.length; t += 3) {
+    const [a, b, c] = [indices[t]!, indices[t + 1]!, indices[t + 2]!];
+    const u = [0, 1, 2].map((k) => p[b * 3 + k]! - p[a * 3 + k]!);
+    const w = [0, 1, 2].map((k) => p[c * 3 + k]! - p[a * 3 + k]!);
+    // Unnormalized cross product: bigger faces weigh more.
+    const fn = [u[1]! * w[2]! - u[2]! * w[1]!, u[2]! * w[0]! - u[0]! * w[2]!, u[0]! * w[1]! - u[1]! * w[0]!];
+    for (const v of [a, b, c]) for (let k = 0; k < 3; k++) out.normals[v * 3 + k]! += fn[k]!;
+  }
+  for (let v = 0; v < n; v++) {
+    const len = Math.hypot(out.normals[v * 3]!, out.normals[v * 3 + 1]!, out.normals[v * 3 + 2]!) || 1;
+    for (let k = 0; k < 3; k++) out.normals[v * 3 + k]! /= len;
   }
   return out;
 }
@@ -215,6 +269,7 @@ function writeSoup(doc: Document, soup: Soup): void {
   if (soup.joints && soup.weights) {
     prim.setAttribute('JOINTS_0', acc('VEC4', soup.joints)).setAttribute('WEIGHTS_0', acc('VEC4', soup.weights, true));
   }
+  if (soup.indices) prim.setIndices(doc.createAccessor().setType('SCALAR').setArray(soup.indices).setBuffer(buffer));
   mesh.addPrimitive(prim);
 }
 
@@ -241,6 +296,7 @@ async function character(
   gltf: Uint8Array,
   keepClips: readonly string[],
   triangles: number,
+  indexed = false,
 ): Promise<Character> {
   const doc = await io.readJSON({ json: JSON.parse(new TextDecoder().decode(gltf)), resources: {} });
   const root = doc.getRoot();
@@ -263,12 +319,13 @@ async function character(
     weights.push(...floats(prim.getAttribute('WEIGHTS_0')));
     for (const i of floats(prim.getIndices())) indices.push(base + i);
   }
-  const soup = rebuild(positions, colors, indices, triangles, { joints, weights });
+  const soup = rebuild(positions, colors, indices, triangles, { joints, weights }, indexed);
   writeSoup(doc, soup);
   for (const anim of root.listAnimations()) if (!keepClips.includes(anim.getName())) disposeAnimation(anim);
   reduceKeys(doc);
   pruneAccessors(doc);
-  return { doc, colors: named, triangles: soup.positions.length / 9 };
+  const tris = soup.indices ? soup.indices.length / 3 : soup.positions.length / 9;
+  return { doc, colors: named, triangles: tris };
 }
 
 /**
@@ -589,7 +646,8 @@ async function main() {
       throw new Error(`${name}: a different skeleton than ${ZOMBIES[0]} (the zombies share one bone texture)`);
     }
     bones ??= frames;
-    const c = await character(io, gltf(name), [], ZOMBIE_TRIANGLES);
+    // Indexed: the horde draws this mesh up to 160 times a frame (and again for shadows), so vertices count.
+    const c = await character(io, gltf(name), [], ZOMBIE_TRIANGLES, true);
     zombieColors[slug(name)] = c.colors;
     const size = emit(`${slug(name)}.glb`, await io.writeBinary(c.doc));
     console.log(`  ${slug(name)}.glb.gz  ${c.triangles} triangles, ${kb(size)}`);

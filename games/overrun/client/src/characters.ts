@@ -2,7 +2,9 @@ import {
   ADDRESS_CLAMP_TO_EDGE,
   Asset,
   Entity,
+  BUFFER_STATIC,
   FILTER_NEAREST,
+  IndexBuffer,
   Mesh,
   PIXELFORMAT_RGBA16F,
   SEMANTIC_COLOR,
@@ -181,6 +183,9 @@ export function recolored(
   const mesh = new Mesh(device);
   mesh.vertexBuffer = copy;
   mesh.primitive[0] = { ...src.primitive[0]! };
+  // Indexed meshes (the horde) get their own copy of the indices: a mesh destroys its index buffer with it.
+  const ib = src.indexBuffer[0];
+  if (ib) mesh.indexBuffer[0] = new IndexBuffer(device, ib.format, ib.numIndices, BUFFER_STATIC, ib.storage.slice(0));
   mesh.aabb = src.aabb.clone();
   mesh.skin = src.skin;
   return mesh;
@@ -430,6 +435,8 @@ export function hordeMaterial(base: StandardMaterial, bones: Texture): StandardM
   const m = base.clone();
   m.getShaderChunks(SHADERLANGUAGE_GLSL).set('transformCoreVS', HORDE_TRANSFORM_VS);
   m.shaderChunksVersion = '2.23';
+  // The zombie meshes share their vertices (a fifth as many to pose): faces are shaded flat from derivatives.
+  m.flatShading = true;
   m.setParameter('hordeBones', bones);
   m.update();
   return m;
