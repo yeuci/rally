@@ -35,6 +35,13 @@ pnpm --filter @rally/publish-game publish-game sawline --dry-run
 Controls: the two big buttons (multi-touch: hold one, tap the other), or D / ← / Left Shift held to debark, Space / K /
 → to cut, 1–4 to buy the shop's offers.
 
+In the Rally app, with the dev server running on a PC the phone can reach:
+
+- **Developer screen** (anyone): Profile → Developer, bundle URL `http://<pc-ip>:5185/index.html`. The room does not
+  matter (a solo game never matchmakes); saves and boards stay in memory under the dev identity.
+- **Catalog** (owner, before the real publish): apply `docs/dev/sawline-dev-rows.sql` in Supabase Studio with the IP of
+  the PC serving the game. Sawline then shows up with its board and achievements; the real publish replaces it.
+
 ## Layout
 
 | File                   | What                                                                                                  |
