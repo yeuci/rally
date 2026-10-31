@@ -4,6 +4,7 @@ import {
   DT,
   ExplosiveKind,
   OverrunMatch,
+  ZOMBIES,
   ZombieKind,
   type OverrunPlayerView,
   type OverrunStateView,
@@ -26,8 +27,11 @@ import type { OverrunScene } from './scene.ts';
  * - `horde`: wave 6, a horde closing in on three players, combo x5 (phone landscape, HUD).
  * - `chain`: a chain of barrels going off through the horde (HUD).
  * - `banner`: the "Wave 7" breather banner over a blood-soaked yard (HUD).
+ * - `closeup`: not store art, for tuning the models: four survivors (aiming, firing, backpedalling, down and up again
+ *   2.6 s in) and zombies walking, running, punching and dying, with the props; time runs `?t=` seconds (default 2)
+ *   before it stops.
  */
-export const ART_SHOTS = ['icon', 'cover', 'horde', 'chain', 'banner'] as const;
+export const ART_SHOTS = ['icon', 'cover', 'horde', 'chain', 'banner', 'closeup'] as const;
 export type ArtShot = (typeof ART_SHOTS)[number];
 
 export const isArtShot = (s: string | null): s is ArtShot => ART_SHOTS.includes(s as ArtShot);
@@ -48,6 +52,8 @@ export interface ArtPose {
   zoom: number;
   aim: { x: number; y: number };
   clean: boolean;
+  /** Time runs `seconds` before it stops, `step` moving things `t` seconds in (the shots fire every 0.3 s). */
+  live?: { seconds: number; step(state: OverrunStateView, t: number): void };
 }
 
 /** A frozen copy of the synced state, as the client reads it from Colyseus. */
@@ -174,7 +180,8 @@ function horde(
   return m;
 }
 
-export function artPose(shot: ArtShot): ArtPose {
+/** `seconds`: how long the closeup's time runs (`?t=`). */
+export function artPose(shot: ArtShot, seconds = 2): ArtPose {
   switch (shot) {
     case 'icon': {
       const m = horde(21, 2, 5, { n: 20, r0: 4.2, r1: 7.5, brutes: 1, spitters: 0 }, 0.7, [
@@ -334,6 +341,77 @@ export function artPose(shot: ArtShot): ArtPose {
         clean: false,
       };
     }
+    case 'closeup': {
+      const m = horde(2, 4, 3, { n: 0, r0: 0, r1: 0, brutes: 0, spitters: 0 }, 0, [
+        [0, 0.3],
+        [-3.4, -0.4],
+        [2.7, -0.3],
+        [-1.6, 1.1],
+      ]);
+      // You aim the pistol, mika fires the shotgun, dex is down (until 2.6 s in), rosa backpedals.
+      const [you, gunner, downed, back] = m.playerList;
+      you!.aim = -0.5;
+      gunner!.aim = -2.6;
+      gunner!.weapon = 2;
+      downed!.down = true;
+      back!.aim = 2.2;
+      const state = view(m, { combo: 1, comboLeft: 0 });
+      // Zombies where they are when time stops (or when they die): id (its look), kind, position, velocity (units/s).
+      const zombies: { id: number; kind: number; x: number; y: number; vx: number; vy: number; dies?: number }[] = [];
+      const coming = (id: number, kind: number, x: number, y: number, to: { x: number; y: number }, dies?: number) => {
+        const d = Math.hypot(to.x - x, to.y - y);
+        const v = ZOMBIES[kind]!.speed;
+        zombies.push({ id, kind, x, y, vx: ((to.x - x) / d) * v, vy: ((to.y - y) / d) * v, dies });
+      };
+      coming(3, ZombieKind.walker, 2.4, -2, you!);
+      coming(4, ZombieKind.walker, 3.9, -0.4, you!);
+      coming(5, ZombieKind.walker, -0.95, -0.25, you!);
+      zombies[2]!.vx = zombies[2]!.vy = 0; // close enough to punch
+      coming(6, ZombieKind.brute, -0.3, -2.8, you!);
+      coming(7, ZombieKind.spitter, -5.6, -2.1, gunner!);
+      coming(12, ZombieKind.walker, 1.8, -1.6, you!, 0.4);
+      const backVel = { x: -Math.cos(back!.aim) * 1.6, y: -Math.sin(back!.aim) * 1.6 };
+      const pickups = state.pickups as Map<string, { kind: number; x: number; y: number }>;
+      [
+        [1.3, 1.2],
+        [3.9, 1.4],
+        [4.7, 0.7],
+        [-2.6, -1.4],
+        [-1.9, -1.9],
+      ].forEach(([x, y], kind) => pickups.set(`k${kind}`, { kind, x: x!, y: y! }));
+      (state.explosives as Map<string, { kind: number; x: number; y: number; armed: boolean }>).set('e0', {
+        kind: ExplosiveKind.barrel,
+        x: 4.6,
+        y: -1.9,
+        armed: true,
+      });
+      return {
+        state,
+        me: 'p0',
+        booms: [],
+        blood: [],
+        shots: [{ x: gunner!.x, y: gunner!.y, angle: gunner!.aim, len: 2.6, weapon: 2 }],
+        zoom: 0.5,
+        aim: { x: 0, y: 0 },
+        clean: true,
+        live: {
+          seconds,
+          step(st, t) {
+            const zs = st.zombies as Map<string, { kind: number; x: number; y: number; hp: number }>;
+            for (const z of zombies) {
+              const key = z.id.toString(36);
+              const dt = t - (z.dies ?? seconds);
+              if (dt >= 0 && z.dies !== undefined) zs.delete(key);
+              else zs.set(key, { kind: z.kind, x: z.x + z.vx * dt, y: z.y + z.vy * dt, hp: 100 });
+            }
+            const b = st.players.get('p3')!;
+            Object.assign(b, { x: back!.x + backVel.x * (t - seconds), y: back!.y + backVel.y * (t - seconds) });
+            Object.assign(b, { vx: backVel.x, vy: backVel.y });
+            st.players.get('p2')!.down = t < 2.6;
+          },
+        },
+      };
+    }
   }
 }
 
@@ -364,7 +442,7 @@ const CLEAN_CSS = '#hud, #labels, .stick, #vignette { display: none !important; 
  */
 export function stageArt(shot: ArtShot, deps: { app: Application; scene: OverrunScene; hud: Hud }): Net {
   const { app, scene, hud } = deps;
-  const pose = artPose(shot);
+  const pose = artPose(shot, Number(new URLSearchParams(location.search).get('t')) || undefined);
   const state = pose.state;
   if (pose.clean) {
     const style = document.createElement('style');
@@ -374,8 +452,41 @@ export function stageArt(shot: ArtShot, deps: { app: Application; scene: Overrun
   hud.hideHint();
   scene.setZoom(pose.zoom);
 
+  const shoot = () => {
+    for (const s of pose.shots) {
+      const x1 = s.x + Math.cos(s.angle) * (0.35 + s.len);
+      const y1 = s.y + Math.sin(s.angle) * (0.35 + s.len);
+      scene.tracer(s.x + Math.cos(s.angle) * 0.35, s.y + Math.sin(s.angle) * 0.35, x1, y1, s.weapon);
+      scene.muzzle(s.x, s.y, s.angle, s.weapon);
+    }
+  };
+  // A live pose moves once the frame loop is going, until time stops, and the server clock ticks meanwhile. Its time is
+  // the frames' (at most 1/30 s each, however slowly software GL draws), so `?t=` poses everyone alike every time.
+  const live = pose.live;
+  const tick0 = state.tick;
+  const start = performance.now();
+  let liveT = -1;
+  let fired = 0;
+  if (live) {
+    app.maxDeltaTime = 1 / 30;
+    live.step(state, 0);
+    app.on('update', (dt: number) => {
+      if (liveT >= 0 && liveT < live.seconds) liveT = Math.min(live.seconds, liveT + dt);
+    });
+  }
   const patchHandlers: ((t: number) => void)[] = [];
-  const patch = () => patchHandlers.forEach((fn) => fn(performance.now()));
+  const patch = () => {
+    const now = performance.now();
+    if (live && liveT < live.seconds) {
+      state.tick = tick0 + Math.round((now - start) / 1000 / DT);
+      if (liveT >= 0) live.step(state, liveT);
+      if (liveT >= fired * 0.3) {
+        fired++;
+        shoot();
+      }
+    }
+    patchHandlers.forEach((fn) => fn(now));
+  };
   setInterval(patch, 50);
 
   const probe: ArtProbe = { shot, ready: false };
@@ -391,15 +502,16 @@ export function stageArt(shot: ArtShot, deps: { app: Application; scene: Overrun
   void (async () => {
     // Let the frame loop build everyone (and the render clock settle), then stage the effects and stop the clock.
     await frames(12);
+    if (live) {
+      liveT = 0;
+      while (liveT < live.seconds) await frames(1);
+      live.step(state, live.seconds);
+    }
     for (const b of pose.blood) scene.blood(b.x, b.y, b.amount, Math.round(b.x * 977 + b.y * 131) >>> 0);
     // Blood bursts fly off: let them land before freezing.
-    scene.update(1);
-    for (const s of pose.shots) {
-      const x1 = s.x + Math.cos(s.angle) * (0.35 + s.len);
-      const y1 = s.y + Math.sin(s.angle) * (0.35 + s.len);
-      scene.tracer(s.x + Math.cos(s.angle) * 0.35, s.y + Math.sin(s.angle) * 0.35, x1, y1, s.weapon);
-      scene.muzzle(s.x, s.y, s.angle, s.weapon);
-    }
+    if (pose.blood.length) scene.update(1);
+    // (A live pose has been firing all along: no flash over the guns.)
+    if (!live) shoot();
     // Explosions oldest first, each aged to its point in the blast (0.45 s long) when the next one starts.
     const booms = [...pose.booms].sort((p, q) => q.age - p.age);
     booms.forEach((b, i) => {
