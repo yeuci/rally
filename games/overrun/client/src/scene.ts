@@ -292,10 +292,11 @@ interface PlayerRig {
   shotgun: Entity;
   ring: Entity;
   slot: number;
+  me: boolean;
   visible: boolean;
   down: boolean;
-  /** Scene clock at this player's last muzzle flash (the arms play the recoil for a moment). */
-  firedAt: number;
+  /** Muzzle flashes seen at this player (each kicks the gun arm). */
+  shots: number;
 }
 
 interface Instanced {
@@ -348,15 +349,27 @@ const ZOMBIE_LOOKS: readonly {
   },
   { base: 'zombie-female', colors: { Skin: '#a8c83a', Clothes: '#56701f', DarkClothes: '#38401a' }, scale: 1 },
 ];
-/** Ground speed (units/s at scale 1) at which the walk / run clips' feet don't slide. */
-const WALK_STRIDE = 1.5;
-const RUN_STRIDE = 4;
+/**
+ * Ground speed (units/s at scale 1) at which the walk / run clips' feet don't slide (measured on the planted foot; the
+ * survivors' run is the same clip). Walkers at 2.1 units/s play the walk twice as fast, the cap.
+ */
+const WALK_STRIDE = 1.05;
+const RUN_STRIDE = 3.7;
 const MAX_CORPSES = 40;
+/** A corpse lies still this long after its death, then sinks this long, as deep as it lies high (model units). */
 const CORPSE_HOLD = 0.6;
 const CORPSE_SINK = 0.6;
-/** Where the guns sit in the right fist (bone space of the pack's rig). */
-const GUN_POS: [number, number, number] = [0, 0.12, 0.1];
-const GUN_ROT: [number, number, number] = [0, -90, 0];
+const CORPSE_HEIGHT = 1.05;
+/**
+ * The guns in the right fist (bone space of the pack's rig): their grip at the middle of the fist, the barrel level
+ * and straight ahead of the body while the arms hold the aim frame of Shoot_OneHanded (the forearm points 13° inward).
+ */
+const GUN_POS: [number, number, number] = [-0.02, 0.177, 0.064];
+const GUN_ROT: [number, number, number] = [82, -2.2, 76.3];
+const PISTOL_LENGTH = 0.46;
+const SHOTGUN_LENGTH = 1;
+/** Ammo crates (models.ts pickupModel, 0.62 across) at about 0.47. */
+const AMMO_SCALE = 0.75;
 
 interface Effect {
   e: Entity;
@@ -475,19 +488,34 @@ export function createOverrunScene(
   const ringMat = glow(new Color(1, 1, 1), { additive: false });
   ringMat.opacity = 0.55;
   ringMat.update();
+  // Teammates stand on a disc in their colour (as in the HUD), you on the white one: dark figures in a dark yard.
+  const teamMats = PALETTE.map((c) => {
+    const [r, g, b] = hex(c);
+    const m = glow(new Color(r / 255, g / 255, b / 255), { additive: false });
+    m.opacity = 0.35;
+    m.update();
+    return m;
+  });
   const players = new Map<string, PlayerRig>();
-  const handProp = (hand: Entity, name: PropName, length: number) => {
+  // The pack's guns are near black: lit lighter (gunmetal) so that they read against the floor from above.
+  const gunMat = material(new Color(2.6, 2.6, 2.6), { vertex: true, gloss: 0.45 });
+  /** A gun `length` units long in the hand, held at `grip` (a point of the model: x along the barrel, y up). */
+  const handProp = (hand: Entity, name: PropName, length: number, grip: [number, number]) => {
     const mesh = models.props[name];
     const k = length / (2 * Math.max(mesh.aabb.halfExtents.x, mesh.aabb.halfExtents.z)) / CHARACTER_SCALE;
     const e = new Entity(name);
     e.addComponent('render', {
-      meshInstances: [new MeshInstance(mesh, vertexMat)],
+      meshInstances: [new MeshInstance(mesh, gunMat)],
       castShadows: true,
       receiveShadows: false,
     });
     e.setLocalScale(k, k, k);
-    e.setLocalPosition(...GUN_POS);
     e.setLocalEulerAngles(...GUN_ROT);
+    const at = e
+      .getLocalRotation()
+      .transformVector(new Vec3(grip[0], grip[1], 0))
+      .mulScalar(-k);
+    e.setLocalPosition(at.add(new Vec3(...GUN_POS)));
     e.enabled = false;
     hand.addChild(e);
     return e;
@@ -496,15 +524,15 @@ export function createOverrunScene(
     const survivor = createSurvivor(app, models, slot, hex(PALETTE[slot % PALETTE.length]!), vertexMat);
     const root = survivor.root;
     const ring = new Entity('ring');
-    ring.addComponent('render', { type: 'cylinder', material: ringMat, castShadows: false });
+    ring.addComponent('render', { type: 'cylinder', material: teamMats[slot % teamMats.length]!, castShadows: false });
     ring.setLocalScale(1.25, 0.02, 1.25);
     ring.setLocalPosition(0, 0.015, 0);
-    ring.enabled = false;
     root.addChild(ring);
-    const pistol = handProp(survivor.hand, 'pistol-1', 0.34);
-    const shotgun = handProp(survivor.hand, 'shotgun-1', 0.8);
+    // Bigger than life, like the hands that hold them: a gun has to read at a glance from the camera's height.
+    const pistol = handProp(survivor.hand, 'pistol-1', PISTOL_LENGTH, [-0.07, -0.15]);
+    const shotgun = handProp(survivor.hand, 'shotgun-1', SHOTGUN_LENGTH, [0.25, -0.12]);
     app.root.addChild(root);
-    return { root, survivor, pistol, shotgun, ring, slot, visible: true, down: false, firedAt: -1 };
+    return { root, survivor, pistol, shotgun, ring, slot, me: false, visible: true, down: false, shots: 0 };
   }
 
   // --- zombies: hardware instancing, each instance posed from the baked bone texture ------------------------
@@ -568,18 +596,14 @@ export function createOverrunScene(
 
   // --- props: barrels, mines, pickups, globs ---------------------------------------------------------------
   const mineMesh = mineModel().mesh(device);
-  const mineAmmo = pickupModel(4).mesh(device);
-  /** Med kit, then ammo for the uzi, shotgun, barrels and mines (each shows its weapon). */
-  const pickupEntity = (kind: number): Entity =>
-    kind === 0
-      ? propEntity('firstaidkit', 0.62)
-      : kind === 1
-        ? propEntity('pistol-1', 0.55)
-        : kind === 2
-          ? propEntity('shotgun-1', 0.9)
-          : kind === 3
-            ? propEntity('propanetank', 0.55)
-            : meshEntity(mineAmmo);
+  const ammoMeshes = [1, 2, 3, 4].map((kind) => pickupModel(kind).mesh(device));
+  /** The med kit, or a little ammo crate for the uzi, shotgun, barrels or mines (striped in the weapon's colour). */
+  const pickupEntity = (kind: number): Entity => {
+    if (kind === 0) return propEntity('firstaidkit', 0.62);
+    const e = meshEntity(ammoMeshes[kind - 1] ?? ammoMeshes[0]!);
+    e.setLocalScale(AMMO_SCALE, AMMO_SCALE, AMMO_SCALE);
+    return e;
+  };
   const mineLightOn = glow(new Color(1, 0.15, 0.1), { additive: false });
   const mineLightOff = material(new Color(0.3, 0.05, 0.05));
   const globMat = glow(new Color(0.6, 0.95, 0.2), { additive: false });
@@ -696,14 +720,17 @@ export function createOverrunScene(
       r.root.enabled = v.visible;
       r.visible = v.visible;
       if (!v.visible) return;
-      r.ring.enabled = v.me;
+      if (r.me !== v.me) {
+        r.me = v.me;
+        r.ring.render!.meshInstances[0]!.material = v.me ? ringMat : teamMats[r.slot % teamMats.length]!;
+      }
       r.root.setPosition(v.x, 0, v.y);
       // Facing the aim (sim angle → yaw about +y; the models face +z). A downed player keeps the way they fell.
       if (!v.down) r.root.setEulerAngles(0, (Math.atan2(Math.cos(v.aim), Math.sin(v.aim)) * 180) / Math.PI, 0);
       const speed = Math.hypot(v.vx, v.vy);
       const back = speed > 0.3 && (v.vx * Math.cos(v.aim) + v.vy * Math.sin(v.aim)) / speed < -0.2;
       r.down = v.down;
-      r.survivor.update({ speed, back, down: v.down, firing: clock - r.firedAt < 0.3 });
+      r.survivor.update({ speed, back, down: v.down, shots: r.shots });
       const w = WEAPONS[v.weapon];
       const gun = w?.kind === 'gun' && !v.down;
       r.pistol.enabled = gun && w.id !== 'shotgun';
@@ -729,26 +756,29 @@ export function createOverrunScene(
         anims.set(id, a);
       }
       const dt = Math.min(0.25, clock - a.last);
-      const speed = dt > 0 ? Math.hypot(x - a.x, y - a.y) / dt : 0;
-      Object.assign(a, { x, y, facing, variant, last: clock, seen: true });
       const look = ZOMBIE_LOOKS[variant]!;
-      const clip: ZombieClip =
-        speed < 0.6 && nearestPlayer(x, y) < zombieRadius(kind) + 0.9
-          ? 'Punch'
-          : speed > 0.25
-            ? kind === 2
-              ? 'Run'
-              : 'Walk'
-            : 'Idle';
-      if (clip !== a.clip) {
-        a.clip = clip;
-        a.t = 0;
+      // While time stands still (a zombie's first frame, a pause, the art shots) its pose holds.
+      if (dt > 0) {
+        const speed = Math.hypot(x - a.x, y - a.y) / dt;
+        const clip: ZombieClip =
+          speed < 0.6 && nearestPlayer(x, y) < zombieRadius(kind) + 0.9
+            ? 'Punch'
+            : speed > 0.25
+              ? kind === 2
+                ? 'Run'
+                : 'Walk'
+              : 'Idle';
+        if (clip !== a.clip) {
+          a.clip = clip;
+          a.t = 0;
+        }
+        const stride = (clip === 'Walk' ? WALK_STRIDE : clip === 'Run' ? RUN_STRIDE : 0) * look.scale;
+        a.t += dt * (stride > 0 ? Math.max(0.5, Math.min(2, speed / stride)) : 1);
       }
-      const stride = clip === 'Walk' ? WALK_STRIDE * look.scale : clip === 'Run' ? RUN_STRIDE : 0;
-      a.t += dt * (stride > 0 ? Math.max(0.5, Math.min(2, speed / stride)) : 1);
+      Object.assign(a, { x, y, facing, variant, last: clock, seen: true });
       const target = flash && flashUsed < MAX_FLASHED ? flashed[variant]! : variants[variant]!;
       if (target !== variants[variant]) flashUsed++;
-      put(target, x, 0, y, facing, CHARACTER_SCALE * look.scale, zombieFrame(clip, a.t));
+      put(target, x, 0, y, facing, CHARACTER_SCALE * look.scale, zombieFrame(a.clip, a.t));
     },
     endZombies() {
       // Zombies gone since the last frame died (or the run reset): they fall where they stood.
@@ -775,7 +805,8 @@ export function createOverrunScene(
           continue;
         }
         const scale = CHARACTER_SCALE * ZOMBIE_LOOKS[c.variant]!.scale;
-        put(variants[c.variant]!, c.x, -sink * 0.5 * scale, c.y, c.facing, scale, zombieFrame('Death', c.age, false));
+        const h = -sink * CORPSE_HEIGHT * scale;
+        put(variants[c.variant]!, c.x, h, c.y, c.facing, scale, zombieFrame('Death', c.age, false));
       }
       for (const v of [...variants, ...flashed]) {
         v.mi.instancingCount = v.count;
@@ -818,7 +849,8 @@ export function createOverrunScene(
     },
     setPickup(id, kind, x, y) {
       const p = prop(`k${id}`, () => ({ e: pickupEntity(kind), kind, seen: true }));
-      p.e.setPosition(x, 0.15 + Math.sin(clock * 3 + x) * 0.08, y);
+      // On the floor, turning (that it turns says it can be picked up).
+      p.e.setPosition(x, 0, y);
       p.e.setEulerAngles(0, clock * 90 + x * 40, 0);
     },
     prune() {
@@ -843,7 +875,7 @@ export function createOverrunScene(
       f.e.setLocalScale(f.size, f.size, len);
     },
     muzzle(x, y, angle, weapon) {
-      // Whoever stands there fired: their arms play the recoil.
+      // Whoever stands there fired: their gun arm kicks.
       let shooter: PlayerRig | null = null;
       let best = 1.5;
       for (const r of players.values()) {
@@ -854,11 +886,17 @@ export function createOverrunScene(
           shooter = r;
         }
       }
-      if (shooter) shooter.firedAt = clock;
+      if (shooter) shooter.shots++;
       const f = take(muzzles);
       start(f, 0.05);
-      const d = 0.75;
-      f.e.setPosition(x + Math.cos(angle) * d, 1.06, y + Math.sin(angle) * d);
+      // At the muzzle of the gun in the right hand: ahead and a little to the right of the body.
+      const d = weapon === 2 ? 1.25 : 0.95;
+      const side = 0.16;
+      f.e.setPosition(
+        x + Math.cos(angle) * d - Math.sin(angle) * side,
+        1.15,
+        y + Math.sin(angle) * d + Math.cos(angle) * side,
+      );
       f.size = weapon === 2 ? 0.75 : weapon === 1 ? 0.4 : 0.45;
       f.e.setLocalScale(f.size, f.size, f.size);
     },

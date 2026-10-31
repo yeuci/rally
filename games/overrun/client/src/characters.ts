@@ -196,14 +196,26 @@ const ACCENT: Record<string, string> = {
   'doctor-female-young': 'Main',
 };
 
+/** Shoot_OneHanded points the gun straight ahead at 0 and at its end; a shot plays its kick from KICK_FROM. */
+const KICK_FROM = 0.12;
+/** A shot while the arm still kicks waits until it is this far back down (rapid fire kicks every third shot or so). */
+const KICK_AGAIN = 0.4;
+/** Getting up: Death backwards from where the body lies flat to the kneel (seconds into it), then StandUp. */
+const RISE_FROM = 1.45;
+const RISE_TO = 1;
+/** StandUp is upright by then: a revived player who moves on runs from there. */
+const UPRIGHT = 0.6;
+/** Ground speed (units/s) of the run's stride: slower or faster movement plays it slower or faster. */
+const RUN_STRIDE = 3.7;
+
 export interface SurvivorState {
   /** Ground speed (units/s). */
   speed: number;
   /** Moving against the aim (more than ~100° away): the run plays backwards. */
   back: boolean;
   down: boolean;
-  /** Shot in the last moment: the upper body plays the recoil instead of holding the aim. */
-  firing: boolean;
+  /** Shots fired so far: each new one kicks the gun arm. */
+  shots: number;
 }
 
 export interface Survivor {
@@ -216,7 +228,8 @@ export interface Survivor {
 
 /**
  * A rigged survivor for player `slot`, in the player's colour. Legs: Idle / Run (backwards when backpedalling) / Death
- * (down) / StandUp (revived). Upper body: the one-handed shot, held at its aim frame, looping while firing.
+ * (down) / Death backwards to the kneel, then StandUp (revived). Upper body: the one-handed shot held at its aim frame,
+ * its kick played for each shot; it follows the legs through Death and the getting up.
  */
 export function createSurvivor(
   app: Application,
@@ -254,6 +267,7 @@ export function createSurvivor(
           { name: 'Run', speed: 1, loop: true },
           { name: 'Back', speed: -1, loop: true },
           { name: 'Down', speed: 1, loop: false },
+          { name: 'Rise', speed: -1, loop: false },
           { name: 'StandUp', speed: 1, loop: false },
           { name: 'END' },
         ],
@@ -266,7 +280,10 @@ export function createSurvivor(
         states: [
           { name: 'START' },
           { name: 'Aim', speed: 0, loop: true },
-          { name: 'Shoot', speed: 1.4, loop: true },
+          { name: 'Shoot', speed: 1.8, loop: false },
+          { name: 'Down', speed: 1, loop: false },
+          { name: 'Rise', speed: -1, loop: false },
+          { name: 'StandUp', speed: 1, loop: false },
           { name: 'END' },
         ],
         transitions: [{ from: 'START', to: 'Aim', time: 0, priority: 0 }],
@@ -279,40 +296,66 @@ export function createSurvivor(
     if (!t) throw new Error(`no clip ${n}`);
     return t;
   };
+  const death = clip('Death');
+  const standUp = clip('StandUp');
+  const shoot = clip('Shoot_OneHanded');
+  for (const layer of ['Legs', 'Arms']) {
+    anim.assignAnimation('Down', death, layer);
+    anim.assignAnimation('Rise', death, layer);
+    anim.assignAnimation('StandUp', standUp, layer);
+  }
   anim.assignAnimation('Idle', clip('Idle'), 'Legs');
   anim.assignAnimation('Run', clip('Run'), 'Legs');
   anim.assignAnimation('Back', clip('Run'), 'Legs');
-  anim.assignAnimation('Down', clip('Death'), 'Legs');
-  anim.assignAnimation('StandUp', clip('StandUp'), 'Legs');
-  anim.assignAnimation('Aim', clip('Shoot_OneHanded'), 'Arms');
-  anim.assignAnimation('Shoot', clip('Shoot_OneHanded'), 'Arms');
+  anim.assignAnimation('Aim', shoot, 'Arms');
+  anim.assignAnimation('Shoot', shoot, 'Arms');
   const legs = anim.findAnimationLayer('Legs') as AnimComponentLayer;
   const arms = anim.findAnimationLayer('Arms') as AnimComponentLayer;
   arms.mask = { [UPPER_BODY]: { children: true } };
 
   const hand = model.findByName('Fist.R') as Entity | null;
   if (!hand) throw new Error('survivor has no Fist.R');
-  let standing = 0;
+  let shots = 0;
+  let kick = false;
   return {
     root,
     hand,
     update(s) {
-      const legsWant = s.down
+      const moving = s.speed > 0.3;
+      const was = legs.activeState;
+      const t = legs.activeStateCurrentTime;
+      const want = s.down
         ? 'Down'
-        : legs.activeState === 'Down' || (legs.activeState === 'StandUp' && standing < 1)
-          ? 'StandUp'
-          : s.speed > 0.3
-            ? s.back
-              ? 'Back'
-              : 'Run'
-            : 'Idle';
-      if (legsWant === 'StandUp') standing = legs.activeState === 'StandUp' ? legs.activeStateProgress : 0;
-      if (legs.activeState !== legsWant) legs.transition(legsWant, legsWant === 'Down' ? 0.1 : 0.18);
-      // The run's stride matches about 4.5 units/s; slower or faster movement plays it slower or faster.
-      anim.speed = legsWant === 'Run' || legsWant === 'Back' ? Math.max(0.6, Math.min(1.5, s.speed / 4.5)) : 1;
-      arms.weight = s.down || legsWant === 'StandUp' ? 0 : 1;
-      const armsWant = s.firing ? 'Shoot' : 'Aim';
-      if (arms.activeState !== armsWant) arms.transition(armsWant, 0.08);
+        : was === 'Down' || was === 'Rise'
+          ? t > RISE_TO
+            ? 'Rise'
+            : 'StandUp'
+          : was === 'StandUp' && t < (moving ? UPRIGHT : standUp.duration)
+            ? 'StandUp'
+            : moving
+              ? s.back
+                ? 'Back'
+                : 'Run'
+              : 'Idle';
+      // Down, getting up and standing up move the whole body: the arms play them too, in step with the legs.
+      const body = want === 'Down' || want === 'Rise' || want === 'StandUp';
+      if (was !== want) {
+        const blend =
+          want === 'Down' ? 0.1 : want === 'Rise' ? 0.15 : want === 'StandUp' || was === 'StandUp' ? 0.25 : 0.18;
+        const from = want === 'Rise' ? Math.min(t, RISE_FROM) / death.duration : undefined;
+        legs.transition(want, blend, from);
+        if (body) arms.transition(want, blend, from);
+        else if (arms.activeState !== 'Aim' && arms.activeState !== 'Shoot') arms.transition('Aim', blend);
+      }
+      anim.speed = want === 'Run' || want === 'Back' ? Math.max(0.6, Math.min(1.5, s.speed / RUN_STRIDE)) : 1;
+      if (s.shots !== shots) {
+        shots = s.shots;
+        kick = !body;
+      }
+      if (kick && (arms.activeState !== 'Shoot' || arms.activeStateCurrentTime > KICK_AGAIN)) {
+        arms.transition('Shoot', 0, KICK_FROM / shoot.duration);
+        kick = false;
+      }
     },
   };
 }

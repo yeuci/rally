@@ -411,7 +411,8 @@ function frame(dt: number) {
       y: s.y,
       vx: sp?.vx ?? s.vx,
       vy: sp?.vy ?? s.vy,
-      aim: isMe ? Math.atan2(aimDir.y, aimDir.x) : p.aim,
+      // Art shots have no controls: you face the staged aim.
+      aim: isMe && !ART ? Math.atan2(aimDir.y, aimDir.x) : p.aim,
       slot: p.slot,
       down: p.down,
       me: isMe,
