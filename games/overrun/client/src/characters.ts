@@ -304,16 +304,20 @@ export function createSurvivor(
   const death = clip('Death');
   const standUp = clip('StandUp');
   const shoot = clip('Shoot_OneHanded');
+  // assignAnimation's speed and loop default to 1 and true and overwrite the state graph's: pass every state's own
+  // (otherwise Down loops, Rise and Back play forwards and the held aim animates).
+  const assign = (state: string, track: AnimTrack, layer: string, speed: number, loop: boolean) =>
+    anim.assignAnimation(state, track, layer, speed, loop);
   for (const layer of ['Legs', 'Arms']) {
-    anim.assignAnimation('Down', death, layer);
-    anim.assignAnimation('Rise', death, layer);
-    anim.assignAnimation('StandUp', standUp, layer);
+    assign('Down', death, layer, 1, false);
+    assign('Rise', death, layer, -1, false);
+    assign('StandUp', standUp, layer, 1, false);
   }
-  anim.assignAnimation('Idle', clip('Idle'), 'Legs');
-  anim.assignAnimation('Run', clip('Run'), 'Legs');
-  anim.assignAnimation('Back', clip('Run'), 'Legs');
-  anim.assignAnimation('Aim', shoot, 'Arms');
-  anim.assignAnimation('Shoot', shoot, 'Arms');
+  assign('Idle', clip('Idle'), 'Legs', 1, true);
+  assign('Run', clip('Run'), 'Legs', 1, true);
+  assign('Back', clip('Run'), 'Legs', -1, true);
+  assign('Aim', shoot, 'Arms', 0, true);
+  assign('Shoot', shoot, 'Arms', 1.8, false);
   const legs = anim.findAnimationLayer('Legs') as AnimComponentLayer;
   const arms = anim.findAnimationLayer('Arms') as AnimComponentLayer;
   arms.mask = { [UPPER_BODY]: { children: true } };
