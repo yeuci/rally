@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#a8dcef" />
+    <title>Sawline</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <canvas id="stage" aria-label="Sawline game"></canvas>
+    <div id="labels" aria-hidden="true"></div>
+    <div id="hud" aria-live="polite">
+      <div class="bar">
+        <div id="wallet" class="chip wallet"><i class="cash-icon"></i><span id="wallet-amount">0</span></div>
+        <div id="clock" class="clock">4:00</div>
+        <div id="earned" class="chip earned"><small>Earned</small><span id="earned-amount">$0</span></div>
+      </div>
+      <div id="hint" class="hint" hidden></div>
+      <div id="combo" class="combo"></div>
+      <div id="prompt" class="prompt" hidden>Hold DEBARK to start the line</div>
+      <div class="controls">
+        <div id="shop" class="shop"></div>
+        <div class="buttons">
+          <button id="debark" class="big debark" type="button"><span class="icon ring-icon"></span><b>Debark</b><small>hold</small></button>
+          <button id="cut" class="big cut" type="button"><span class="icon blade-icon"></span><b>Cut</b><small>tap</small></button>
+        </div>
+      </div>
+      <section id="over" class="card" hidden>
+        <div class="label-sm">Shift over</div>
+        <div id="over-score" class="big">$0</div>
+        <div id="over-best" class="best">Best $0</div>
+        <div id="over-stats" class="stats"></div>
+        <div id="over-board" class="board">Leaderboard …</div>
+        <div id="over-unlocked" class="unlocked" hidden></div>
+        <button id="again" type="button">Next shift</button>
+      </section>
+      <div id="paused" class="veil" hidden><div class="veil-title">Paused</div></div>
+      <div id="loading" class="veil solid">
+        <div class="veil-title">Sawline</div>
+        <div class="loadbar"><i id="loading-bar"></i></div>
+      </div>
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
