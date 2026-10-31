@@ -29,7 +29,8 @@ import { applyLowFx } from './lowfx.ts';
 import { connect, type Net } from './net.ts';
 import { Predictor, shouldPredict } from './predict.ts';
 import { RunResultView } from './result.ts';
-import { LEAD, createOverrunScene, zombieRadius } from './scene.ts';
+import { loadModels } from './characters.ts';
+import { LEAD, createOverrunScene, zombieRadius, type OverrunScene } from './scene.ts';
 import { createSfx } from './sfx.ts';
 
 const TELEMETRY_MS = 10_000;
@@ -77,16 +78,14 @@ const { app, onResize } = createApp({
   ...(import.meta.env.DEV && params.has('noaa') ? { antialias: false } : {}),
 });
 if (LOWFX) applyLowFx(app);
-const scene = createOverrunScene(
-  app,
-  (fn) => onResize(fn),
-  LOWFX
-    ? { shadows: false, effects: false }
-    : {
-        shadows: !(import.meta.env.DEV && params.has('noshadow')),
-        effects: !(import.meta.env.DEV && params.has('nofx')),
-      },
-);
+/** Built in boot(), once the models are in (about 400 KB, gzipped): nothing draws before that. */
+let scene!: OverrunScene;
+const sceneOptions = LOWFX
+  ? { shadows: false, effects: false }
+  : {
+      shadows: !(import.meta.env.DEV && params.has('noshadow')),
+      effects: !(import.meta.env.DEV && params.has('nofx')),
+    };
 const hud = createHud();
 const controls = createControls(ui.canvas, ui.stickMove, ui.stickAim);
 const audio = createAudio();
@@ -160,7 +159,7 @@ const lifecycle = createLifecycle(rally, app, {
     if (!rally.isHosted) hud.setMessage('You left the game', 'Reload to play again');
   },
   onLowMemory: () => {
-    scene.trim();
+    scene?.trim(); // not built yet while the models load
     audio.close();
   },
 });
@@ -556,6 +555,8 @@ function toWs(url: string) {
 }
 
 async function boot() {
+  const models = await loadModels(app, (f) => loading(0.5 + f * 0.3));
+  scene = createOverrunScene(app, (fn) => onResize(fn), models, sceneOptions);
   app.start();
   loading(0.8);
   await new Promise<void>((resolve) => {
