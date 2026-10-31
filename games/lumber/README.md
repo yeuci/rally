@@ -20,6 +20,13 @@ pnpm --filter @rally/publish-game publish-game lumber --dry-run
 
 Controls: drag anywhere for a floating joystick (touch or mouse), or arrow keys / WASD.
 
+In the Rally app, with the dev server running on a PC the phone can reach:
+
+- **Developer screen** (anyone): Profile → Developer, bundle URL `http://<pc-ip>:5184/index.html`. The room does not
+  matter (a solo game never matchmakes); saves and boards stay in memory under the dev identity.
+- **Catalog** (owner, before the real publish): apply `docs/dev/lumber-dev-rows.sql` in Supabase Studio with the IP of
+  the PC serving the game. Lumber Camp then shows up with its board and achievements; the real publish replaces it.
+
 ## Layout
 
 | File                   | What                                                                                                   |
