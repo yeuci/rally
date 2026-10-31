@@ -490,7 +490,8 @@ interface Burst {
   age: number;
 }
 
-export function createLumberScene(app: Application): LumberScene {
+/** `shadows: false` for the dev-only low-render mode (see lowfx.ts). */
+export function createLumberScene(app: Application, opts: { shadows?: boolean } = {}): LumberScene {
   device = app.graphicsDevice;
   // Linear lighting with sRGB output and a neutral tone curve: softer light falloff and gentler shadows than shading
   // in gamma space, with the palette's colours kept (they are authored in sRGB).
@@ -515,7 +516,7 @@ export function createLumberScene(app: Application): LumberScene {
     type: 'directional',
     color: new Color(1, 0.96, 0.88),
     intensity: 1.15,
-    castShadows: true,
+    castShadows: opts.shadows ?? true,
     shadowType: SHADOW_PCF5_16F,
     shadowBias: 0.2,
     normalOffsetBias: 0.05,

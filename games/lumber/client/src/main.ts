@@ -14,6 +14,7 @@ import { rally } from '@rally/sdk';
 import { Bot } from './bot.ts';
 import { createControls } from './controls.ts';
 import { createLabels } from './labels.ts';
+import { applyLowFx } from './lowfx.ts';
 import { PALETTE, createLumberScene } from './scene.ts';
 import { CASH_ZONE, LumberSim, UNLOCKS, type SimEvent } from './sim.ts';
 
@@ -78,12 +79,20 @@ const clock = (s: number) => {
   return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
 };
 
+/**
+ * Dev only: `?lowfx=1` draws at most 15 fps at DPR 1, without clustered lighting, MSAA or shadows (src/lowfx.ts). The
+ * Playwright e2e uses it: CI renders WebGL in software on a small runner.
+ */
+const params = new URLSearchParams(location.search);
+const LOWFX = import.meta.env.DEV && params.has('lowfx') && params.get('lowfx') !== '0';
+
 const bootStart = performance.now();
 loading(0.05);
 
 // --- engine + scene ------------------------------------------------------------------------------
-const { app } = createApp({ canvas: ui.canvas });
-const scene = createLumberScene(app);
+const { app } = createApp({ canvas: ui.canvas, ...(LOWFX ? { maxPixelRatio: 1, antialias: false } : {}) });
+if (LOWFX) applyLowFx(app);
+const scene = createLumberScene(app, { shadows: !LOWFX });
 const labels = createLabels(ui.labels, scene);
 loading(0.5);
 
@@ -397,6 +406,9 @@ if (import.meta.env.DEV) {
     },
     get carry() {
       return sim.player.carry;
+    },
+    get lowfx() {
+      return LOWFX;
     },
     get player() {
       return { x: sim.player.x, z: sim.player.z };
