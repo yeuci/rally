@@ -23,6 +23,7 @@
     "dev:mobile:go:tunnel": "pnpm --filter @rally/mobile start:go:tunnel"
   },
   "devDependencies": {
+    "@rally/model-pipeline": "workspace:*",
     "eslint": "^9.39.5",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.1.1",

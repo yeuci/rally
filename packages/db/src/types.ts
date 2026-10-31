@@ -1,4 +1,5 @@
-// Hand-written to match `supabase gen types typescript` output for supabase/migrations (M1 + M2 + M4 social + M3 phase 2).
+// Hand-written to match `supabase gen types typescript` output for supabase/migrations (M1 + M2 + M4 social + M3 phase 2
+// + coins).
 // Regenerate against a real project with `pnpm --filter @rally/db gen:types` once one is linked;
 // keep this file in that exact shape so the swap is a no-op for consumers.
 export type Json =
@@ -19,6 +20,7 @@ export type Database = {
     Tables: {
       achievements: {
         Row: {
+          coins: number | null
           created_at: string
           description: string
           game_id: string
@@ -29,6 +31,7 @@ export type Database = {
           title: string
         }
         Insert: {
+          coins?: number | null
           created_at?: string
           description?: string
           game_id: string
@@ -39,6 +42,7 @@ export type Database = {
           title: string
         }
         Update: {
+          coins?: number | null
           created_at?: string
           description?: string
           game_id?: string
@@ -106,6 +110,78 @@ export type Database = {
           },
         ]
       }
+      coin_ledger: {
+        Row: {
+          amount: number
+          balance_after: number
+          created_at: string
+          game_id: string | null
+          id: number
+          note: string | null
+          reason: string
+          ref: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          balance_after: number
+          created_at?: string
+          game_id?: string | null
+          id?: number
+          note?: string | null
+          reason: string
+          ref: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          balance_after?: number
+          created_at?: string
+          game_id?: string | null
+          id?: number
+          note?: string | null
+          reason?: string
+          ref?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coin_ledger_game_id_fkey"
+            columns: ["game_id"]
+            isOneToOne: false
+            referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coin_ledger_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      coin_rules: {
+        Row: {
+          description: string
+          key: string
+          updated_at: string
+          value: number
+        }
+        Insert: {
+          description?: string
+          key: string
+          updated_at?: string
+          value: number
+        }
+        Update: {
+          description?: string
+          key?: string
+          updated_at?: string
+          value?: number
+        }
+        Relationships: []
+      }
       default_avatars: {
         Row: {
           path: string
@@ -120,6 +196,49 @@ export type Database = {
           sort?: number
         }
         Relationships: []
+      }
+      equipped_items: {
+        Row: {
+          equipped_at: string
+          item_id: string
+          kind: string
+          user_id: string
+        }
+        Insert: {
+          equipped_at?: string
+          item_id: string
+          kind: string
+          user_id: string
+        }
+        Update: {
+          equipped_at?: string
+          item_id?: string
+          kind?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "equipped_items_kind_fkey"
+            columns: ["item_id", "kind"]
+            isOneToOne: false
+            referencedRelation: "shop_items"
+            referencedColumns: ["id", "kind"]
+          },
+          {
+            foreignKeyName: "equipped_items_owned"
+            columns: ["user_id", "item_id"]
+            isOneToOne: false
+            referencedRelation: "user_items"
+            referencedColumns: ["user_id", "item_id"]
+          },
+          {
+            foreignKeyName: "equipped_items_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       favorites: {
         Row: {
@@ -801,6 +920,42 @@ export type Database = {
           },
         ]
       }
+      shop_items: {
+        Row: {
+          available: boolean
+          created_at: string
+          data: Json
+          description: string
+          id: string
+          kind: string
+          name: string
+          price: number
+          sort: number
+        }
+        Insert: {
+          available?: boolean
+          created_at?: string
+          data?: Json
+          description?: string
+          id: string
+          kind: string
+          name: string
+          price: number
+          sort?: number
+        }
+        Update: {
+          available?: boolean
+          created_at?: string
+          data?: Json
+          description?: string
+          id?: string
+          kind?: string
+          name?: string
+          price?: number
+          sort?: number
+        }
+        Relationships: []
+      }
       user_achievements: {
         Row: {
           achievement_id: string
@@ -827,6 +982,42 @@ export type Database = {
           },
           {
             foreignKeyName: "user_achievements_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_items: {
+        Row: {
+          acquired_at: string
+          item_id: string
+          price_paid: number
+          user_id: string
+        }
+        Insert: {
+          acquired_at?: string
+          item_id: string
+          price_paid?: number
+          user_id: string
+        }
+        Update: {
+          acquired_at?: string
+          item_id?: string
+          price_paid?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_items_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "shop_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_items_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
@@ -875,6 +1066,35 @@ export type Database = {
           },
         ]
       }
+      wallets: {
+        Row: {
+          balance: number
+          lifetime_earned: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          balance?: number
+          lifetime_earned?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          balance?: number
+          lifetime_earned?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wallets_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -882,10 +1102,15 @@ export type Database = {
     Functions: {
       abandon_play_session: { Args: { p_session_id: string }; Returns: undefined }
       block_user: { Args: { p_user_id: string }; Returns: undefined }
+      buy_item: { Args: { p_item_id: string }; Returns: Json }
       contains_banned_word: { Args: { input: string }; Returns: boolean }
       end_play_session: {
         Args: { p_playtime_s?: number; p_session_id: string }
         Returns: undefined
+      }
+      equip_item: {
+        Args: { p_item_id?: string; p_kind: string }
+        Returns: Json
       }
       friend_join_target: { Args: { p_friend_id: string }; Returns: Json }
       friends_presence: {
@@ -954,7 +1179,22 @@ export type Database = {
         Returns: Json
       }
       my_privacy: { Args: never; Returns: Json }
+      my_wallet: { Args: never; Returns: Json }
+      owns_game: {
+        Args: { p_game_id: string; p_user_id: string }
+        Returns: boolean
+      }
       period_key: { Args: { at?: string; period: string }; Returns: string }
+      public_cosmetics: {
+        Args: { p_user_ids: string[] }
+        Returns: {
+          data: Json
+          item_id: string
+          kind: string
+          name: string
+          user_id: string
+        }[]
+      }
       public_friends: {
         Args: { p_limit?: number; p_user_id: string }
         Returns: {

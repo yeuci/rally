@@ -53,12 +53,19 @@ export function Segmented<T extends string>({
   });
   return (
     <View
-      className={cn('bg-muted self-start rounded-full p-[3px]', className)}
+      className={cn('bg-muted flex-row self-start rounded-full p-[3px]', className)}
       accessibilityRole="tablist"
       accessibilityLabel={accessibilityLabel}
     >
       {scrollable ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerClassName="flex-row">
+        // A horizontal ScrollView grows by default (flexGrow 1): in a column it stretched the track into a tall slab
+        // under the boards. In this row it only shrinks to the track's width (max-w-full), and never grows.
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ flexGrow: 0 }}
+          contentContainerClassName="flex-row"
+        >
           {segments}
         </ScrollView>
       ) : (

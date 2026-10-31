@@ -7,6 +7,7 @@ The single Colyseus deployment (architecture §6). One Room class per game, regi
 | `hello`   | `rooms/HelloRoom.ts`   | games/spike (M0 round-trip room, a RallyRoom)                           |
 | `sumo`    | `rooms/SumoRoom.ts`    | games/sumo (rules in `@rally/game-sumo-server`)                         |
 | `overrun` | `rooms/OverrunRoom.ts` | games/overrun (rules in `@rally/game-overrun-server`; server v3, 1–4 p) |
+| `gunrun`  | `rooms/GunRunRoom.ts`  | games/gunrun (rules in `@rally/game-gunrun-server`; server v4, 2–8 p)   |
 
 ```bash
 pnpm dev:server                          # tsx watch src/dev.ts (NODE_ENV=development), http://localhost:2567
@@ -187,6 +188,14 @@ uncapped: both are best-run boards), the five achievement keys, and the run's ex
 `result` message carries `{ boards, unlocked }` (no wins/losses); see games/overrun/README.md. With dev rules
 (`RALLY_DEV_RULES=1` or `NODE_ENV=test`) the room also honours a `dev` message (freeze the horde, spawn, hurt,
 place, end the wave, god mode) used by the Overrun e2e; it is ignored everywhere else.
+
+**Gun Run** (`SERVER_VERSION` 4 adds the room; `server.minVersion` 4) is a free-for-all with a winner:
+`winnerUserId` = the signed-in winner (null for a guest or a bot), `leaderboardDeltas` `{ wins: { <winner>: 1 } }`
+(a `total` board) and `leaderboardScores` `{ kills }` per signed-in player (a best-run board), five achievement keys,
+the ladder and kills of everyone in `details`. Quick-play rooms are topped up with server-side bots to four players;
+bots never appear in a result (not in `players`, not on a board). `matchId` is `<roomId>:<match number>`. Hitscan and
+stabs are lag-compensated (each input carries the tick the client was drawing; see games/gunrun/README.md). Its dev
+message (dev rules only) sets bots, rules, rungs, kills, positions, damage, god mode, and starts or ends a match.
 
 Tests: every room test file shares one booted server in one mocha process (`test/server.ts`). Fake timers
 (`mock.timers`) replace the global setTimeout/clearTimeout that Node's bundled undici (the SDK's `fetch` and
