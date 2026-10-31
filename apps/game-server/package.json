@@ -14,12 +14,13 @@
     "build": "rimraf build && tsc -p tsconfig.build.json",
     "bundle": "pnpm --filter @rally/game-server... run build && node bundle.config.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "mocha -r tsx -r ./test/env.ts test/**/*.test.ts --exit --timeout 15000",
+    "test": "mocha -r tsx -r ./test/env.ts test/**/*.test.ts --ignore test/OverrunRoom.test.ts --exit --timeout 15000 && mocha -r tsx -r ./test/env.ts test/OverrunRoom.test.ts --exit --timeout 20000",
     "lint": "eslint . --max-warnings 0"
   },
   "dependencies": {
     "@colyseus/schema": "^5.0.42",
     "@colyseus/tools": "^0.18.11",
+    "@rally/game-overrun-server": "workspace:*",
     "@rally/game-sumo-server": "workspace:*",
     "colyseus": "^0.18.10",
     "express": "^5.2.1",

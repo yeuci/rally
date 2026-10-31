@@ -1,0 +1,73 @@
+{
+  "id": "overrun",
+  "version": "0.1.0",
+  "title": "Overrun",
+  "description": "Hold the depot together. Up to four friends, one yard, and a horde that keeps coming through the gates. Twin-stick shooting, barrels that chain into fireworks, revives under pressure and a combo that climbs to x8. How many waves can your crew survive?",
+  "genres": ["action", "shooter"],
+  "icon": "art/icon.webp",
+  "cover": "art/cover.webp",
+  "screenshots": ["art/shot-1.webp", "art/shot-2.webp", "art/shot-3.webp"],
+  "engine": "playcanvas",
+  "entry": "index.html",
+  "orientation": "landscape",
+  "players": {
+    "min": 1,
+    "max": 4
+  },
+  "modes": ["quick", "browser", "private"],
+  "server": {
+    "room": "overrun",
+    "minVersion": 3
+  },
+  "sdk": "^0.1",
+  "ageRating": "12+",
+  "leaderboards": [
+    {
+      "id": "wave",
+      "sort": "desc"
+    },
+    {
+      "id": "kills",
+      "sort": "desc"
+    }
+  ],
+  "achievements": [
+    {
+      "key": "first_wave_10",
+      "title": "Double Digits",
+      "hidden": false,
+      "description": "Reach wave 10 in one run.",
+      "icon": "🌊"
+    },
+    {
+      "key": "horde_slayer",
+      "title": "Horde Slayer",
+      "hidden": false,
+      "description": "Take down 500 zombies in a single run.",
+      "icon": "🧟"
+    },
+    {
+      "key": "medic",
+      "title": "Field Medic",
+      "hidden": false,
+      "description": "Revive teammates 3 times in one run.",
+      "icon": "⛑️"
+    },
+    {
+      "key": "untouchable",
+      "title": "Untouchable",
+      "hidden": false,
+      "description": "Clear a whole wave without taking a single hit.",
+      "icon": "🛡️"
+    },
+    {
+      "key": "demolition",
+      "title": "Demolition",
+      "hidden": false,
+      "description": "Take out 10 zombies with one barrel.",
+      "icon": "💥"
+    }
+  ],
+  "capabilities": [],
+  "minAppVersion": "0.0.0"
+}

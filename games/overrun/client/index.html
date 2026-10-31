@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#14110f" />
+    <title>Overrun</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <canvas id="stage" aria-label="Overrun arena"></canvas>
+    <div id="labels" aria-hidden="true"></div>
+    <div id="vignette" class="vignette" aria-hidden="true"></div>
+    <div id="stick-move" class="stick" hidden><i></i></div>
+    <div id="stick-aim" class="stick aim" hidden><i></i></div>
+    <div id="hud">
+      <div class="topbar">
+        <button id="exit" class="exit" type="button" aria-label="Leave the game">✕</button>
+        <div class="wavebox">
+          <div id="wave" class="wave"></div>
+          <div class="meta"><span id="left"></span><span id="ping"></span></div>
+        </div>
+        <div class="center">
+          <div id="combo" class="combo" hidden>
+            <b id="combo-x"></b><i><s id="combo-bar"></s></i>
+          </div>
+          <div id="score" class="score" aria-live="polite"></div>
+        </div>
+        <div id="team" class="team"></div>
+      </div>
+      <button id="weapon" class="weapon" type="button" aria-label="Switch weapon">
+        <span id="weapon-icon" class="icon"></span>
+        <span class="text"><span id="weapon-name" class="name"></span><span id="weapon-ammo" class="ammo"></span></span>
+      </button>
+      <div id="toasts" class="toasts" aria-live="polite"></div>
+      <div id="banner" class="banner" hidden>
+        <div id="banner-title" class="banner-title"></div>
+        <div id="banner-sub" class="banner-sub"></div>
+      </div>
+      <button id="start" class="start" type="button" hidden>Start the run</button>
+      <div id="hint" class="hint">Left thumb: move · Right thumb: aim &amp; fire · WASD + mouse · 1–5 / wheel</div>
+      <div id="paused" class="veil" hidden><div class="veil-title">Paused</div></div>
+      <div id="loading" class="veil solid">
+        <div class="veil-title">Overrun</div>
+        <div class="bar"><i id="loading-bar"></i></div>
+      </div>
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

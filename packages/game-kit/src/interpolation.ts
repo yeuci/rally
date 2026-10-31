@@ -88,6 +88,20 @@ export class SnapshotBuffer<F extends string> {
     return this.snaps.length ? this.snaps[this.snaps.length - 1]!.t : null;
   }
 
+  /**
+   * Ids of the entities in the snapshot shown at time `t` (the newest at or before `t`; the oldest when `t` is
+   * earlier than every snapshot). Draw these instead of the latest state's entities to make an entity appear and
+   * disappear at the interpolated time rather than one interpolation delay early (a zombie that is killed in the
+   * newest patch is still drawn until the render time reaches that patch).
+   */
+  idsAt(t: number): IterableIterator<string> | [] {
+    const snaps = this.snaps;
+    if (snaps.length === 0) return [];
+    let i = snaps.length - 1;
+    while (i > 0 && snaps[i]!.t > t) i--;
+    return snaps[i]!.entities.keys();
+  }
+
   /** {@link sampleAt} at `now − delayMs` (push times on the local clock). */
   sample(id: string, now: number): Sample<F> | null {
     return this.sampleAt(id, now - this.delayMs);
