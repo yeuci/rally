@@ -53,20 +53,12 @@ describe('OverrunRoom', () => {
     colyseus.sdk.auth.token = '';
     await colyseus.cleanup();
   });
-  /**
-   * An HTTP request every second while a test waits: an undici keep-alive socket left idle for ~4 s can trip an
-   * undici bug (an uncaught parser-timeout TypeError), and Colyseus shuts the shared test server down on uncaught
-   * errors, failing every later test file. Some of these tests wait several seconds (revives, bandwidth).
-   */
-  let keepAlive: ReturnType<typeof setInterval> | undefined;
   /** Every client room a test opened: left with consent afterwards, so no socket is closed from the server side. */
   let opened: { leave(consented?: boolean): Promise<unknown> }[] = [];
   beforeEach(() => {
-    keepAlive = setInterval(() => void colyseus.http.get('/healthz').catch(() => {}), 1000);
     opened = [];
   });
   afterEach(async () => {
-    clearInterval(keepAlive);
     await Promise.all(opened.map((r) => r.leave(true).catch(() => {})));
     RallyRoom.configureAuth(null);
     colyseus.sdk.auth.token = '';
@@ -221,7 +213,11 @@ describe('OverrunRoom', () => {
     assert.equal(r.winnerUserId, null, 'co-op: no winner');
     assert.equal(r.private, false);
     assert.equal(r.rounds, 2);
-    assert.deepEqual(r.leaderboardScores, { wave: { [ANN]: 2 }, kills: { [ANN]: 12 } }, 'best-run scores; guests get none');
+    assert.deepEqual(
+      r.leaderboardScores,
+      { wave: { [ANN]: 2 }, kills: { [ANN]: 12 } },
+      'best-run scores; guests get none',
+    );
     assert.deepEqual(r.leaderboardDeltas, {}, 'no total boards');
     const byName = Object.fromEntries(r.players.map((p) => [p.username, p]));
     assert.deepEqual(byName.ann!.achievements, ['medic']);

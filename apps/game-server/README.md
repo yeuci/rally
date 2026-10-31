@@ -186,7 +186,10 @@ HUD shows it on the match-over banner. `SERVER_VERSION` 2 (`src/version.ts`) mar
 uncapped: both are best-run boards), the five achievement keys, and the run's exact numbers in `details`. Its
 `result` message carries `{ boards, unlocked }` (no wins/losses); see games/overrun/README.md. With dev rules
 (`RALLY_DEV_RULES=1` or `NODE_ENV=test`) the room also honours a `dev` message (freeze the horde, spawn, hurt,
-place, end the wave, god mode) used by the Overrun e2e; it is ignored everywhere else. `OverrunRoom.test.ts` runs in
-its own mocha process (`pnpm test` runs two): its rooms keep a 120-zombie horde and many sockets alive, and Node 22's
-bundled undici can throw an uncaught parser-timeout `TypeError` from a stale keep-alive timer, which makes Colyseus
-shut the shared test server down for every later file.
+place, end the wave, god mode) used by the Overrun e2e; it is ignored everywhere else.
+
+Tests: every room test file shares one booted server in one mocha process (`test/server.ts`). Fake timers
+(`mock.timers`) replace the global setTimeout/clearTimeout that Node's bundled undici (the SDK's `fetch` and
+`WebSocket`) uses too, so keep them on only while no client request is open (see `test/reconnect.test.ts`): otherwise
+an undici keep-alive timer escapes its clearTimeout and later throws an uncaught `TypeError` (`parser.deref(...)` is
+undefined), and Colyseus shuts the shared server down for every later file.
