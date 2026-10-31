@@ -437,6 +437,9 @@ export class OverrunRoom extends RallyRoom<OverrunState> {
         if (p) this.match.place(p.id, num(c.x, p.x), num(c.y, p.y));
         break;
       }
+      case 'drop':
+        this.match.drop(Math.floor(num(c.kind, 0)), num(c.x, 0), num(c.y, 0));
+        break;
       case 'endWave':
         if (this.match.phase === 'wave') this.match.clearZombies();
         break;
