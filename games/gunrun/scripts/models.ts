@@ -11,9 +11,12 @@
  * - soldier / enemy / hazmat: the three characters, each ONE skinned vertex-coloured mesh (the bone-parented head and
  *   shoulder pads are merged in, skinned to their bone) simplified to ≈ CHARACTER_TRIANGLES. Every gun rigged to the
  *   hand is left out of the body.
- * - clips: the clips the game plays, once, for all three (they share the skeleton; checked).
- * - guns: the ladder's guns as the kit rigs them in the hand: the mesh in its node's space, and its transform relative
- *   to the hand bone (meta), so the game hangs them on the animated hand exactly where the kit does.
+ * - clips: the clips the game plays, once, for all three (they share the skeleton; checked). The whole-body clips
+ *   (BODY_CLIPS) animate every bone any clip moves, holding the rest where they had nothing: a respawn's Idle puts
+ *   back the body the death rolled over.
+ * - guns: the ladder's guns as the kit rigs them in the hand: the mesh in its node's space, its transform relative to
+ *   the hand bone, and its muzzle (meta), so the game hangs them on the animated hand exactly where the kit does and
+ *   starts shots at the barrel tip.
  * - props: every level prop at the arena's scale, one node each; the chain-link fences keep their texture (a 128²
  *   downscale of the kit's Fence.png, embedded) as a separate `<name>:alpha` mesh.
  */
@@ -31,6 +34,7 @@ import {
   decodePng,
   encodePng,
   entry,
+  farthestVertex,
   kb,
   loadPack,
   modelPack,
@@ -62,6 +66,10 @@ const CHARACTERS = [
 ] as const;
 const CHARACTER_TRIANGLES = 2500;
 const CLIPS = ['Idle', 'Run', 'Idle_Shoot', 'Death', 'Punch', 'Wave'] as const;
+/** The clips the full-body layer plays (client/src/characters.ts); the masked arms play Idle_Shoot and Punch. */
+const BODY_CLIPS = ['Idle', 'Run', 'Death', 'Wave'] as const;
+/** The pose the game holds as the aim (its first frame): where the guns' muzzles are measured. */
+const AIM_CLIP = 'Idle_Shoot';
 
 /** Every gun the kit rigs to the hand (all are left out of the bodies); the game uses the ladder's. */
 const RIGGED = [
@@ -160,7 +168,7 @@ async function main() {
   meta.characters = CHARACTERS.map((c) => c.name);
   meta.characterColors = characters;
 
-  const clips = clipsOnly(await gltf(`Characters/glTF/${CHARACTERS[0].file}`), CLIPS);
+  const clips = clipsOnly(await gltf(`Characters/glTF/${CHARACTERS[0].file}`), CLIPS, BODY_CLIPS);
   const clipSize = out.file('clips.glb', await io.writeBinary(clips));
   console.log(`  clips.glb.gz  ${CLIPS.join(', ')}, ${kb(clipSize)}`);
   meta.clips = CLIPS;
@@ -168,10 +176,22 @@ async function main() {
   // Guns, as rigged to the hand.
   const rig = await gltf(`Characters/glTF/${CHARACTERS[0].file}`);
   const guns: PackEntry[] = [];
-  const gunMeta: Record<string, { index: number; bone: string; t: number[]; r: number[]; s: number[] }> = {};
+  const gunMeta: Record<
+    string,
+    { index: number; bone: string; t: number[]; r: number[]; s: number[]; muzzle: number[] }
+  > = {};
   for (const [id, node] of Object.entries(GUNS)) {
     const a = attachment(rig, node, GUN_TRIANGLES);
-    gunMeta[id] = { index: guns.length, bone: a.bone, t: round(a.t), r: round(a.r), s: round(a.s) };
+    // The muzzle: the vertex reaching farthest forward (+z, where the character faces) in the aiming pose.
+    const muzzle = farthestVertex(rig, node, [0, 0, 1], AIM_CLIP);
+    gunMeta[id] = {
+      index: guns.length,
+      bone: a.bone,
+      t: round(a.t),
+      r: round(a.r),
+      s: round(a.s),
+      muzzle: round(muzzle),
+    };
     guns.push({ name: id, soups: [a.soup] });
   }
   const loose: Record<string, number> = {};

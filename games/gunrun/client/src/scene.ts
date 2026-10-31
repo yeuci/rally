@@ -11,12 +11,15 @@ import {
   type Application,
 } from 'playcanvas';
 import {
-  ARENA_HALF_H,
-  ARENA_HALF_W,
   BARRELS,
+  CAMERA_FOV_DEG,
+  CAMERA_LEAD,
+  CAMERA_PITCH_DEG,
   MEDS,
   PALETTE,
   PLAYER_RADIUS,
+  cameraDistance,
+  cameraFocus,
   tierWeapon,
   type Vec2,
   type WeaponSpec,
@@ -29,15 +32,10 @@ import type { Models } from './models.ts';
 /**
  * Rendering only. Simulation coordinates (x right, y down the screen) map to world (x, 0, y); the camera looks down at
  * 60° from the +z side (Overrun's camera, a little closer) and follows the local player with a lead toward the aim.
+ * Its framing is the rules' (view.ts), so the server knows what each player's screen shows.
  */
 const SKY = new Color(0.36, 0.55, 0.28);
-const PITCH = (60 * Math.PI) / 180;
-const FOV = 30;
-/** Ground units visible across the screen (half), and down it (half) at least. */
-const VIEW_HALF_W = 10;
-const VIEW_HALF_H = 5.8;
-/** Camera lead toward where you aim, units. */
-export const LEAD = 2.0;
+const PITCH = (CAMERA_PITCH_DEG * Math.PI) / 180;
 /** Gun height: tracers, muzzle flashes, the aim plane. */
 const GUN_Y = 1.0;
 const MAX_TRACERS = 48;
@@ -84,11 +82,14 @@ export interface GunRunScene {
   /** Rockets (kind 0) and grenades (1) in flight; `prune()` drops the ones not set since. */
   setProjectile(id: string, kind: number, x: number, y: number, h: number): void;
   prune(): void;
-  tracer(x0: number, y0: number, x1: number, y1: number, weapon: WeaponSpec): void;
-  /** A muzzle flash at the shooter's gun; whoever stands at (x, y) plays the shot. */
-  muzzle(x: number, y: number, angle: number, weapon: WeaponSpec): void;
-  /** A stab: the swing at (x, y) toward `angle`; whoever stands there plays the punch. */
-  stab(x: number, y: number, angle: number): void;
+  /**
+   * A shot by player `shooter` (null: nobody drawn): the flash at their gun's muzzle (the barrel tip, following the
+   * animation) and a tracer from there to each ray's end (`ends`: x, y pairs; none for a rocket or grenade launch);
+   * their arms play the shot. Without a gun in hand to start from, (x, y) at gun height stands in.
+   */
+  shot(shooter: string | null, x: number, y: number, angle: number, weapon: WeaponSpec, ends: readonly number[]): void;
+  /** A stab by player `shooter`: the swing at (x, y) toward `angle`; their arms play the punch. */
+  stab(shooter: string | null, x: number, y: number, angle: number): void;
   /** A bullet or a blade connects: sparks in the victim's colour. */
   hit(x: number, y: number, slot: number): void;
   explosion(x: number, y: number, radius: number): void;
@@ -174,17 +175,16 @@ export function createGunRunScene(
 
   // --- camera ---------------------------------------------------------------------------------------------
   const camera = new Entity('camera');
-  camera.addComponent('camera', { clearColor: SKY, fov: FOV, nearClip: 1, farClip: 120 });
+  camera.addComponent('camera', { clearColor: SKY, fov: CAMERA_FOV_DEG, nearClip: 1, farClip: 120 });
   app.root.addChild(camera);
   let dist = 20;
   let zoom = 1;
   const focusAt = new Vec3();
   const focusWant = new Vec3();
   let focusSet = false;
+  // The framing the rules share (view.ts): bots only fire from where your screen shows them.
   function frame(width: number, height: number) {
-    const aspect = width / Math.max(1, height);
-    const tanV = Math.tan((FOV * Math.PI) / 360);
-    dist = Math.max(VIEW_HALF_W / (tanV * aspect), (VIEW_HALF_H * Math.sin(PITCH)) / tanV);
+    dist = cameraDistance(width / Math.max(1, height));
   }
   frame(device.width, device.height);
   onResize(frame);
@@ -260,16 +260,6 @@ export function createGunRunScene(
     app.root.addChild(fighter.root);
     return { fighter, ring, laser, visible: true, alive: true, x: 0, y: 0, firedAt: -1, stabbedAt: -1 };
   }
-  const shooterAt = (x: number, y: number): Rig | null => {
-    let best: Rig | null = null;
-    let bd = 1.6;
-    for (const r of rigs.values()) {
-      if (!r.visible) continue;
-      const d = Math.hypot(r.x - x, r.y - y);
-      if (d < bd) [bd, best] = [d, r];
-    }
-    return best;
-  };
 
   // --- projectiles ----------------------------------------------------------------------------------------------
   const rocketBody = material(new Color(0.32, 0.34, 0.38));
@@ -371,6 +361,8 @@ export function createGunRunScene(
   let shakeAmp = 0;
   let drawn = 0;
   const camPos = new Vec3();
+  const from = new Vec3();
+  const to = new Vec3();
   const tmp = new Vec3();
   const ray0 = new Vec3();
   const ray1 = new Vec3();
@@ -381,16 +373,10 @@ export function createGunRunScene(
       return drawn;
     },
     focus(x, y, aim, snap = false, lead) {
-      const lx = lead ? lead.x : aim ? aim.x * LEAD : 0;
-      const ly = lead ? lead.y : aim ? aim.y * LEAD * 0.7 : 0;
-      // Keep the view inside the yard (plus a margin) when the yard is bigger than the screen.
-      const aspect = device.width / Math.max(1, device.height);
-      const tanV = Math.tan((FOV * Math.PI) / 360);
-      const halfW = dist * zoom * tanV * aspect;
-      const halfH = (dist * zoom * tanV) / Math.sin(PITCH);
-      const mx = Math.max(0, ARENA_HALF_W + 2 - halfW);
-      const my = Math.max(0, ARENA_HALF_H + 1.5 - halfH);
-      focusWant.set(Math.max(-mx, Math.min(mx, x + lx)), 0, Math.max(-my, Math.min(my, y + ly)));
+      const l = lead ?? (aim ? { x: aim.x * CAMERA_LEAD, y: aim.y * CAMERA_LEAD * 0.7 } : { x: 0, y: 0 });
+      // Led, and kept inside the yard (plus a margin) when the yard is bigger than the screen.
+      const f = cameraFocus(x, y, l, device.width / Math.max(1, device.height), zoom);
+      focusWant.set(f.x, 0, f.y);
       if (snap || !focusSet) {
         focusAt.copy(focusWant);
         focusSet = true;
@@ -427,13 +413,15 @@ export function createGunRunScene(
       if (r.laser.enabled) {
         const dx = Math.cos(v.aim);
         const dy = Math.sin(v.aim);
-        const ox = v.x + dx * 0.6;
-        const oy = v.y + dy * 0.6;
+        // From the rifle's muzzle (last frame's pose: the fighter was placed above, its bones update next).
+        if (!r.fighter.muzzle(from)) from.set(v.x + dx * 0.6, GUN_Y, v.y + dy * 0.6);
+        const ox = from.x;
+        const oy = from.z;
         const others: { x: number; y: number; r: number }[] = [];
         for (const o of rigs.values())
           if (o !== r && o.visible && o.alive) others.push({ x: o.x, y: o.y, r: PLAYER_RADIUS });
         const len = tracerLength(ox, oy, dx, dy, w.range, others);
-        r.laser.setPosition(ox + (dx * len) / 2, GUN_Y, oy + (dy * len) / 2);
+        r.laser.setPosition(ox + (dx * len) / 2, from.y, oy + (dy * len) / 2);
         r.laser.setEulerAngles(0, (Math.atan2(dx, dy) * 180) / Math.PI, 0);
         r.laser.setLocalScale(0.025, 0.025, len);
       }
@@ -484,30 +472,32 @@ export function createGunRunScene(
         shells.delete(id);
       }
     },
-    tracer(x0, y0, x1, y1, weapon) {
-      const f = take(tracers);
-      const len = Math.hypot(x1 - x0, y1 - y0);
-      if (len < 0.05) return;
-      const sniper = weapon.id === 'sniper';
-      start(f, sniper ? 0.22 : weapon.pellets > 1 ? 0.08 : 0.06);
-      f.e.setPosition((x0 + x1) / 2, GUN_Y, (y0 + y1) / 2);
-      f.e.setEulerAngles(0, (Math.atan2(x1 - x0, y1 - y0) * 180) / Math.PI, 0);
-      f.size = sniper ? 0.09 : weapon.pellets > 1 ? 0.035 : 0.05;
-      f.e.setLocalScale(f.size, f.size, len);
-    },
-    muzzle(x, y, angle, weapon) {
-      const shooter = shooterAt(x, y);
-      if (shooter) shooter.firedAt = clock;
+    shot(shooter, x, y, angle, weapon, ends) {
+      const r = shooter ? rigs.get(shooter) : undefined;
+      if (r) r.firedAt = clock;
+      // From the barrel tip when the shooter's gun is drawn, else from the server's ray origin at gun height.
+      if (!r?.visible || !r.fighter.muzzle(from)) from.set(x + Math.cos(angle) * 0.4, GUN_Y, y + Math.sin(angle) * 0.4);
       const f = take(muzzles);
       start(f, 0.05);
-      const d = 0.8;
-      f.e.setPosition(x + Math.cos(angle) * d, GUN_Y + 0.05, y + Math.sin(angle) * d);
+      f.e.setPosition(from.x + Math.cos(angle) * 0.1, from.y, from.z + Math.sin(angle) * 0.1);
       f.size = weapon.pellets > 1 || weapon.kind !== 'hitscan' ? 0.75 : weapon.id === 'smg' ? 0.35 : 0.5;
       f.e.setLocalScale(f.size, f.size, f.size);
+      for (let i = 0; i + 1 < ends.length; i += 2) {
+        to.set(ends[i]!, from.y, ends[i + 1]!);
+        const len = to.distance(from);
+        if (len < 0.05) continue;
+        const t = take(tracers);
+        const sniper = weapon.id === 'sniper';
+        start(t, sniper ? 0.22 : weapon.pellets > 1 ? 0.08 : 0.06);
+        t.e.setPosition((from.x + to.x) / 2, from.y, (from.z + to.z) / 2);
+        t.e.lookAt(to);
+        t.size = sniper ? 0.09 : weapon.pellets > 1 ? 0.035 : 0.05;
+        t.e.setLocalScale(t.size, t.size, len);
+      }
     },
-    stab(x, y, angle) {
-      const shooter = shooterAt(x, y);
-      if (shooter) shooter.stabbedAt = clock;
+    stab(shooter, x, y, angle) {
+      const r = shooter ? rigs.get(shooter) : undefined;
+      if (r) r.stabbedAt = clock;
       const f = take(slashes);
       start(f, 0.14);
       f.vx = angle;

@@ -356,7 +356,9 @@ export function setupAnimLayers(
     for (const [state, s] of Object.entries(l.states)) {
       const track = clips.get(s.clip);
       if (!track) throw new Error(`no clip ${s.clip}`);
-      anim.assignAnimation(state, track, l.name);
+      // Speed and loop again here: assignAnimation's own defaults (1, true) overwrite what the state graph says, so
+      // without them a death loops, a held pose plays and a backwards run runs forwards.
+      anim.assignAnimation(state, track, l.name, s.speed ?? 1, s.loop ?? true);
     }
     const layer = anim.findAnimationLayer(l.name);
     if (!layer) throw new Error(`no layer ${l.name}`);

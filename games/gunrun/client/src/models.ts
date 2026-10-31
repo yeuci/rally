@@ -31,6 +31,8 @@ export interface Gun {
   t: readonly number[];
   r: readonly number[];
   s: readonly number[];
+  /** The barrel tip, in the gun mesh's own space. */
+  muzzle: readonly number[];
 }
 
 export interface Models {
@@ -50,7 +52,7 @@ export async function loadGunRunModels(app: Application, progress: (f: number) =
   const guns = {} as Record<WeaponId, Gun>;
   for (const id of Object.keys(MODELS.guns) as WeaponId[]) {
     const g = MODELS.guns[id];
-    guns[id] = { mesh: pinnedMesh(res.guns!, g.index), bone: g.bone, t: g.t, r: g.r, s: g.s };
+    guns[id] = { mesh: pinnedMesh(res.guns!, g.index), bone: g.bone, t: g.t, r: g.r, s: g.s, muzzle: g.muzzle };
   }
   const props = {} as Record<PropName, Prop>;
   for (const name of Object.keys(MODELS.props) as PropName[]) {

@@ -348,8 +348,11 @@ export function stageArt(shot: ArtShot, deps: { app: Application; scene: GunRunS
       if (w.kind !== 'hitscan') continue;
       const x0 = s.x + Math.cos(s.angle) * 0.4;
       const y0 = s.y + Math.sin(s.angle) * 0.4;
-      scene.tracer(x0, y0, x0 + Math.cos(s.angle) * s.len, y0 + Math.sin(s.angle) * s.len, w);
-      scene.muzzle(s.x, s.y, s.angle, w);
+      let shooter: string | null = null;
+      state.players.forEach((p, id) => {
+        if (p.x === s.x && p.y === s.y) shooter = id;
+      });
+      scene.shot(shooter, s.x, s.y, s.angle, w, [x0 + Math.cos(s.angle) * s.len, y0 + Math.sin(s.angle) * s.len]);
     }
     // A rocket points where it flies: set it a step back once, the frame loop puts it in place (and turns it).
     for (const [key, a] of Object.entries(pose.headings)) {

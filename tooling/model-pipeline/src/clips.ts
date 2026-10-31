@@ -1,4 +1,4 @@
-import { type Animation, type Document } from '@gltf-transform/core';
+import { type Accessor, type Animation, type Document, type Node as GltfNode } from '@gltf-transform/core';
 import { floats, pruneAccessors } from './soup.ts';
 
 /** Remove an animation with its samplers and channels. */
@@ -78,11 +78,63 @@ export function keepClips(doc: Document, names: readonly string[]): void {
 }
 
 /**
+ * Give each clip in `names` a channel for every node and path that any clip in the file animates: one key holding the
+ * node's rest value wherever the clip has none (reduceKeys drops the channels that stay at rest, so run this after it).
+ *
+ * Players keep a bone that the playing clip does not animate wherever the last clip that did left it (PlayCanvas
+ * does): without this, a bone only the death animates (the body's roll, the feet) stays in the death pose through
+ * the respawn's Idle, and a bone only the run moves keeps its last running frame. Complete the clips a layer that
+ * covers the whole body plays; leave a masked layer's clips alone, so the bones they don't animate stay the whole
+ * body's.
+ */
+export function completeClips(doc: Document, names: readonly string[]): void {
+  const root = doc.getRoot();
+  const anims = root.listAnimations();
+  const buffer = root.listBuffers()[0] ?? null;
+  type Path = 'translation' | 'rotation' | 'scale';
+  const all = new Map<string, { node: GltfNode; path: Path }>();
+  const keyOf = (node: GltfNode, path: string) => `${root.listNodes().indexOf(node)}.${path}`;
+  for (const a of anims) {
+    for (const ch of a.listChannels()) {
+      const node = ch.getTargetNode();
+      const path = ch.getTargetPath();
+      if (node && (path === 'translation' || path === 'rotation' || path === 'scale'))
+        all.set(keyOf(node, path), { node, path });
+    }
+  }
+  for (const name of names) {
+    const anim = anims.find((a) => a.getName() === name);
+    if (!anim) throw new Error(`no clip ${name}`);
+    const have = new Set(anim.listChannels().map((c) => keyOf(c.getTargetNode()!, c.getTargetPath()!)));
+    let input: Accessor | null = null;
+    for (const [key, { node, path }] of all) {
+      if (have.has(key)) continue;
+      input ??= doc
+        .createAccessor()
+        .setType('SCALAR')
+        .setArray(new Float32Array([0]))
+        .setBuffer(buffer);
+      const rest =
+        path === 'rotation' ? node.getRotation() : path === 'scale' ? node.getScale() : node.getTranslation();
+      const output = doc
+        .createAccessor()
+        .setType(path === 'rotation' ? 'VEC4' : 'VEC3')
+        .setArray(Float32Array.from(rest))
+        .setBuffer(buffer);
+      const sampler = doc.createAnimationSampler().setInput(input).setOutput(output).setInterpolation('LINEAR');
+      anim
+        .addSampler(sampler)
+        .addChannel(doc.createAnimationChannel().setTargetNode(node).setTargetPath(path).setSampler(sampler));
+    }
+  }
+}
+
+/**
  * A clip file: the skeleton and the named clips of a rigged model, without its meshes, materials or skin. Characters
  * that share the skeleton share it (PlayCanvas matches the tracks to bones by name). Primitives are disposed before
- * their meshes.
+ * their meshes. `complete`: the clips to give a channel for every animated bone (`completeClips`).
  */
-export function clipsOnly(doc: Document, names: readonly string[]): Document {
+export function clipsOnly(doc: Document, names: readonly string[], complete: readonly string[] = []): Document {
   const root = doc.getRoot();
   keepClips(doc, names);
   for (const n of root.listNodes()) n.setMesh(null).setSkin(null);
@@ -94,6 +146,7 @@ export function clipsOnly(doc: Document, names: readonly string[]): Document {
   for (const sk of root.listSkins()) sk.dispose();
   root.listBuffers()[0]?.setURI('');
   reduceKeys(doc);
+  completeClips(doc, complete);
   pruneAccessors(doc);
   return doc;
 }

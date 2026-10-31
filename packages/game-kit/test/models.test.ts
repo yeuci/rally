@@ -1,8 +1,26 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { gzipSync } from 'node:zlib';
-import { SEMANTIC_COLOR, SEMANTIC_NORMAL, SEMANTIC_POSITION, TYPE_FLOAT32, TYPE_UINT8, type Mesh } from 'playcanvas';
-import { fetchModel, hexRgb, inflate, linearByte, modelUrl, readMeshData, toLinear } from '../src/models.ts';
+import {
+  SEMANTIC_COLOR,
+  SEMANTIC_NORMAL,
+  SEMANTIC_POSITION,
+  TYPE_FLOAT32,
+  TYPE_UINT8,
+  type AnimTrack,
+  type Entity,
+  type Mesh,
+} from 'playcanvas';
+import {
+  fetchModel,
+  hexRgb,
+  inflate,
+  linearByte,
+  modelUrl,
+  readMeshData,
+  setupAnimLayers,
+  toLinear,
+} from '../src/models.ts';
 
 test('pipeline files are gunzipped unless the server already inflated them', async () => {
   const raw = new TextEncoder().encode('glTF model bytes');
@@ -63,4 +81,62 @@ test('vertex data is read back from an interleaved buffer (floats and colour byt
   assert.deepEqual(Array.from(d.normals), [0, 1, 0, 0, 0, 1]);
   assert.deepEqual(Array.from(d.colors), [10, 20, 30, 255, 40, 50, 60, 255]);
   assert.equal(d.uvs, null);
+});
+
+test('anim layers: every state keeps its own speed and loop (assignAnimation would reset them to 1 and true)', () => {
+  const assigned: [string, string, number, boolean][] = [];
+  let graph: { layers: { name: string; states: { name: string; speed?: number; loop?: boolean }[] }[] } | null = null;
+  const layers = new Map<string, { mask?: unknown }>();
+  const bone = { name: 'Abdomen', parent: null as unknown };
+  const model = {
+    name: 'model',
+    findByName: (n: string) => (n === 'Abdomen' ? bone : null),
+    addComponent() {
+      (model as { anim?: unknown }).anim = {
+        loadStateGraph: (g: typeof graph) => (graph = g),
+        assignAnimation: (state: string, _t: AnimTrack, layer: string, speed: number, loop: boolean) =>
+          assigned.push([layer, state, speed, loop]),
+        findAnimationLayer: (n: string) => {
+          if (!layers.has(n)) layers.set(n, {});
+          return layers.get(n);
+        },
+      };
+    },
+  };
+  bone.parent = { name: 'Hips', parent: model };
+  const clip = {} as AnimTrack;
+  setupAnimLayers(
+    model as unknown as Entity,
+    new Map([
+      ['Death', clip],
+      ['Run', clip],
+      ['Shoot', clip],
+    ]),
+    [
+      {
+        name: 'Body',
+        initial: 'Run',
+        states: { Run: { clip: 'Run' }, Back: { clip: 'Run', speed: -1 }, Die: { clip: 'Death', loop: false } },
+      },
+      { name: 'Arms', initial: 'Aim', mask: 'Abdomen', states: { Aim: { clip: 'Shoot', speed: 0 } } },
+    ],
+  );
+  assert.deepEqual(assigned, [
+    ['Body', 'Run', 1, true],
+    ['Body', 'Back', -1, true],
+    ['Body', 'Die', 1, false],
+    ['Arms', 'Aim', 0, true],
+  ]);
+  assert.deepEqual(
+    graph!.layers[0]!.states.find((x) => x.name === 'Die'),
+    { name: 'Die', speed: 1, loop: false },
+  );
+  assert.deepEqual(layers.get('Arms')!.mask, { 'Hips/Abdomen': { children: true } }, 'the mask path under the model');
+  assert.throws(
+    () =>
+      setupAnimLayers(model as unknown as Entity, new Map(), [
+        { name: 'X', initial: 'A', states: { A: { clip: 'nope' } } },
+      ]),
+    /no clip nope/,
+  );
 });

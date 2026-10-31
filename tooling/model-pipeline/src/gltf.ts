@@ -14,6 +14,7 @@ import {
   type Rgb,
   type Soup,
 } from './soup.ts';
+import { poseAt } from './bones.ts';
 import { disposeAnimation, reduceKeys } from './clips.ts';
 
 /** A .gltf with embedded (data URI) buffers, as the Quaternius packs ship them. */
@@ -225,6 +226,38 @@ export function attachment(doc: Document, name: string, triangles: number): Atta
   for (const prim of node.getMesh()!.listPrimitives()) appendPrimitive(g, prim, identity());
   const { t, r, s } = decompose(mul(chain, localMatrix(node)));
   return { soup: rebuild(g, { triangles }), colors: namedColors([node]), bone: p.getName(), t, r, s };
+}
+
+/**
+ * The vertex of mesh node `name` that reaches farthest along `direction` (world axes) in the pose of `clip` at `t`
+ * seconds (null: the rest pose), in the node's own mesh space: a gun's muzzle is the tip that points where the
+ * character faces in its aiming pose. A game hangs an empty entity there, under the gun, and reads its world position.
+ */
+export function farthestVertex(
+  doc: Document,
+  name: string,
+  direction: readonly [number, number, number],
+  clip: string | null,
+  t = 0,
+): [number, number, number] {
+  const node = doc
+    .getRoot()
+    .listNodes()
+    .find((n) => n.getName() === name && n.getMesh());
+  if (!node) throw new Error(`no mesh node ${name}`);
+  const world = poseAt(doc, clip, t).get(node)!;
+  let best = -Infinity;
+  let at: [number, number, number] = [0, 0, 0];
+  const w = [0, 0, 0];
+  for (const prim of node.getMesh()!.listPrimitives()) {
+    const p = floats(prim.getAttribute('POSITION'));
+    for (let i = 0; i < p.length; i += 3) {
+      transformPoint(world, p[i]!, p[i + 1]!, p[i + 2]!, w);
+      const d = w[0]! * direction[0] + w[1]! * direction[1] + w[2]! * direction[2];
+      if (d > best) [best, at] = [d, [p[i]!, p[i + 1]!, p[i + 2]!]];
+    }
+  }
+  return at;
 }
 
 // ---- static props -----------------------------------------------------------------------------------------------
