@@ -11,7 +11,7 @@ How a second person gets Rally running on their PC and phone against the shared 
 ## 1. Tools
 
 - Git, Node 22, pnpm 10 (`corepack enable` then `corepack prepare pnpm@10 --activate`, or `npm i -g pnpm@10`).
-- Expo Go on your phone (App Store / Play Store). No Apple or Expo account is needed to scan a QR code on your own Wi-Fi.
+- Expo Go on your phone (App Store / Play Store), and a free Expo account. Since SDK 57, Expo Go only opens a project when it is signed in to the same Expo account as the terminal running Metro (`npx expo login` on the PC, the same account in Expo Go).
 - Windows: keep the repo outside OneDrive (e.g. `C:\dev\rally`); PowerShell has no `&&`, run commands one per line.
 
 ## 2. Clone and install
@@ -53,6 +53,8 @@ pnpm dev:mobile:go          # Metro for Expo Go; add :clear after config changes
 ```
 
 Scan the QR code with the Camera app (iOS) or Expo Go (Android). Sign up in the app with your own email: that is your account for testing friends, presence and leaderboards against the shared backend.
+
+Phone on another network (or a friend's phone): `pnpm dev:mobile:go:tunnel` serves Metro through an Expo tunnel. Run it from the repo root (a bare `npx expo start` there fails with `Unable to resolve "../../App"`, since the app lives in `apps/mobile`), and the phone's Expo Go must be signed in to the Expo account the terminal uses. Your PC serves the app's code the whole time; a TestFlight build is what removes both requirements.
 
 ## 5. Run games you are working on
 

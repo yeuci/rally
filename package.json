@@ -19,7 +19,8 @@
     "dev:mobile:go": "pnpm --filter @rally/mobile start:go",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "dev:mobile:go:clear": "pnpm --filter @rally/mobile start:go:clear"
+    "dev:mobile:go:clear": "pnpm --filter @rally/mobile start:go:clear",
+    "dev:mobile:go:tunnel": "pnpm --filter @rally/mobile start:go:tunnel"
   },
   "devDependencies": {
     "eslint": "^9.39.5",
