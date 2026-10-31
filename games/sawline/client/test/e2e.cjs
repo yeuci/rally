@@ -9,6 +9,8 @@
 // an upgrade from the shop, pause/resume freeze/continue the shift clock, skipping to the whistle shows the results
 // card with earnings / best / leaderboard rank, leaderboard.submit + achievement.unlock('first_truck') + save.put
 // reached the harness, exitRequested → save → exit("host"), and ?nohost plays standalone.
+// Every page runs the dev-only ?lowfx=1 mode (≤ 15 fps, DPR 1, no MSAA or shadows): CI renders WebGL in software on a
+// small runner, and at full quality the shift clock crawls.
 // Env: SAWLINE_URL, E2E_SCREENSHOT=<png path> (default <tmp>/sawline.png).
 'use strict';
 
@@ -93,13 +95,14 @@ async function main() {
     });
 
     // Fresh state: no saves, boards or achievements from earlier runs.
-    await page.goto(SAWLINE_URL);
+    await page.goto(`${SAWLINE_URL}?lowfx=1`);
     await page.evaluate(() => {
       for (const k of Object.keys(localStorage)) if (k.startsWith('rally-harness:')) localStorage.removeItem(k);
     });
     await page.reload();
 
     // 1. Boot through the fake host.
+    assert.equal(await sawline(page, 'lowfx'), true, '?lowfx=1 in effect');
     await page.waitForSelector('#loading', { state: 'hidden', timeout: 30_000 });
     await page.waitForSelector('#prompt:not([hidden])');
     assert.equal(await page.textContent('#clock'), '4:00');
@@ -247,7 +250,7 @@ async function main() {
     // 11. Standalone (?nohost): plays with localStorage fallbacks, no bridge.
     const standalone = await context.newPage();
     standalone.on('pageerror', (e) => errors.push(e.message));
-    await standalone.goto(`${SAWLINE_URL}?nohost`);
+    await standalone.goto(`${SAWLINE_URL}?nohost&lowfx=1`);
     assert.equal(await standalone.evaluate(() => typeof window.__rally), 'undefined');
     await standalone.waitForSelector('#loading', { state: 'hidden', timeout: 30_000 });
     await standalone.evaluate(() => window.__sawline.autoplay(true));

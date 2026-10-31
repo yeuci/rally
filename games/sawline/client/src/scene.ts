@@ -372,7 +372,8 @@ export interface SawlineScene {
   readonly entityCount: number;
 }
 
-export function createSawlineScene(app: Application): SawlineScene {
+/** `shadows: false` for the dev-only low-render mode (see lowfx.ts). */
+export function createSawlineScene(app: Application, opts: { shadows?: boolean } = {}): SawlineScene {
   device = app.graphicsDevice;
   app.scene.ambientLight = new Color(0.48, 0.5, 0.58);
 
@@ -396,7 +397,7 @@ export function createSawlineScene(app: Application): SawlineScene {
     type: 'directional',
     color: new Color(1, 0.97, 0.9),
     intensity: 1.15,
-    castShadows: true,
+    castShadows: opts.shadows ?? true,
     shadowType: SHADOW_PCF5_16F,
     shadowBias: 0.2,
     normalOffsetBias: 0.05,
