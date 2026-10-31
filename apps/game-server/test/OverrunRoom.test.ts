@@ -15,6 +15,7 @@ import { setMatchResultSink, type MatchResult, type RecordedMatch } from '../src
 import { RallyRoom } from '../src/rooms/RallyRoom.js';
 import { overrunBoardScores, overrunResultFor, type OverrunRoom } from '../src/rooms/OverrunRoom.js';
 import { resetRateLimits } from '../src/routes.js';
+import { SERVER_VERSION } from '../src/version.js';
 import { waitFor } from './fakes.js';
 import { testServer } from './server.js';
 
@@ -107,7 +108,15 @@ describe('OverrunRoom', () => {
         wave: server.metadata.wave,
         serverVersion: server.metadata.serverVersion,
       },
-      { gameId: 'overrun', players: 1, maxPlayers: 4, private: false, phase: 'wave', wave: 1, serverVersion: 3 },
+      {
+        gameId: 'overrun',
+        players: 1,
+        maxPlayers: 4,
+        private: false,
+        phase: 'wave',
+        wave: 1,
+        serverVersion: SERVER_VERSION,
+      },
     );
     // Zombies arrive quantized but where the simulation has them (≈0.001 u).
     const [id, z] = [...server.match.zombies.entries()][0]!;

@@ -60,6 +60,18 @@
         "$TURBO_DEFAULT$",
         "../scripts/**"
       ]
+    },
+    "@rally/game-gunrun#typecheck": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "../scripts/**"
+      ]
+    },
+    "@rally/game-gunrun#lint": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "../scripts/**"
+      ]
     }
   }
 }

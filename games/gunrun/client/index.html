@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#1d2b1a" />
+    <title>Gun Run</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <canvas id="stage" aria-label="Gun Run arena"></canvas>
+    <div id="labels" aria-hidden="true"></div>
+    <div id="vignette" class="vignette" aria-hidden="true"></div>
+    <div id="stick-move" class="stick" hidden><i></i></div>
+    <div id="stick-aim" class="stick aim" hidden><i></i></div>
+    <div id="hud">
+      <div class="topbar">
+        <button id="exit" class="exit" type="button" aria-label="Leave the game">✕</button>
+        <div class="gunbox">
+          <span id="gun-icon" class="icon"></span>
+          <span class="text">
+            <span id="gun-name" class="name"></span>
+            <span class="meta"><b id="rung"></b><span id="pips" class="pips"></span><span id="ping"></span></span>
+          </span>
+        </div>
+        <div class="center">
+          <div id="clock" class="clock"></div>
+          <div id="leader" class="leader"></div>
+        </div>
+        <div class="side">
+          <div id="board" class="board"></div>
+          <div id="feed" class="feed" aria-live="polite"></div>
+        </div>
+      </div>
+      <button id="knife" class="knife" type="button" aria-label="Knife" hidden>🔪</button>
+      <div id="toasts" class="toasts" aria-live="polite"></div>
+      <div id="banner" class="banner" hidden>
+        <div id="banner-title" class="banner-title"></div>
+        <div id="banner-sub" class="banner-sub"></div>
+      </div>
+      <button id="start" class="start" type="button" hidden>Start the match</button>
+      <div id="hint" class="hint">Left thumb: move · Right thumb: aim &amp; fire · 🔪 knife</div>
+      <div id="paused" class="veil" hidden><div class="veil-title">Paused</div></div>
+      <div id="loading" class="veil solid">
+        <div class="veil-title">Gun Run</div>
+        <div class="bar"><i id="loading-bar"></i></div>
+      </div>
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
