@@ -3,8 +3,10 @@
  * A game's `scripts/models.ts` pins its packs (`loadPack`: the art-source release or `MODELS_SRC`, sha256-checked),
  * picks the models and turns them into small gzipped GLBs:
  * - `character()`: a rigged character as one skinned, vertex-coloured mesh (bone-parented parts merged in), welded,
- *   simplified and split flat; `attachment()`: a mesh rigged to a bone (a gun in the hand) with its bone transform;
- *   `clipsOnly()` / `reduceKeys()`: one shared clip file; `boneFrames()` + `halfFloats()`: clips baked into bone
+ *   simplified and split flat; `attachment()`: a mesh rigged to a bone (a gun in the hand) with its bone transform,
+ *   `farthestVertex()`: a point on it in a pose (its muzzle);
+ *   `clipsOnly()` / `reduceKeys()` / `completeClips()`: one shared clip file (the whole body's clips completed with
+ *   rest channels, so no bone keeps another clip's pose); `boneFrames()` + `halfFloats()`: clips baked into bone
  *   matrices for instanced crowds;
  * - `staticModel()` / `objSoup()`: props from glTF or OBJ (textured parts kept apart), `modelPack()`: many in one GLB;
  * - `Emitter`: gzipped files and a generated meta module. games/gunrun/scripts/models.ts is a complete example.
@@ -42,6 +44,7 @@ export {
 export {
   attachment,
   character,
+  farthestVertex,
   localMatrix,
   parents,
   readGltf,
@@ -53,7 +56,7 @@ export {
   type StaticModel,
   type StaticOptions,
 } from './gltf.ts';
-export { assertSameSkeleton, clipsOnly, disposeAnimation, keepClips, reduceKeys } from './clips.ts';
+export { assertSameSkeleton, clipsOnly, completeClips, disposeAnimation, keepClips, reduceKeys } from './clips.ts';
 export {
   boneFrames,
   fromHalf,

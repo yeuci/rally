@@ -14,6 +14,7 @@ import {
   decodePng,
   encodePng,
   entry,
+  farthestVertex,
   floats,
   fromHalf,
   halfFloats,
@@ -234,6 +235,12 @@ test('attachment(): a rigid mesh with its transform relative to its bone', () =>
   assert.equal(triangleCount(a.soup), 1);
 });
 
+test('farthestVertex(): the tip of a rigged mesh along a direction, in a pose, in the mesh’s own space', () => {
+  assert.deepEqual(farthestVertex(rig(), 'Gun', [1, 0, 0], null), [1, 0, 0]);
+  assert.deepEqual(farthestVertex(rig(), 'Gun', [0, 1, 0], 'Idle', 1), [0, 1, 0]);
+  assert.throws(() => farthestVertex(rig(), 'Nope', [1, 0, 0], null), /no mesh node Nope/);
+});
+
 test('clip files keep the skeleton and the named clips only; linear keys are reduced', async () => {
   const doc = clipsOnly(rig(), ['Idle']);
   const root = doc.getRoot();
@@ -253,6 +260,43 @@ test('clip files keep the skeleton and the named clips only; linear keys are red
   reduceKeys(doc);
   assert.equal(idle.listSamplers()[0]!.getInput()!.getCount(), 2);
   assert.ok((await new NodeIO().writeBinary(doc)).length > 0);
+});
+
+test('completed clips animate every bone any clip animates (rest values held), so none keeps another clip’s pose', async () => {
+  const src = rig();
+  // Wave lifts the root too; Idle (as cut, its still channels dropped) only moves the hand.
+  const wave = src
+    .getRoot()
+    .listAnimations()
+    .find((a) => a.getName() === 'Wave')!;
+  wave
+    .listSamplers()[0]!
+    .getOutput()!
+    .setArray(Float32Array.from([0, 0, 0, 0, 1, 0]));
+  const doc = clipsOnly(src, ['Idle', 'Wave'], ['Idle']);
+  const [idle, waved] = ['Idle', 'Wave'].map((n) =>
+    doc
+      .getRoot()
+      .listAnimations()
+      .find((a) => a.getName() === n)!,
+  );
+  const channels = (a: typeof idle) =>
+    a!
+      .listChannels()
+      .map((c) => `${c.getTargetNode()!.getName()}.${c.getTargetPath()}`)
+      .sort();
+  assert.deepEqual(channels(idle), ['Hand.translation', 'Root.translation'], 'Idle now holds the root at rest');
+  assert.deepEqual(channels(waved), ['Root.translation'], 'Wave was not asked for: left alone');
+  const held = idle!
+    .listChannels()
+    .find((c) => c.getTargetNode()!.getName() === 'Root')!
+    .getSampler()!;
+  assert.deepEqual(Array.from(floats(held.getInput())), [0]);
+  assert.deepEqual(Array.from(floats(held.getOutput())), [0, 0, 0]);
+  // Idle still lasts its full second (the held key adds no length), and the file still writes.
+  assert.equal(Math.max(...idle!.listSamplers().map((s) => Math.max(...floats(s.getInput())))), 1);
+  assert.ok((await new NodeIO().writeBinary(doc)).length > 0);
+  assert.throws(() => clipsOnly(rig(), ['Idle'], ['Nope']), /no clip Nope/);
 });
 
 test('staticModel(): node transforms applied, scaled, bounds; textured materials kept apart with uvs', () => {

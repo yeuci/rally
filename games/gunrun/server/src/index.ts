@@ -4,6 +4,7 @@ export * from './rng.ts';
 export * from './geometry.ts';
 export * from './props.gen.ts';
 export * from './map.ts';
+export * from './view.ts';
 export * from './input.ts';
 export * from './history.ts';
 export * from './match.ts';

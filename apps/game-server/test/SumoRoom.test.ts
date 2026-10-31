@@ -317,6 +317,8 @@ describe('SumoRoom', () => {
     again.onMessage('fx', () => {});
     assert.equal(again.sessionId, bob.sessionId);
     await waitFor(() => room.isConnected(bob.sessionId), 'bob reconnected');
+    // The reconnected client has no state until its first full patch arrives (`players` is undefined until then).
+    await waitFor(() => view(again).players?.get(bob.sessionId) !== undefined, "bob's client has the state again");
     assert.equal(room.seatCount, 2);
 
     // Flood: more than maxMessagesPerSecond (60) in one second → kicked, seat freed, token dead.

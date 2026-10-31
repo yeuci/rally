@@ -12,6 +12,7 @@ import {
 } from '@rally/game-kit';
 import { rally } from '@rally/sdk';
 import {
+  CAMERA_LEAD,
   ClientMessage,
   DT,
   FINAL_TIER,
@@ -37,7 +38,7 @@ import { loadGunRunModels } from './models.ts';
 import { connect, type Net } from './net.ts';
 import { Predictor, shouldPredict } from './predict.ts';
 import { MatchResultView } from './result.ts';
-import { LEAD, createGunRunScene, type GunRunScene } from './scene.ts';
+import { createGunRunScene, type GunRunScene } from './scene.ts';
 import { createSfx } from './sfx.ts';
 
 const TELEMETRY_MS = 10_000;
@@ -189,6 +190,13 @@ const bySlot = (st: GunRunStateView, slot: number): GunRunPlayerView | null => {
   return found;
 };
 const weaponAt = (w: number) => WEAPONS[WEAPON_IDS[w] ?? 'pistol'];
+const idOfSlot = (st: GunRunStateView, slot: number): string | null => {
+  let found: string | null = null;
+  st.players.forEach((p, id) => {
+    if (p.slot === slot) found = id;
+  });
+  return found;
+};
 
 /** Effects that matter to you right now are played on arrival; the rest wait for the render time (playFx). */
 function onFx(batch: FxBatch) {
@@ -221,25 +229,22 @@ function onFx(batch: FxBatch) {
 function playFx(e: FxEvent, st: GunRunStateView, myPos: Vec2 | null) {
   switch (e.k) {
     case 'shot': {
-      if (e.p === mySlot) break; // ours were drawn when we fired
+      if (e.p === mySlot || e.r.length < 4) break; // ours were drawn when we fired
       const w = weaponAt(e.w);
-      for (let i = 0; i + 3 < e.r.length; i += 4) {
-        scene.tracer(fromFx(e.r[i]!), fromFx(e.r[i + 1]!), fromFx(e.r[i + 2]!), fromFx(e.r[i + 3]!), w);
-      }
-      if (e.r.length >= 4) {
-        const [x0, y0, x1, y1] = e.r.slice(0, 4).map(fromFx) as [number, number, number, number];
-        scene.muzzle(x0, y0, Math.atan2(y1 - y0, x1 - x0), w);
-      }
+      const ends: number[] = [];
+      for (let i = 0; i + 3 < e.r.length; i += 4) ends.push(fromFx(e.r[i + 2]!), fromFx(e.r[i + 3]!));
+      const [x0, y0, x1, y1] = e.r.slice(0, 4).map(fromFx) as [number, number, number, number];
+      scene.shot(idOfSlot(st, e.p), x0, y0, Math.atan2(y1 - y0, x1 - x0), w, ends);
       sfx.shot(w.id, false);
       break;
     }
     case 'launch':
       if (e.p === mySlot) break;
-      scene.muzzle(fromFx(e.x), fromFx(e.y), e.a / 1000, weaponAt(e.w));
+      scene.shot(idOfSlot(st, e.p), fromFx(e.x), fromFx(e.y), e.a / 1000, weaponAt(e.w), []);
       sfx.launch(false);
       break;
     case 'stab':
-      if (e.p !== mySlot) scene.stab(fromFx(e.x), fromFx(e.y), e.a / 1000);
+      if (e.p !== mySlot) scene.stab(idOfSlot(st, e.p), fromFx(e.x), fromFx(e.y), e.a / 1000);
       if (e.hit || e.p !== mySlot) sfx.stab(e.hit);
       break;
     case 'hit':
@@ -398,23 +403,23 @@ function frame(dt: number) {
     const { shots, stabs } = gun.update(now, weapon, firing, stabbing);
     const angle = Math.atan2(aimDir.y, aimDir.x);
     for (let s = 0; s < shots; s++) {
-      if (weapon.kind === 'hitscan') {
-        for (const a of shotAngles(weapon, angle, Math.random() * 2 - 1)) {
-          const dx = Math.cos(a);
-          const dy = Math.sin(a);
-          const ox = myPos.x + dx * 0.4;
-          const oy = myPos.y + dy * 0.4;
-          const len = tracerLength(ox, oy, dx, dy, weapon.range, drawnTargets);
-          scene.tracer(ox, oy, ox + dx * len, oy + dy * len, weapon);
-        }
-        sfx.shot(weapon.id, true);
-      } else {
-        sfx.launch(true);
+      // Where each ray ends is decided as on the server (from the body, along the aim); the tracer is drawn from the
+      // gun's muzzle to there.
+      const ends: number[] = [];
+      for (const a of shotAngles(weapon, angle, Math.random() * 2 - 1)) {
+        const dx = Math.cos(a);
+        const dy = Math.sin(a);
+        const ox = myPos.x + dx * 0.4;
+        const oy = myPos.y + dy * 0.4;
+        const len = tracerLength(ox, oy, dx, dy, weapon.range, drawnTargets);
+        ends.push(ox + dx * len, oy + dy * len);
       }
-      scene.muzzle(myPos.x, myPos.y, angle, weapon);
+      scene.shot(me, myPos.x, myPos.y, angle, weapon, ends);
+      if (weapon.kind === 'hitscan') sfx.shot(weapon.id, true);
+      else sfx.launch(true);
     }
     if (stabs) {
-      scene.stab(myPos.x, myPos.y, angle);
+      scene.stab(me, myPos.x, myPos.y, angle);
       sfx.stab(false);
     }
   }
@@ -505,8 +510,8 @@ function frame(dt: number) {
   const lead =
     cursor && rect.width > 0
       ? {
-          x: Math.max(-1, Math.min(1, (cursor.x - rect.width / 2) / (rect.width / 2))) * LEAD,
-          y: Math.max(-1, Math.min(1, (cursor.y - rect.height / 2) / (rect.height / 2))) * LEAD * 0.7,
+          x: Math.max(-1, Math.min(1, (cursor.x - rect.width / 2) / (rect.width / 2))) * CAMERA_LEAD,
+          y: Math.max(-1, Math.min(1, (cursor.y - rect.height / 2) / (rect.height / 2))) * CAMERA_LEAD * 0.7,
         }
       : undefined;
   scene.focus(f.x, f.y, live ? aimDir : null, false, live ? lead : undefined);

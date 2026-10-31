@@ -28,7 +28,12 @@ Kit.
   scoreboard, and the next match starts 10 s later. Joining a match under way puts you on the lowest rung anyone is on.
 - **Rooms**: quick play and the server browser are public rooms of up to 8. **Bots** fill quick-play rooms to 4
   players while fewer humans are in, and one leaves for every human who joins: a lone player gets a match at once.
-  They are marked BOT everywhere (labels, scoreboard, kill feed) and never write results or boards. A private room
+  They are marked BOT everywhere (labels, scoreboard, kill feed) and never write results or boards. A bot sticks with
+  one opponent for ≈ 1.75 s (unless it dies, has been out of sight for 0.6 s while another is in view, or someone
+  much closer turns up), sweeps its aim round (at most 6 rad/s; it fires only within 0.3 rad of its target), steers
+  smoothly, and **only shoots someone who can see it**: inside that player's screen (the client camera's exact
+  framing, `server/src/view.ts`, on both 16:9 and 19.5:9 phones, 0.6 units in from the edges) with a clear line
+  between them. Off their screen, it closes in without firing. A private room
   (`?private`, a 6-character code) has no bots and waits in the lobby (a warm-up: shoot each other, no promotions)
   until someone presses **Start the match**; after its first match it keeps cycling like a public room.
 
@@ -61,6 +66,10 @@ is deterministic for a seed and the inputs (the tests replay one).
 - **Everyone else** (and rockets and grenades) is interpolated on the server's timeline with game-kit's `RenderClock`
   and `SnapshotBuffer` (2–3 patch intervals behind; players on Hermite curves through position and velocity). Effects
   carry their tick (`{ t, e: [...] }`) and play when the render time reaches it.
+- **Shots** start at the gun: muzzle flashes and tracers come from the barrel tip of the gun on the animated hand
+  (each gun's tip is measured by `scripts/models.ts` in the aiming pose) and run to where the shot's ray ends. The
+  rules' hit ray itself starts at the body (its centre plus 0.4 along the aim), so a gun poking round a corner can't
+  shoot through the wall it pokes past; the two meet within a fraction of a unit at the target.
 - **Lag compensation** (`server/src/history.ts`): every input says which server tick the client was drawing the others
   at (`rt`). The server keeps `tick − rt` as that client's view delay (at most 350 ms) and a 16-tick position history
   per player; a hitscan shot or a stab tests the others **where the shooter saw them** (interpolated between ticks),
@@ -126,7 +135,9 @@ All in `server/src/constants.ts` (shared by server and client):
 | `MAX_REWIND_MS` / `HISTORY_TICKS`   | 350 ms / 16         | Lag compensation                                            |
 | `BOT_FILL`                          | 4                   | Quick-play rooms are topped up with bots to this many       |
 
-Bot-only matches (`BotDriver`, server/src/bots.ts) last ≈ 4 minutes with 4 or 8 players and ≈ 6 with 2.
+Bots (`BotDriver`, server/src/bots.ts): `BOT_COMMIT` 1.75 s on a target, `BOT_TURN_RATE` 6 rad/s; who sees whom
+comes from server/src/view.ts (the camera numbers client/src/scene.ts draws with). Bot-only matches last ≈ 4–8
+minutes.
 
 ## Layout
 
@@ -137,11 +148,12 @@ Bot-only matches (`BotDriver`, server/src/bots.ts) last ≈ 4 minutes with 4 or 
 | `server/src/props.gen.ts`                                    | Every prop's bounds at the yard's scale (written by `scripts/models.ts`).                                                        |
 | `server/src/match.ts`                                        | `GunRunMatch`: the match flow, the ladder, weapons, lag-compensated hitscan and stabs, projectiles, barrels, med kits, respawns. |
 | `server/src/history.ts`                                      | `PositionHistory` (lag compensation).                                                                                            |
-| `server/src/bots.ts`                                         | `BotDriver`: grid paths, targets, aim error, reaction time.                                                                      |
+| `server/src/bots.ts`                                         | `BotDriver`: grid paths, committed targets, a capped aim sweep, smoothed steps, firing only from on the target's screen.         |
+| `server/src/view.ts`                                         | The camera's framing (shared with the client): where the camera looks, what is on a player's screen.                             |
 | `server/src/input.ts`, `results.ts`, `state.ts`              | Input parsing, achievements and board scores, the synced state / messages / effects / dev commands.                              |
 | `client/src/main.ts`                                         | Boot (Rally SDK ready/join/lifecycle), netcode wiring, the frame loop, the dev probe `__gunrun`.                                 |
 | `client/src/scene.ts`, `level.ts`                            | PlayCanvas: the yard (one batched mesh + the chain link), fighters, barrels, med kits, rockets, effects.                         |
-| `client/src/characters.ts`, `models.ts`                      | The rigged fighters (two anim layers, a gun on the hand bone, the slot's colour); loading the models.                            |
+| `client/src/characters.ts`, `pose.ts`, `models.ts`           | Rigged fighters (two anim layers, a gun and its muzzle on the hand); the body's state (death once, held); loading the models.    |
 | `client/src/models/`                                         | Generated by `scripts/models.ts`: gzipped GLBs and `meta.gen.ts`. Don't edit by hand.                                            |
 | `client/src/controls.ts`                                     | Twin-stick touch, the knife button, keyboard and mouse.                                                                          |
 | `client/src/predict.ts`, `localgun.ts`, `sender.ts`          | Prediction, your own shots and stabs, the input sender (with the view tick).                                                     |
@@ -154,8 +166,11 @@ Bot-only matches (`BotDriver`, server/src/bots.ts) last ≈ 4 minutes with 4 or 
 ```bash
 pnpm --filter @rally/game-gunrun-server test   # yard colliders and reachability, movement, the ladder, knife demotion and
                                                # the knife win, lag compensation, every weapon kind, barrels, med kits,
-                                               # respawns, joins, the time limit, determinism, bots, results, game.json
-pnpm --filter @rally/game-gunrun test          # input sender, prediction, local gun, HUD standings, results, art poses, lowfx
+                                               # respawns, joins, the time limit, determinism, bots (target commitment,
+                                               # the aim sweep, smooth steps, never firing from off someone's screen),
+                                               # the camera framing, results, game.json
+pnpm --filter @rally/game-gunrun test          # input sender, prediction, local gun, HUD standings, results, art poses, lowfx,
+                                               # the body's states (death once, respawn), every bone in the body clips
 pnpm --filter @rally/game-server test          # GunRunRoom over real sockets (bots, inputs, a kill, a knife win and its
                                                # result, private rooms, 8 seats, patch bandwidth with 8 players)
 pnpm --filter @rally/game-gunrun test:e2e      # Playwright, two Chrome players (needs Chromium; playwright via NODE_PATH)
@@ -197,18 +212,21 @@ zip>`), through the shared pipeline (`tooling/model-pipeline`, runtime half in g
   skinned or bone-parented head and shoulder pads merge into **one skinned mesh** (one draw call), welded, simplified
   with meshoptimizer to ≈ 2,500 triangles (from 4,600–5,800) and split flat again. The 14 guns rigged to the hand are left
   out. The three share one skeleton (checked), so `clips.glb` holds the 6 clips the game plays once (keyframes reduced:
-  33 KB). In the game a fighter has a body layer (Idle, Run, Run backwards when backpedalling, Death, Wave for the
+  34 KB). The body layer's clips are completed so that each animates every bone any clip moves (rest values where it
+  had none): PlayCanvas leaves a bone the playing clip doesn't animate where the last clip left it, which kept a
+  respawned fighter half in its death pose. In the game a fighter has a body layer (Idle, Run, Run backwards when backpedalling, Death, Wave for the
   winner) and an upper-body layer from the abdomen (the shooting pose held as the aim, played while firing, a punch
   for a stab); the player's slot colour replaces the character's main material (8 colours over 3 characters).
 - **Guns**: the ladder's 9 guns are taken from the character's hand with their transform relative to the `Index1.R`
   bone (meta), ≈ 320 triangles each, and hung on the same bone of the animated character, exactly where the kit puts
-  them.
+  them. Each gun's muzzle (its farthest vertex along the character's facing in the aiming pose) is in the meta too:
+  shots start there.
 - **Props**: 31 props at the yard's scale (×1.2), one node each in `props.glb`, ≈ 11,500 triangles in all; the chain
   link keeps its texture (a 128² downscale of `Fence.png`, embedded) as a separate `:alpha` mesh. The game batches the
   placed props into one mesh (paints the containers red, blue, green and yellow while batching), draws it double-sided
   (the kit's materials are), and the rules derive the colliders from the same placements and bounds.
 
-Everything ships gzipped: **≈ 530 KB in all** (characters 71 KB each, guns 70 KB, clips 33 KB, props 212 KB); the CDN
+Everything ships gzipped: **≈ 530 KB in all** (characters 71 KB each, guns 70 KB, clips 34 KB, props 212 KB); the CDN
 compresses scripts but not binary model types, so fflate inflates them before PlayCanvas parses them from memory (the
 CSP has no `blob:` in `connect-src`). Meshes shared by entities that come and go are pinned with `incRefCount()` (the
 character meshes too: every fighter draws a recoloured copy).

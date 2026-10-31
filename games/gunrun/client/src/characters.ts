@@ -3,6 +3,7 @@ import {
   Entity,
   MeshInstance,
   Quat,
+  type Vec3,
   type AnimComponentLayer,
   type Application,
   type RenderComponent,
@@ -10,12 +11,15 @@ import {
 } from 'playcanvas';
 import { PALETTE, type WeaponId } from '@rally/game-gunrun-server';
 import { MODELS, type CharacterName, type Models } from './models.ts';
+import { BodyPlan } from './pose.ts';
 
 /**
  * Rigged fighters: one of the kit's three characters per player slot (slot % 3), its main material in the slot's
- * colour, the tier's gun in the right hand exactly where the kit rigs it. Two anim layers: the body (Idle / Run /
- * Run backwards / Death / Wave) and the upper body from the abdomen (the shooting pose held as the aim, played while
- * firing, a punch for a stab).
+ * colour, the tier's gun in the right hand exactly where the kit rigs it (with its muzzle, where shots start). Two anim
+ * layers: the body (Idle / Run / Run backwards / Death / Wave, chosen by pose.ts) and the upper body from the abdomen
+ * (the shooting pose held as the aim, played while firing, a punch for a stab). The body's clips animate every bone
+ * (scripts/models.ts completes them): PlayCanvas leaves a bone the playing clip doesn't animate where the last one
+ * did, which kept a respawn half in its death pose.
  */
 
 /** Model units → world units: the characters are ≈ 2.2 tall in the kit, ≈ 2.1 in the yard (chunky and readable). */
@@ -48,6 +52,11 @@ export interface Fighter {
   update(state: FighterState): void;
   /** Flicker (spawn protection). */
   setVisible(on: boolean): void;
+  /**
+   * World position of the gun's muzzle (the barrel tip, following the animation) into `out`; false without a gun in
+   * hand (dead, the knife).
+   */
+  muzzle(out: Vec3): boolean;
   destroy(): void;
 }
 
@@ -101,47 +110,70 @@ export function createFighter(app: Application, models: Models, slot: number, ma
 
   const hand = model.findByName(MODELS.guns.pistol.bone) as Entity | null;
   if (!hand) throw new Error(`fighter has no ${MODELS.guns.pistol.bone}`);
-  const guns = new Map<WeaponId, Entity>();
+  const guns = new Map<WeaponId, { e: Entity; muzzle: Entity }>();
   let current: WeaponId | null = null;
   const gunEntity = (id: WeaponId) => {
-    let e = guns.get(id);
-    if (!e) {
+    let gun = guns.get(id);
+    if (!gun) {
       const g = models.guns[id];
-      e = new Entity(id);
+      const e = new Entity(id);
       e.addComponent('render', { meshInstances: [new MeshInstance(g.mesh, material)], castShadows: true });
       e.setLocalPosition(g.t[0]!, g.t[1]!, g.t[2]!);
       e.setLocalRotation(new Quat(g.r[0]!, g.r[1]!, g.r[2]!, g.r[3]!));
       e.setLocalScale(g.s[0]!, g.s[1]!, g.s[2]!);
+      // The barrel tip, in the gun mesh's own space (the pipeline measured it in the kit's aiming pose).
+      const muzzle = new Entity('muzzle');
+      muzzle.setLocalPosition(g.muzzle[0]!, g.muzzle[1]!, g.muzzle[2]!);
+      e.addChild(muzzle);
       hand.addChild(e);
-      guns.set(id, e);
+      guns.set(id, (gun = { e, muzzle }));
     }
-    return e;
+    return gun;
   };
 
+  const plan = new BodyPlan();
+  let flicker = true;
+  let shown = true;
+  const show = () => {
+    for (const mi of meshes) mi.visible = flicker && shown;
+  };
   let stabbing = false;
   return {
     root,
     slot,
     setWeapon(id) {
       if (id === current) return;
-      if (current) gunEntity(current).enabled = false;
+      if (current) gunEntity(current).e.enabled = false;
       current = id;
-      if (id) gunEntity(id).enabled = true;
+      if (id) gunEntity(id).e.enabled = true;
     },
     update(s) {
-      const want = !s.alive ? 'Death' : s.celebrating ? 'Wave' : s.speed > 0.3 ? (s.back ? 'Back' : 'Run') : 'Idle';
-      if (body.activeState !== want) body.transition(want, want === 'Death' ? 0.08 : 0.15);
+      // Death once and held; a respawn snaps into Idle / Run; not drawn before the first spawn (see pose.ts).
+      const step = plan.next(s);
+      if (step.visible !== shown) {
+        shown = step.visible;
+        show();
+      }
+      if (step.change) body.transition(step.state, step.blend, step.restart ? 0 : undefined);
+      const want = step.state;
       model.anim!.speed = want === 'Run' || want === 'Back' ? Math.max(0.6, Math.min(1.6, s.speed / RUN_STRIDE)) : 1;
       arms.weight = !s.alive || s.celebrating ? 0 : 1;
       // A stab plays to its end; otherwise the gun is held at the aim, or fired.
-      if (s.stabbing && !stabbing) arms.transition('Stab', 0.05);
+      if (s.stabbing && !stabbing) arms.transition('Stab', 0.05, 0);
       stabbing = s.stabbing;
       const busy = arms.activeState === 'Stab' && arms.activeStateProgress < 0.95;
       const armsWant = busy ? 'Stab' : s.firing ? 'Shoot' : 'Aim';
       if (arms.activeState !== armsWant) arms.transition(armsWant, 0.08);
     },
     setVisible(on) {
-      for (const mi of meshes) mi.visible = on;
+      if (on === flicker) return;
+      flicker = on;
+      show();
+    },
+    muzzle(out) {
+      if (!current || current === 'knife') return false;
+      out.copy(gunEntity(current).muzzle.getPosition());
+      return true;
     },
     destroy() {
       root.destroy();

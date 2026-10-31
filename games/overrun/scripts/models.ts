@@ -384,6 +384,62 @@ function reduceKeys(doc: Document, tolerance = 5e-4): void {
   }
 }
 
+/**
+ * Give each of `clips` a channel for every bone any clip animates, constant at the bone's rest value where the clip
+ * leaves it alone: PlayCanvas keeps a bone that the playing clip does not animate where the previous clip put it, so
+ * getting up through StandUp into Idle kept some of the death's pose. The upper-body shot is not completed (the legs
+ * layer drives what it leaves alone).
+ */
+function completeClips(doc: Document, clips: readonly string[]): void {
+  const root = doc.getRoot();
+  const buffer = root.listBuffers()[0]!;
+  type Path = 'translation' | 'rotation' | 'scale';
+  const animated = new Map<GltfNode, Set<Path>>();
+  for (const anim of root.listAnimations()) {
+    for (const ch of anim.listChannels()) {
+      const node = ch.getTargetNode();
+      const path = ch.getTargetPath() as Path;
+      if (!node || !['translation', 'rotation', 'scale'].includes(path)) continue;
+      if (!animated.has(node)) animated.set(node, new Set());
+      animated.get(node)!.add(path);
+    }
+  }
+  for (const anim of root.listAnimations()) {
+    if (!clips.includes(anim.getName())) continue;
+    const has = new Set(
+      anim.listChannels().map((ch) => `${root.listNodes().indexOf(ch.getTargetNode()!)}|${ch.getTargetPath()}`),
+    );
+    const end = Math.max(...anim.listSamplers().map((sm) => sm.getInput()!.getMax([0])[0]!));
+    for (const [node, paths] of animated) {
+      for (const path of paths) {
+        if (has.has(`${root.listNodes().indexOf(node)}|${path}`)) continue;
+        const rest =
+          path === 'rotation' ? node.getRotation() : path === 'scale' ? node.getScale() : node.getTranslation();
+        const sampler = doc
+          .createAnimationSampler()
+          .setInterpolation('LINEAR')
+          .setInput(
+            doc
+              .createAccessor()
+              .setType('SCALAR')
+              .setArray(new Float32Array([0, end]))
+              .setBuffer(buffer),
+          )
+          .setOutput(
+            doc
+              .createAccessor()
+              .setType(path === 'rotation' ? 'VEC4' : 'VEC3')
+              .setArray(new Float32Array([...rest, ...rest]))
+              .setBuffer(buffer),
+          );
+        anim
+          .addSampler(sampler)
+          .addChannel(doc.createAnimationChannel().setTargetNode(node).setTargetPath(path).setSampler(sampler));
+      }
+    }
+  }
+}
+
 function disposeAnimation(anim: Animation): void {
   for (const s of anim.listSamplers()) s.dispose();
   for (const c of anim.listChannels()) c.dispose();
@@ -632,6 +688,7 @@ async function main() {
   for (const sk of clips.getRoot().listSkins()) sk.dispose();
   clips.getRoot().listBuffers()[0]!.setURI('');
   reduceKeys(clips);
+  completeClips(clips, ['Idle', 'Run', 'Walk', 'Death', 'StandUp']);
   pruneAccessors(clips);
   const clipSize = emit('survivor-clips.glb', await io.writeBinary(clips));
   console.log(`  survivor-clips.glb.gz  ${SURVIVOR_CLIPS.join(', ')}, ${kb(clipSize)}`);
