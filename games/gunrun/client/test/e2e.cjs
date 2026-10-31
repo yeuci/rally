@@ -323,7 +323,12 @@ async function main() {
     }
     assert.equal(await alice.textContent('#banner-title'), 'You win!');
     assert.equal(await bob.textContent('#banner-title'), 'guest-Alice wins!');
-    assert.ok((await probe(bob, 'feed')).includes('guest-Alice>guest-Bob demoted'), 'the knife kill demoted Bob');
+    // The kill effect plays at Bob's render time (a couple of patches behind the state that ended the match).
+    await bob
+      .waitForFunction(() => window.__gunrun.feed.includes('guest-Alice>guest-Bob demoted'), null, { timeout: 5_000 })
+      .catch(() => {});
+    const bobFeed = await probe(bob, 'feed');
+    assert.ok(bobFeed.includes('guest-Alice>guest-Bob demoted'), `the knife kill demoted Bob (Bob's feed: ${bobFeed})`);
     await bob.screenshot({ path: `${SHOT}-result.png` });
     passed(
       `knife win: "You win!" / "guest-Alice wins!" with the scoreboard and the guest result line (${SHOT}-result.png)`,
