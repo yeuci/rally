@@ -568,6 +568,7 @@ export type Database = {
           id: string
           key: string
           max_score_per_minute: number | null
+          mode: string
           period: string
           sort: string
         }
@@ -577,6 +578,7 @@ export type Database = {
           id?: string
           key: string
           max_score_per_minute?: number | null
+          mode?: string
           period?: string
           sort: string
         }
@@ -586,6 +588,7 @@ export type Database = {
           id?: string
           key?: string
           max_score_per_minute?: number | null
+          mode?: string
           period?: string
           sort?: string
         }

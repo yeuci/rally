@@ -33,6 +33,14 @@ export {
 } from './keyboard.ts';
 export { SnapshotBuffer, type Sample, type SnapshotBufferOptions } from './interpolation.ts';
 export {
+  TwinStickTracker,
+  createTwinStick,
+  type TwinStickHandle,
+  type TwinStickOptions,
+  type TwinStickTouch,
+  type TwinStickVector,
+} from './twinstick.ts';
+export {
   RenderClock,
   ServerClock,
   interpolationDelay,

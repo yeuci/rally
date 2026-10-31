@@ -28,7 +28,11 @@ export const SEED_FILE = join(SUPABASE_DIR, 'seed.sql');
 
 export type SupabaseRole = 'anon' | 'authenticated' | 'service_role';
 
-export async function createTestDb(opts: { seed?: boolean } = {}): Promise<PGlite> {
+/**
+ * `before`: apply only the migrations whose file name sorts before it (e.g. `'20261031000300'`), to set up data a
+ * later migration backfills; apply the rest with {@link applyMigrations}. `seed` needs every migration.
+ */
+export async function createTestDb(opts: { seed?: boolean; before?: string } = {}): Promise<PGlite> {
   const db = new PGlite({ extensions: { citext, pgcrypto } });
 
   // Supabase scaffolding that the migrations assume exists.
@@ -133,11 +137,18 @@ export async function createTestDb(opts: { seed?: boolean } = {}): Promise<PGlit
     select set_config('search_path', 'public, extensions', false);
   `);
 
-  for (const file of readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql')).sort()) {
-    await db.exec(readFileSync(join(MIGRATIONS_DIR, file), 'utf8'));
-  }
+  await applyMigrations(db, { before: opts.before });
   if (opts.seed) await applySeed(db);
   return db;
+}
+
+/** Apply the migrations in file-name order: those from `from` (inclusive) and before `before` (exclusive). */
+export async function applyMigrations(db: PGlite, opts: { from?: string; before?: string } = {}): Promise<void> {
+  for (const file of readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql')).sort()) {
+    if (opts.from !== undefined && file < opts.from) continue;
+    if (opts.before !== undefined && file >= opts.before) continue;
+    await db.exec(readFileSync(join(MIGRATIONS_DIR, file), 'utf8'));
+  }
 }
 
 export async function applySeed(db: PGlite): Promise<void> {

@@ -6,6 +6,10 @@ import { PublishError } from './errors.ts';
 import { BUCKET, type PublishPlan } from './plan.ts';
 
 type Log = (line: string) => void;
+type Bucket = ReturnType<SupabaseClient['storage']['from']>;
+
+/** Waits before the 2nd, 3rd and 4th attempt of an upload. */
+const UPLOAD_RETRY_MS: readonly number[] = [1000, 3000, 9000];
 
 /**
  * Refuse anything that is not a service-role key: the anon/publishable key cannot write Storage or the
@@ -36,17 +40,19 @@ export function assertServiceRoleKey(key: string): void {
 /**
  * Upload the art and the bundle, then write the catalog rows. Storage first, so neither a version row nor the games
  * row ever points at missing files. Then games → game_versions → leaderboards/achievements → pointer flip.
- * `gameDir` (`games/<slug>`) is where local art files are read from; required when `plan.art` is not empty.
+ * `gameDir` (`games/<slug>`) is where local art files are read from; required when `plan.art` is not empty. A dropped
+ * connection or a 408 / 429 / 5xx on an upload is retried after each of `retryDelaysMs` (default 1 s, 3 s, 9 s).
  */
 export async function executePublish(
   sb: SupabaseClient,
   plan: PublishPlan,
   distDir: string,
   log: Log = console.log,
-  opts: { gameDir?: string } = {},
+  opts: { gameDir?: string; retryDelaysMs?: readonly number[] } = {},
 ): Promise<{ versionId: string }> {
   const { slug, version, prefix } = plan;
   const storage = sb.storage.from(BUCKET);
+  const retryDelaysMs = opts.retryDelaysMs ?? UPLOAD_RETRY_MS;
 
   // 1. Immutability preflight: storage prefix and version row.
   const listed = await storage.list(prefix.replace(/\/$/, ''), { limit: 1 });
@@ -102,12 +108,7 @@ export async function executePublish(
         return;
       }
       const body = await readFile(path.join(gameDir, a.source));
-      const { error } = await storage.upload(a.objectKey, body, {
-        contentType: a.headers['content-type'],
-        upsert: true,
-        headers: { 'cache-control': a.headers['cache-control'] },
-      });
-      if (error) throw new PublishError(`upload ${BUCKET}/${a.objectKey} failed: ${error.message}`);
+      await uploadWithRetry(storage, a.objectKey, body, a.headers, true, retryDelaysMs, log);
       log(`  ↑ ${a.objectKey}  (${a.size} B, ${a.usedBy.join(', ')})  [art ${artDone}/${plan.art.length}]`);
     });
   }
@@ -116,12 +117,7 @@ export async function executePublish(
   let done = 0;
   await inPool(plan.uploads, 4, async (u) => {
     const body = await readFile(path.join(distDir, u.path));
-    const { error } = await storage.upload(u.objectKey, body, {
-      contentType: u.headers['content-type'],
-      upsert: plan.force,
-      headers: { 'cache-control': u.headers['cache-control'] },
-    });
-    if (error) throw new PublishError(`upload ${BUCKET}/${u.objectKey} failed: ${error.message}`);
+    await uploadWithRetry(storage, u.objectKey, body, u.headers, plan.force, retryDelaysMs, log);
     done++;
     log(`  ↑ ${u.objectKey}  (${u.size} B, ${u.headers['cache-control']})  [${done}/${plan.uploads.length}]`);
   });
@@ -162,6 +158,42 @@ export async function executePublish(
     );
   }
   return { versionId };
+}
+
+/**
+ * One object upload, retried when a second try can help: no HTTP answer at all (`fetch failed`, a reset connection)
+ * or a 408 / 429 / 5xx. Any other answer (a duplicate, a bad key, a too-large body) fails at once. Retries upsert:
+ * the attempt that "failed" may have been stored before the connection dropped, and the preflight already made sure
+ * the version's prefix holds nothing else (art is content-addressed, so it always upserts).
+ */
+async function uploadWithRetry(
+  storage: Bucket,
+  objectKey: string,
+  body: Buffer,
+  headers: { 'content-type': string; 'cache-control': string },
+  upsert: boolean,
+  retryDelaysMs: readonly number[],
+  log: Log,
+): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    const { error } = await storage.upload(objectKey, body, {
+      contentType: headers['content-type'],
+      upsert: upsert || attempt > 0,
+      headers: { 'cache-control': headers['cache-control'] },
+    });
+    if (!error) return;
+    const status = (error as { status?: unknown }).status;
+    const transient = typeof status !== 'number' || status === 408 || status === 429 || status >= 500;
+    const wait = retryDelaysMs[attempt];
+    if (!transient || wait === undefined) {
+      const tries = attempt > 0 ? ` after ${attempt + 1} attempts` : '';
+      throw new PublishError(`upload ${BUCKET}/${objectKey} failed${tries}: ${error.message}`);
+    }
+    log(
+      `  ! ${objectKey}: ${error.message}${typeof status === 'number' ? ` (HTTP ${status})` : ''}; retrying in ${wait} ms`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, wait));
+  }
 }
 
 /** Run `fn` over `items` with at most `size` calls in flight; rejects on the first failure. */
@@ -212,7 +244,7 @@ export async function syncProgressCatalog(
     if (error) throw new PublishError(`upsert leaderboards.${row.key} failed: ${error.message}`);
     const bound = row.max_score_per_minute === null ? 'unbounded' : `<= ${row.max_score_per_minute}/min`;
     log(
-      `  ✓ leaderboards.${row.key} ${boardKeys.has(row.key) ? 'updated' : 'created'} (${row.sort}, ${row.period}, ${bound})`,
+      `  ✓ leaderboards.${row.key} ${boardKeys.has(row.key) ? 'updated' : 'created'} (${row.sort}, ${row.period}, ${row.mode}, ${bound})`,
     );
   }
 

@@ -263,6 +263,7 @@ export default function GamePage() {
             loading={boardsQuery.isLoading}
             error={boardsQuery.isError}
             highlightMe={highlightMe}
+            multiplayer={!solo}
             onRetry={() => void boardsQuery.refetch()}
           />
         </View>

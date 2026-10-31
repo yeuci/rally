@@ -663,8 +663,9 @@ describe('server_record_match', () => {
     db = await createTestDb();
     await insertMultiplayerGame(db, 'sumo');
     await db.exec(`
-      insert into public.leaderboards (game_id, key, sort, period) values
-        ('sumo', 'wins', 'desc', 'weekly'), ('sumo', 'total', 'desc', 'alltime');
+      -- Cumulative boards (mode 'total', 20261031000300_board_modes.sql): deltas add up.
+      insert into public.leaderboards (game_id, key, sort, period, mode) values
+        ('sumo', 'wins', 'desc', 'weekly', 'total'), ('sumo', 'total', 'desc', 'alltime', 'total');
       insert into public.achievements (game_id, key, title, icon) values
         ('sumo', 'first_win', 'First win', '🏆'), ('sumo', 'yokozuna', 'Yokozuna', null);
     `);

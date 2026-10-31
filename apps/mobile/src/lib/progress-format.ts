@@ -22,6 +22,17 @@ export function formatScore(score: number, locale?: string): string {
   return new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(score);
 }
 
+/**
+ * The leaderboard header's subtitle for a board's mode (`leaderboards.mode`): "Total" for a cumulative board
+ * (Sumo's wins), "Best run" for a best-score board of a multiplayer game (one run's score, Overrun's wave). Solo
+ * boards and rows without a mode (an older database) get none.
+ */
+export function boardModeLabel(mode: string | null | undefined, multiplayer: boolean): string | null {
+  if (mode === 'total') return 'Total';
+  if (mode === 'best' && multiplayer) return 'Best run';
+  return null;
+}
+
 /** Board key → tab label: "high-score" → "High score", "best_time" → "Best time". */
 export function boardLabel(key: string): string {
   const words = key

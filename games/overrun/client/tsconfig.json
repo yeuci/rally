@@ -1,0 +1,15 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "useDefineForClassFields": true,
+    "moduleDetection": "force",
+    "types": ["vite/client", "node"],
+    // The shared rules are compiled from source (same as the Vite alias), so prediction never runs stale code.
+    "paths": { "@rally/game-overrun-server": ["../server/src/index.ts"] }
+  },
+  "include": ["src", "test", "../scripts", "vite.config.ts"]
+}

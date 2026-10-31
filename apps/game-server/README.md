@@ -2,10 +2,11 @@
 
 The single Colyseus deployment (architecture §6). One Room class per game, registered in `src/registry.ts`:
 
-| Room    | Class                | Game                                            |
-| ------- | -------------------- | ----------------------------------------------- |
-| `hello` | `rooms/HelloRoom.ts` | games/spike (M0 round-trip room, a RallyRoom)   |
-| `sumo`  | `rooms/SumoRoom.ts`  | games/sumo (rules in `@rally/game-sumo-server`) |
+| Room      | Class                  | Game                                                                    |
+| --------- | ---------------------- | ----------------------------------------------------------------------- |
+| `hello`   | `rooms/HelloRoom.ts`   | games/spike (M0 round-trip room, a RallyRoom)                           |
+| `sumo`    | `rooms/SumoRoom.ts`    | games/sumo (rules in `@rally/game-sumo-server`)                         |
+| `overrun` | `rooms/OverrunRoom.ts` | games/overrun (rules in `@rally/game-overrun-server`; server v3, 1–4 p) |
 
 ```bash
 pnpm dev:server                          # tsx watch src/dev.ts (NODE_ENV=development), http://localhost:2567
@@ -38,7 +39,7 @@ locked down rather than open.
 | `SUPABASE_JWT_SECRET`       | unset                                  | Legacy projects only: accept HS256 tokens signed with this secret.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `SUPABASE_SERVICE_ROLE_KEY` | unset                                  | **Server-only secret** (a `sb_secret_…` key, or the legacy `service_role` JWT; never the anon/publishable key, which is refused). Mirrors rooms into `game_rooms`, checks `user_sanctions` and writes match results through the `server_*` RPCs. **Required in production whenever `SUPABASE_URL` is set** (the server refuses to start). Optional in development: without it the server prints one warning, the mirror only logs (`[mirror] (no service key) …`), sanctions are not checked and results are only logged. Ignored without `SUPABASE_URL`. Never commit it: on the VPS it lives in `.env.production` (chmod 600). |
 | `RALLY_ALLOW_GUESTS`        | `1` in development and test, `0` else  | `1`: a missing or invalid token joins as a guest (`guest:<random>` id, `guest-<name>` display name). `0`: the matchmaking request fails with `AUTH_FAILED`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `RALLY_DEV_RULES`           | `0` (`1` under `NODE_ENV=test`)        | `1`: rooms honour client-supplied match `rules` (Sumo's shorter matches). Never set it on a server other people use.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `RALLY_DEV_RULES`           | `0` (`1` under `NODE_ENV=test`)        | `1`: rooms honour client-supplied match `rules` (Sumo's shorter matches) and Overrun's `dev` test message. Never set it on a server other people use.                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `RALLY_CORS_ORIGINS`        | `*` in development and test, none else | `*` or a comma-separated list of origins that get `Access-Control-Allow-Origin` (never with credentials). The shell's native fetch needs no CORS; browsers do (the dev harness on another port).                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `RALLY_MONITOR_PASSWORD`    | unset                                  | Mounts `/monitor` and the playground behind HTTP basic auth (any user name, this password), in any environment. Unset: localhost only in development, not mounted otherwise.                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `PORT`                      | `2567`                                 | From `@colyseus/tools`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
@@ -149,8 +150,11 @@ pm2's default 1.6 s `kill_timeout`). Without a service key the batches are logge
 ## Match results (`src/results.ts`)
 
 Rooms call `reportMatchResult({ matchId, gameId, roomId, private, winnerUserId, startedAt, endedAt, durationSec,
-rounds, leaderboardDeltas, players: [{ userId, username, guest, placement, score, achievements }], details })` when a
-match ends (`matchId` = `<roomId>:<n>`). It never throws and resolves with what Supabase answered, or null when
+rounds, leaderboardDeltas, leaderboardScores?, players: [{ userId, username, guest, placement, score, achievements }],
+details })` when a match ends (`matchId` = `<roomId>:<n>`). Boards follow their game.json `mode`: `leaderboardDeltas`
+(integers 1…10 that add up) are for `total` boards (Sumo's `wins`), `leaderboardScores` (the match's score; the
+database keeps each player's best, never lowering it) for `best` boards (Overrun's `wave` / `kills`); the RPC ignores
+the other pairing. It never throws and resolves with what Supabase answered, or null when
 nothing was recorded. Rooms never await it in their tick.
 
 - **With a service key:** `createSupabaseResultSink(api)` calls `server_record_match` (one transaction: `game_stats`,
@@ -175,3 +179,17 @@ player of a finished match gets one, sent with the deciding round (well before t
 Guests get theirs at once; signed-in players when the write answered (a player who left by then gets nothing). The
 HUD shows it on the match-over banner. `SERVER_VERSION` 2 (`src/version.ts`) marks this message; Sumo's
 `server.minVersion` is 2.
+
+**Overrun** (`SERVER_VERSION` 3 adds the room; `server.minVersion` 3) reports every finished run the same way:
+`winnerUserId: null` (co-op, so `game_stats` counts the play but no win or loss), `rounds` = the wave reached,
+`leaderboardScores` `{ wave, kills }` per signed-in player (the wave the run reached and the player's kills in it,
+uncapped: both are best-run boards), the five achievement keys, and the run's exact numbers in `details`. Its
+`result` message carries `{ boards, unlocked }` (no wins/losses); see games/overrun/README.md. With dev rules
+(`RALLY_DEV_RULES=1` or `NODE_ENV=test`) the room also honours a `dev` message (freeze the horde, spawn, hurt,
+place, end the wave, god mode) used by the Overrun e2e; it is ignored everywhere else.
+
+Tests: every room test file shares one booted server in one mocha process (`test/server.ts`). Fake timers
+(`mock.timers`) replace the global setTimeout/clearTimeout that Node's bundled undici (the SDK's `fetch` and
+`WebSocket`) uses too, so keep them on only while no client request is open (see `test/reconnect.test.ts`): otherwise
+an undici keep-alive timer escapes its clearTimeout and later throws an uncaught `TypeError` (`parser.deref(...)` is
+undefined), and Colyseus shuts the shared server down for every later file.

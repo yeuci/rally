@@ -32,6 +32,8 @@ The harness (`test/harness.ts`) stubs what Supabase provides: the `auth`/`storag
 `auth.uid()`/`auth.role()`/`auth.jwt()`, the `anon`/`authenticated`/`service_role` roles, and Supabase's
 default privileges. `asUser`/`asAnon`/`asService` run queries the way PostgREST does: JWT claims in
 `request.jwt.claims` and `set role <role>`, so grants and policies are evaluated for real.
+`createTestDb({ before: '<timestamp>' })` stops before a migration and `applyMigrations(db, { from })` applies the
+rest, for testing a backfill against rows written under the old schema.
 
 ## 1. Create the hosted project
 
@@ -223,7 +225,7 @@ signal; the test `signup without birth_date metadata is refused` pins that behav
 
   | Table | Who reads | Who writes |
   |---|---|---|
-  | `leaderboards` (`game_id`, `key`, `sort` asc/desc, `period` alltime/weekly/daily, `max_score_per_minute`) | anon + authenticated, published games only | `tooling/publish-game` (service role), from game.json |
+  | `leaderboards` (`game_id`, `key`, `sort` asc/desc, `period` alltime/weekly/daily, `max_score_per_minute`, `mode` best/total since `20261031000300`) | anon + authenticated, published games only | `tooling/publish-game` (service role), from game.json |
   | `achievements` (`game_id`, `key`, `title`, `description`, `icon`, `hidden`) | anon + authenticated, published games only | `tooling/publish-game` |
   | `leaderboard_entries` (`leaderboard_id`, `period_key`, `user_id`, `score`, `source`) | nobody directly since `20261030000400`: `leaderboard_top` / `my_leaderboard_rank` | `submit_solo_score`; game server (M3) |
   | `user_achievements` (`user_id`, `achievement_id`, `unlocked_at`) | authenticated: every row (public profiles); anonymous sessions: own rows | `unlock_achievement` |
@@ -378,9 +380,10 @@ signal; the test `signup without birth_date metadata is refused` pins that behav
   are skipped (absent from `players`). Per eligible player: `game_stats.plays + 1`, `wins + 1` for the winner,
   `losses + 1` when someone else (a guest included) won, ties neither, `playtime_s += clamp(durationSec, 0, 7200)`,
   `last_played_at = max(current, least(endedAt, now()))`. `leaderboardDeltas[key][userId]` (integers 1..10, existing
-  boards, eligible players) are added with `source = 'server'` in `period_key(board.period, least(endedAt, now()))`,
-  except for matches under 20 s or private matches with fewer than 2 eligible players, and at most 60 board writes per
-  player per hour (`server_board` bucket). Known achievement keys in `players[].achievements` are unlocked. `boards`
+  `total` boards, eligible players) are added with `source = 'server'` in `period_key(board.period, least(endedAt,
+  now()))`; since `20261031000300` `leaderboardScores` feed `best` boards (see below). Both are skipped for matches
+  under 20 s or private matches with fewer than 2 eligible players, and limited to 60 board writes per player per hour
+  (`server_board` bucket). Known achievement keys in `players[].achievements` are unlocked. `boards`
   in the result lists every board of the game where the player has an entry for the match's period;
   `unlocked` lists only what this match unlocked. Malformed input is `INVALID` (`private` must be a boolean), an
   unknown game `NOT_FOUND`; the payload is stored in `match_results` (purged after 180 days).
@@ -411,6 +414,28 @@ signal; the test `signup without birth_date metadata is refused` pins that behav
   A bump does not touch `games.updated_at` (the `games_updated_at` trigger skips updates whose only change is
   `visits`). `private.purge_stale_rows()` also deletes `game_visits_daily` rows of UTC days more than 90 days ago;
   `games.visits` keeps the total.
+- `20261031000300_board_modes.sql` (pinned by `test/board-modes.test.ts`): `leaderboards.mode` text, default `best`,
+  check `best | total`, synced from game.json `leaderboards[].mode` by `tooling/publish-game`.
+
+  | Mode | Entry per player and period | Written by |
+  |---|---|---|
+  | `best` (default) | the best score by `sort` (desc: highest, asc: lowest), never lowered | `submit_solo_score` (solo games); `server_record_match` `leaderboardScores` (multiplayer) |
+  | `total` | the sum of the server's deltas | `server_record_match` `leaderboardDeltas` only; `submit_solo_score` raises `INVALID: leaderboard <key> is not a best-score board` |
+
+  ```ts
+  await rpc('server_record_match', { p_match: { ...matchResult, private,
+    leaderboardDeltas: { wins: { [winner]: 1 } },                  // total boards: integers 1..10, added
+    leaderboardScores: { wave: { [uid]: 14 }, kills: { [uid]: 231 } } } }); // best boards: kept if better
+  ```
+
+  A `leaderboardScores` value must be a number > 0 and at most `max_score_per_minute × ceil(durationSec / 60)` (at
+  least 1 minute) on a bounded board, `1e9` (`MAX_SERVER_BOARD_SCORE`) otherwise; it replaces the entry only when
+  strictly better by the board's sort (`on conflict … do update … where better`, so concurrent matches cannot lower
+  it). A score for a `total` board or a delta for a `best` board is ignored (nothing written, no token taken);
+  `leaderboardScores` absent or null is fine, any other non-object is `INVALID`. Same anti-boost rules, eligibility,
+  idempotency and return shape as before. The migration sets Sumo's `wins` to `total` and deletes server-written
+  entries on `best` boards (Overrun's `wave` / `kills` were cumulative deltas under the old rule); solo entries are
+  untouched.
 - The word filter matches whole words, case-insensitively; see the header of `seed.sql` for what that
   does and does not catch.
 

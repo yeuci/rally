@@ -142,8 +142,10 @@ Neither table is client-readable (`code`, `player_ids`). Freshness rules:
    - `plays+1`.
    - `wins+1` if `userId = winnerUserId`; `losses+1` if there is a winner and it is someone else. Ties count neither.
    - `playtime_s += clamp(duration_s, 0, 7200)`, `last_played_at = ended_at`.
-4. Leaderboards: for each `leaderboardDeltas[key][userId]` (an integer from 1 to 10, for an eligible player), with a
-   board `(game_id, key)` that exists:
+4. Leaderboards (by `leaderboards.mode` since `20261031000300_board_modes.sql`: `leaderboardScores[key][userId]` on
+   `best` boards keep each player's best score, > 0 and capped, never lowered; the rest of this step describes
+   `total` boards): for each `leaderboardDeltas[key][userId]` (an integer from 1 to 10, for an eligible player), with a
+   `total` board `(game_id, key)` that exists:
    - `period_key(board.period, least(ended_at, now()))`, the same bucket rule as `submit_solo_score`.
    - Upsert `score = score + delta`, `source='server'`.
    - Skipped (anti-boosting) when the match ran under 20 s, or when it was private with fewer than 2 eligible players.
