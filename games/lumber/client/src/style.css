@@ -1,0 +1,149 @@
+:root {
+  --bg: #9fd4e8;
+  --fg: #fffaf0;
+  --ink: #3b2a1a;
+  --muted: #8a7560;
+  --card: rgba(255, 248, 236, 0.94);
+  --line: rgba(59, 42, 26, 0.12);
+  --cash: #3fb862;
+  --warn: #e5533d;
+  --gold: #f5b82e;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+* { box-sizing: border-box; }
+html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: var(--bg); }
+body {
+  color: var(--fg);
+  font-family: ui-rounded, 'SF Pro Rounded', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  touch-action: none;
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+[hidden] { display: none !important; }
+
+#hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+#labels { position: fixed; inset: 0; pointer-events: none; z-index: 4; overflow: hidden; }
+
+/* --- top bar ---------------------------------------------------------------------------------------- */
+.bar {
+  position: absolute; left: 12px; right: 12px; top: calc(var(--safe-top) + 10px);
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.chip {
+  display: flex; align-items: center; gap: 6px; min-width: 92px; padding: 7px 12px; border-radius: 14px;
+  background: rgba(59, 42, 26, 0.72); font-weight: 800; font-size: 19px; font-variant-numeric: tabular-nums;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.18);
+}
+.chip.earned { justify-content: flex-end; flex-direction: column; align-items: flex-end; gap: 0; padding: 4px 12px; }
+.chip.earned small { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.75; font-weight: 700; }
+.chip.earned span { font-size: 18px; }
+.chip.wallet.bump { animation: bump 180ms ease-out; }
+.cash-icon {
+  display: inline-block; width: 22px; height: 14px; border-radius: 3px; background: var(--cash);
+  box-shadow: inset 0 0 0 2px #2f9a4c;
+}
+.clock {
+  min-width: 78px; padding: 6px 14px; border-radius: 14px; text-align: center;
+  background: rgba(255, 250, 240, 0.92); color: var(--ink); font-weight: 800; font-size: 24px; font-variant-numeric: tabular-nums;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.15);
+}
+.clock.hurry { color: var(--warn); animation: pulse-scale 1s ease-in-out infinite; }
+@keyframes pulse-scale { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+@keyframes bump { 0% { transform: scale(1.14); } 100% { transform: scale(1); } }
+
+.hint {
+  position: absolute; left: 50%; top: calc(var(--safe-top) + 64px); transform: translateX(-50%);
+  max-width: 86vw; padding: 8px 14px; border-radius: 12px; background: rgba(59, 42, 26, 0.72);
+  font-weight: 700; font-size: 15px; text-align: center; white-space: nowrap;
+  animation: hint-in 240ms ease-out;
+}
+@keyframes hint-in { from { opacity: 0; transform: translate(-50%, -6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+.prompt {
+  position: absolute; left: 0; right: 0; bottom: calc(var(--safe-bottom) + 14vh);
+  text-align: center; font-weight: 800; font-size: 20px; letter-spacing: 0.02em;
+  text-shadow: 0 2px 0 rgba(59, 42, 26, 0.45);
+  animation: fade-pulse 1.6s ease-in-out infinite;
+}
+@keyframes fade-pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+
+/* Floating joystick: positioned by transform at the press point. */
+.stick {
+  position: fixed; left: 0; top: 0; width: 104px; height: 104px; margin: -52px 0 0 -52px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18); border: 2px solid rgba(255, 255, 255, 0.55);
+}
+.stick > i {
+  position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+/* --- world labels ------------------------------------------------------------------------------------ */
+.label { position: absolute; left: 0; top: 0; white-space: nowrap; will-change: transform; }
+.label.pad {
+  display: flex; flex-direction: column; align-items: center; padding: 3px 9px 4px; border-radius: 10px;
+  background: rgba(59, 42, 26, 0.78); color: var(--fg); line-height: 1.05;
+}
+.label.pad b { font-size: 16px; font-weight: 800; color: #9df0b0; }
+.label.pad span { font-size: 10px; font-weight: 700; opacity: 0.9; }
+.label.pad { padding-bottom: 7px; }
+.label.pad u { position: absolute; left: 6px; bottom: 3px; height: 3px; border-radius: 2px; background: #9df0b0; max-width: calc(100% - 12px); }
+.label.warn, .label.max {
+  padding: 3px 8px; border-radius: 8px; font-size: 12px; font-weight: 900; letter-spacing: 0.08em; color: #fff;
+}
+.label.warn { background: var(--warn); animation: fade-pulse 0.8s ease-in-out infinite; }
+.label.max { background: var(--gold); color: var(--ink); }
+.label.till { font-size: 26px; font-weight: 900; color: var(--gold); text-shadow: 0 2px 0 rgba(59, 42, 26, 0.6); animation: bob 0.6s ease-in-out infinite alternate; }
+@keyframes bob { from { margin-top: -4px; } to { margin-top: 4px; } }
+.label.order {
+  display: flex; align-items: center; gap: 4px; padding: 3px 8px 6px; border-radius: 10px; position: absolute;
+  background: rgba(255, 250, 240, 0.95); color: var(--ink); font-size: 14px; font-weight: 900;
+}
+.label.order u {
+  position: absolute; left: 6px; bottom: 2px; height: 3px; border-radius: 2px; background: var(--cash);
+  max-width: calc(100% - 12px); transition: width 120ms linear;
+}
+.label.order u.low { background: var(--warn); }
+.plank-icon {
+  display: inline-block; width: 18px; height: 8px; border-radius: 2px; background: #e3b878;
+  box-shadow: 0 -4px 0 #f0c98f;
+  margin-top: 4px;
+}
+.label.float { font-size: 18px; font-weight: 900; text-shadow: 0 2px 0 rgba(0, 0, 0, 0.25); }
+.label.float.money { color: #b6ffc8; }
+.label.float.spend { color: #ffe08a; }
+.label.float.lost { color: #ffb4a8; font-size: 15px; }
+
+/* --- cards & veils ----------------------------------------------------------------------------------- */
+.card {
+  position: absolute; left: 50%; bottom: calc(var(--safe-bottom) + 6vh); transform: translateX(-50%);
+  width: min(88vw, 340px); padding: 20px 20px 16px; border-radius: 22px; text-align: center; color: var(--ink);
+  background: var(--card); border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(59, 42, 26, 0.25);
+  pointer-events: auto; animation: rise 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes rise { from { opacity: 0; transform: translate(-50%, 16px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.card .label-sm { color: var(--muted); font-size: 13px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+.card .big { font-size: 58px; font-weight: 900; line-height: 1.05; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: #2f9a4c; }
+.card .best { margin-top: 2px; font-size: 16px; font-weight: 700; }
+.card .best.new { color: #d18a00; }
+.card .stats { margin-top: 8px; font-size: 14px; color: var(--muted); font-weight: 600; }
+.card .board { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 14px; color: var(--muted); }
+.card .unlocked { margin-top: 8px; font-size: 13px; font-weight: 700; color: #d18a00; }
+.card button {
+  margin-top: 14px; width: 100%; padding: 14px 0; border: 0; border-radius: 14px;
+  background: #3fb862; color: #fff; font: inherit; font-size: 18px; font-weight: 800; cursor: pointer;
+  box-shadow: 0 3px 0 #2f9a4c;
+}
+.card button:active { transform: translateY(2px); box-shadow: 0 1px 0 #2f9a4c; }
+
+.veil {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+  background: rgba(59, 42, 26, 0.45); pointer-events: auto;
+}
+.veil.solid { background: var(--bg); }
+.veil-title { font-size: 30px; font-weight: 900; letter-spacing: 0.01em; text-shadow: 0 2px 0 rgba(59, 42, 26, 0.35); }
+.loadbar { width: 140px; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.35); overflow: hidden; }
+.loadbar > i { display: block; height: 100%; width: 0; background: #fff; transition: width 160ms; }
