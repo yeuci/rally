@@ -25,6 +25,8 @@ export interface Board {
   key: string;
   sort: string;
   period: string;
+  /** `best` | `total` (`leaderboards.mode`, 20261031000300_board_modes.sql). */
+  mode: string;
 }
 
 export const progressKeys = {
@@ -48,7 +50,7 @@ export function useGameBoards(gameId: string | undefined) {
     queryFn: async (): Promise<Board[]> => {
       const { data, error } = await supabase
         .from('leaderboards')
-        .select('id, key, sort, period')
+        .select('id, key, sort, period, mode')
         .eq('game_id', gameId!)
         .order('key');
       if (error) throw error;

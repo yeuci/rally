@@ -4,6 +4,7 @@ import {
   isLocalArtPath,
   normalizeLocalArtPath,
   type GameManifest,
+  type LeaderboardMode,
   type LeaderboardPeriod,
   type ManifestFile,
 } from '@rally/protocol';
@@ -54,6 +55,8 @@ export interface LeaderboardRow {
   period: LeaderboardPeriod;
   /** null clears a bound that was removed from game.json. */
   max_score_per_minute: number | null;
+  /** `best` (default) or `total` (packages/db `20261031000300_board_modes.sql`); always sent, so a change syncs. */
+  mode: LeaderboardMode;
 }
 
 /** `public.achievements` upsert on `(game_id, key)`. */
@@ -178,6 +181,7 @@ export function leaderboardRowsFromManifest(m: GameManifest): LeaderboardRow[] {
     sort: b.sort,
     period: b.period ?? 'alltime',
     max_score_per_minute: b.maxScorePerMinute ?? null,
+    mode: b.mode ?? 'best',
   }));
 }
 

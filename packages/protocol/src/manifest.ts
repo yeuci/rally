@@ -14,6 +14,13 @@ export type AgeRating = z.infer<typeof AgeRating>;
 export const LeaderboardPeriod = z.enum(['alltime', 'weekly', 'daily']);
 export type LeaderboardPeriod = z.infer<typeof LeaderboardPeriod>;
 
+/**
+ * How a leaderboard keeps scores (`public.leaderboards.mode`): `best` = each player's best score per period (by
+ * `sort`), `total` = server-written deltas add up (multiplayer only, e.g. match wins).
+ */
+export const LeaderboardMode = z.enum(['best', 'total']);
+export type LeaderboardMode = z.infer<typeof LeaderboardMode>;
+
 /** Bridge capabilities a game may request; each sits behind a host kill switch (App Store 4.7.2). */
 export const GameCapability = z.enum(['haptics', 'orientationLock']);
 export type GameCapability = z.infer<typeof GameCapability>;
@@ -114,8 +121,9 @@ export const GameManifestSchema = z.object({
   sdk: z.string().default('^1'),
   ageRating: AgeRating,
   /**
-   * Solo leaderboards (`public.leaderboards`, synced by `tooling/publish-game` on (game, id)). `id` is the board
-   * key games pass to `rally.leaderboard.submit/top`; the database requires `^[a-z][a-z0-9_-]{0,31}$`.
+   * Leaderboards (`public.leaderboards`, synced by `tooling/publish-game` on (game, id)). `id` is the board key games
+   * pass to `rally.leaderboard.submit/top` (solo) or the game server reports (multiplayer); the database requires
+   * `^[a-z][a-z0-9_-]{0,31}$`.
    */
   leaderboards: z
     .array(
@@ -127,6 +135,12 @@ export const GameManifestSchema = z.object({
         maxScorePerMinute: z.number().positive().optional(),
         /** How often the board resets (00:00 UTC; weekly = ISO week, Monday). Omitted = `alltime`. */
         period: LeaderboardPeriod.optional(),
+        /**
+         * `best` (omitted): one entry per player and period with their best score (solo submits, or a multiplayer
+         * run's score from the game server). `total`: the game server's per-match deltas add up (Sumo's `wins`);
+         * solo games cannot submit to it.
+         */
+        mode: LeaderboardMode.optional(),
       }),
     )
     .default([]),

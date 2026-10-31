@@ -81,11 +81,12 @@ sign in to keep your stats" for guests, "Result not saved" when the write failed
 
 - `winnerUserId: null` (co-op: plays and playtime count, no wins or losses), `rounds` = the wave reached, standings
   by score.
-- **Boards** `wave` and `kills` (desc). `server_record_match` **adds** an integer delta of 1…10 per player and match
-  to a server board, so the boards are cumulative: `wave` grows by the waves a run reached (at most 10 per run) and
-  `kills` by its kills (at most 10 per run). A real "best wave" board needs a max-mode server board in the database
-  (not part of this change); the exact numbers of every run are kept in `details` (`match_results.payload`). As
-  for every server board, runs under 20 s and private runs with fewer than 2 signed-in players skip the boards.
+- **Boards** `wave` and `kills` (desc) are **best run** boards (`mode` omitted in game.json = `best`): the room sends
+  `leaderboardScores` with each signed-in player's `wave` = the wave the run reached and `kills` = their kills in the
+  run, uncapped (`runBoardScores`; 0 is not sent). `server_record_match` keeps each player's highest score and never
+  lowers it, so a board shows everyone's best single run. The exact numbers of every run are also kept in `details`
+  (`match_results.payload`). As for every server board, runs under 20 s and private runs with fewer than 2 signed-in
+  players skip the boards; scores above 1e9 are ignored.
 - **Achievements:** `first_wave_10` (reach wave 10), `horde_slayer` (500 kills in one run), `medic` (3 revives in one
   run), `untouchable` (clear a whole wave, from its first second, without taking damage), `demolition` (10 kills with
   one barrel you set off).
@@ -136,7 +137,7 @@ All in `server/src/constants.ts` (shared by server and client):
 | `server/src/geometry.ts`                               | Circles vs boxes, rays vs boxes and circles, line of sight.                                                              |
 | `server/src/match.ts`                                  | `OverrunMatch`: run/wave state machine, players, zombies, weapons, explosives, pickups, revives, combo.                  |
 | `server/src/input.ts`                                  | `parseInput`, `RateWindow`.                                                                                              |
-| `server/src/results.ts`                                | Achievements and board deltas of a run.                                                                                  |
+| `server/src/results.ts`                                | Achievements and best-run board scores of a run.                                                                         |
 | `server/src/state.ts`                                  | The synced state as the client reads it, messages, effects, `ResultMessage`, dev commands.                               |
 | `client/src/main.ts`                                   | Boot (Rally SDK ready/join/lifecycle), netcode wiring, the frame loop, the dev probe `__overrun`.                        |
 | `client/src/scene.ts`                                  | PlayCanvas: the yard (one merged mesh), players, the instanced horde (one draw per variant), effects.                    |

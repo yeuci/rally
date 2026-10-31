@@ -212,7 +212,7 @@ export async function syncProgressCatalog(
     if (error) throw new PublishError(`upsert leaderboards.${row.key} failed: ${error.message}`);
     const bound = row.max_score_per_minute === null ? 'unbounded' : `<= ${row.max_score_per_minute}/min`;
     log(
-      `  ✓ leaderboards.${row.key} ${boardKeys.has(row.key) ? 'updated' : 'created'} (${row.sort}, ${row.period}, ${bound})`,
+      `  ✓ leaderboards.${row.key} ${boardKeys.has(row.key) ? 'updated' : 'created'} (${row.sort}, ${row.period}, ${row.mode}, ${bound})`,
     );
   }
 

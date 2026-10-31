@@ -4,6 +4,7 @@ import {
   achievementCount,
   achievementIcon,
   boardLabel,
+  boardModeLabel,
   formatScore,
   orderBoards,
   parseMyRank,
@@ -30,6 +31,16 @@ test('formatScore groups integers and keeps at most two decimals', () => {
   assert.equal(formatScore(0, 'en-US'), '0');
   assert.equal(formatScore(-7, 'en-US'), '-7');
   assert.equal(formatScore(Number.NaN, 'en-US'), '—');
+});
+
+test('boardModeLabel: Total for total boards, Best run for best boards of multiplayer games, else none', () => {
+  assert.equal(boardModeLabel('total', true), 'Total');
+  assert.equal(boardModeLabel('total', false), 'Total');
+  assert.equal(boardModeLabel('best', true), 'Best run');
+  assert.equal(boardModeLabel('best', false), null);
+  assert.equal(boardModeLabel(undefined, true), null);
+  assert.equal(boardModeLabel(null, true), null);
+  assert.equal(boardModeLabel('other', true), null);
 });
 
 test('boardLabel humanises board keys', () => {

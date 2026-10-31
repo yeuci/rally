@@ -37,6 +37,10 @@ function catalogIssues(m: GameManifest): string[] {
       );
     }
     if (seenBoards.has(b.id)) issues.push(`leaderboards[${i}].id "${b.id}" is listed twice`);
+    // Totals are written only by the game server (submit_solo_score refuses them).
+    if (b.mode === 'total' && !m.server) {
+      issues.push(`leaderboards[${i}] "${b.id}": mode "total" needs a multiplayer game ("server"); solo boards keep the best`);
+    }
     seenBoards.add(b.id);
   });
   const seenKeys = new Set<string>();

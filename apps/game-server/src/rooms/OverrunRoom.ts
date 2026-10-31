@@ -8,9 +8,9 @@ import {
   ServerMessage,
   TICK_HZ,
   ZombieKind,
-  boardDelta,
   parseInput,
   runAchievements,
+  runBoardScores,
   sanitizeRules,
   seedFrom,
   type FxEvent,
@@ -31,13 +31,15 @@ import {
   OverrunZombie,
 } from './schema/OverrunState.js';
 
-/** The board deltas of a run for one player (game.json `wave` and `kills`; see results.ts in the game package). */
-export function overrunBoardDeltas(
+/**
+ * One player's scores for a run on the best-run boards (game.json `wave` and `kills`): the wave reached and their
+ * kills, uncapped; null for nothing to report. See results.ts in the game package.
+ */
+export function overrunBoardScores(
   summary: RunSummary,
   standingId: string,
 ): { wave: number | null; kills: number | null } {
-  const s = summary.standings.find((x) => x.id === standingId);
-  return { wave: s ? boardDelta(summary.wave) : null, kills: s ? boardDelta(s.kills) : null };
+  return runBoardScores(summary, standingId);
 }
 
 /**
@@ -344,12 +346,13 @@ export class OverrunRoom extends RallyRoom<OverrunState> {
         } satisfies MatchResultPlayer,
       };
     });
-    const deltas: Record<string, Record<string, number>> = { wave: {}, kills: {} };
+    // Best-run boards: the run's numbers per signed-in player; the database keeps each player's best.
+    const scores: Record<string, Record<string, number>> = { wave: {}, kills: {} };
     for (const { sessionId, player } of players) {
       if (player.guest) continue;
-      const d = overrunBoardDeltas(summary, sessionId);
-      if (d.wave) deltas.wave![player.userId] = d.wave;
-      if (d.kills) deltas.kills![player.userId] = d.kills;
+      const s = overrunBoardScores(summary, sessionId);
+      if (s.wave) scores.wave![player.userId] = s.wave;
+      if (s.kills) scores.kills![player.userId] = s.kills;
     }
     const result: MatchResult = {
       matchId: `${this.roomId}:${this.runCount}`,
@@ -362,7 +365,8 @@ export class OverrunRoom extends RallyRoom<OverrunState> {
       endedAt: endedAt.toISOString(),
       durationSec: Math.round(summary.duration * 10) / 10,
       rounds: summary.wave,
-      leaderboardDeltas: Object.fromEntries(Object.entries(deltas).filter(([, v]) => Object.keys(v).length > 0)),
+      leaderboardDeltas: {},
+      leaderboardScores: Object.fromEntries(Object.entries(scores).filter(([, v]) => Object.keys(v).length > 0)),
       players: players.map((x) => x.player),
       details: {
         wave: summary.wave,

@@ -46,6 +46,37 @@ test('manifest applies defaults and validates players', () => {
   );
 });
 
+test('manifest leaderboards: optional mode best | total (omitted = best in the database)', () => {
+  const base = {
+    id: 'sumo',
+    version: '1.0.0',
+    title: 'Sumo',
+    engine: 'playcanvas',
+    players: { min: 2, max: 8 },
+    modes: ['quick'],
+    ageRating: '4+',
+  };
+  const m = GameManifestSchema.parse({
+    ...base,
+    leaderboards: [
+      { id: 'wins', sort: 'desc', mode: 'total' },
+      { id: 'wave', sort: 'desc', mode: 'best' },
+      { id: 'kills', sort: 'desc' },
+    ],
+  });
+  assert.deepEqual(
+    m.leaderboards.map((b) => b.mode),
+    ['total', 'best', undefined],
+  );
+  for (const mode of ['max', 'sum', '', null]) {
+    assert.equal(
+      GameManifestSchema.safeParse({ ...base, leaderboards: [{ id: 'wins', sort: 'desc', mode }] }).success,
+      false,
+      String(mode),
+    );
+  }
+});
+
 test('manifest leaderboards and achievements: optional period, description and icon', () => {
   const base = {
     id: 'stack',

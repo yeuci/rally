@@ -17,6 +17,7 @@ import {
   type RecordedMatch,
   type SanctionStatus,
   type Json,
+  type LeaderboardMode,
   type Tables,
   type TablesInsert,
 } from '../src/index.ts';
@@ -68,6 +69,11 @@ test('Database type drives supabase-js inference', async () => {
   type EntryRow = NonNullable<Awaited<typeof _entries>['data']>[number];
   assertType<Equal<EntryRow['board'], { key: string; sort: string }>>();
   assertType<Equal<Tables<'achievements'>['icon'], string | null>>();
+  // Board modes: a checked text column ('best' | 'total').
+  assertType<Equal<Tables<'leaderboards'>['mode'], string>>();
+  const boardMode: LeaderboardMode = 'total';
+  const _boardInsert: TablesInsert<'leaderboards'> = { game_id: 'sumo', key: 'wins', sort: 'desc', mode: boardMode };
+  assert.equal(_boardInsert.mode, 'total');
 
   // M4 social RPCs.
   const _search = client.rpc('search_profiles', { p_query: 'sam' });

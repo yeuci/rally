@@ -14,8 +14,8 @@ import {
   WEAPONS,
   ZOMBIES,
   ZombieKind,
-  boardDelta,
   runAchievements,
+  runBoardScores,
   sanitizeRules,
   waveSpec,
   type MatchEvent,
@@ -553,7 +553,7 @@ test('deterministic: the same seed and inputs give the same run, bit for bit', (
   assert.deepEqual(a, b);
 });
 
-test('results: achievements per player and board deltas the database accepts', () => {
+test('results: achievements per player', () => {
   const summary: RunSummary = {
     run: 1,
     wave: 10,
@@ -596,7 +596,25 @@ test('results: achievements per player and board deltas the database accepts', (
   ]);
   assert.deepEqual(runAchievements({ ...summary, wave: 9 }, 'b'), []);
   assert.deepEqual(runAchievements(summary, 'nobody'), []);
-  assert.deepEqual([0, 0.5, 1, 7, 10, 520].map(boardDelta), [null, null, 1, 7, 10, 10]);
+});
+
+test('board scores are the run’s wave and the player’s kills, uncapped (best-run boards)', () => {
+  const standing = { name: 'a', slot: 0, score: 0, revives: 0, downs: 0, placement: 1, cleanWaves: 0, bestBlast: 0 };
+  const summary: RunSummary = {
+    run: 1,
+    wave: 23,
+    duration: 900,
+    teamScore: 0,
+    teamKills: 520,
+    standings: [
+      { ...standing, id: 'a', kills: 520 },
+      { ...standing, id: 'b', kills: 0 },
+    ],
+  };
+  assert.deepEqual(runBoardScores(summary, 'a'), { wave: 23, kills: 520 });
+  assert.deepEqual(runBoardScores(summary, 'b'), { wave: 23, kills: null }, '0 kills is not reported');
+  assert.deepEqual(runBoardScores({ ...summary, wave: 0 }, 'a'), { wave: null, kills: 520 });
+  assert.deepEqual(runBoardScores(summary, 'nobody'), { wave: null, kills: null });
 });
 
 test('dev rules from a client are sanitized', () => {

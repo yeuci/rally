@@ -204,6 +204,7 @@ export class SumoRoom extends RallyRoom<SumoState> {
       endedAt: endedAt.toISOString(),
       durationSec: Math.round(summary.duration * 10) / 10,
       rounds: summary.rounds,
+      // `wins` is a total board (game.json `mode: "total"`): one win added per match won.
       leaderboardDeltas: winner ? { wins: { [winner.userId]: 1 } } : {},
       players: summary.standings.map((st) => {
         const auth = this.authOf(st.id);

@@ -6,8 +6,8 @@ import path from 'node:path';
 import { planArt } from '../src/art.ts';
 import { loadManifest, parseManifest } from '../src/manifest.ts';
 import { hashDirectory } from '../src/hash.ts';
-import { buildPlan } from '../src/plan.ts';
-import { printPlan } from '../src/publish.ts';
+import { buildPlan, leaderboardRowsFromManifest } from '../src/plan.ts';
+import { printPlan, REPO_ROOT } from '../src/publish.ts';
 import { assertServiceRoleKey, executePublish, executeRollback, syncProgressCatalog } from '../src/supabase.ts';
 import { PublishError } from '../src/errors.ts';
 import { tempDir, validManifest, writeTree } from './helpers.ts';
@@ -274,8 +274,8 @@ const progressManifest = {
 test('plan rows: leaderboards and achievements map from game.json with database defaults', async () => {
   const { plan } = await fixturePlan({}, progressManifest);
   assert.deepEqual(plan.db.leaderboards, [
-    { game_id: 'demo', key: 'height', sort: 'desc', period: 'alltime', max_score_per_minute: 120 },
-    { game_id: 'demo', key: 'best_time', sort: 'asc', period: 'weekly', max_score_per_minute: null },
+    { game_id: 'demo', key: 'height', sort: 'desc', period: 'alltime', max_score_per_minute: 120, mode: 'best' },
+    { game_id: 'demo', key: 'best_time', sort: 'asc', period: 'weekly', max_score_per_minute: null, mode: 'best' },
   ]);
   assert.deepEqual(plan.db.achievements, [
     { game_id: 'demo', key: 'first_drop', title: 'First drop', description: '', icon: null, hidden: false },
@@ -291,9 +291,56 @@ test('plan rows: leaderboards and achievements map from game.json with database 
   // The stored manifest keeps what game.json said (no defaults invented for the optional fields).
   assert.equal(plan.db.gameVersion.manifest.leaderboards[1]!.period, 'weekly');
   assert.equal(plan.db.gameVersion.manifest.leaderboards[0]!.period, undefined);
+  assert.equal(plan.db.gameVersion.manifest.leaderboards[0]!.mode, undefined);
 
   const empty = await fixturePlan();
   assert.deepEqual([empty.plan.db.leaderboards, empty.plan.db.achievements], [[], []]);
+});
+
+test('plan rows: mode syncs from game.json (default best), also when it changes back to best', async () => {
+  const server = { room: 'demo', minVersion: 1 };
+  const total = await fixturePlan({}, {
+    modes: ['quick'],
+    server,
+    leaderboards: [
+      { id: 'wins', sort: 'desc', mode: 'total' },
+      { id: 'wave', sort: 'desc', mode: 'best' },
+      { id: 'kills', sort: 'desc' },
+    ],
+  });
+  assert.deepEqual(
+    total.plan.db.leaderboards.map((b) => [b.key, b.mode]),
+    [['wins', 'total'], ['wave', 'best'], ['kills', 'best']],
+  );
+  assert.equal(total.plan.db.gameVersion.manifest.leaderboards[0]!.mode, 'total');
+  // The printout (dry run) shows the mode of every row.
+  const lines: string[] = [];
+  printPlan(total.plan, (l) => lines.push(l));
+  assert.ok(lines.some((l) => l.includes('"key":"wins"') && l.includes('"mode":"total"')));
+  assert.ok(lines.some((l) => l.includes('"key":"kills"') && l.includes('"mode":"best"')));
+  // The upsert always carries mode, so removing `mode: "total"` from game.json turns the board back to best.
+  const { sb, calls } = fakeSupabase({ existingBoards: ['wins'] });
+  const logs: string[] = [];
+  await syncProgressCatalog(sb, total.plan, (l) => logs.push(l));
+  const sent = calls.filter((c) => c.path === '/rest/v1/leaderboards' && c.method === 'POST').map((c) => c.body);
+  assert.deepEqual(sent, total.plan.db.leaderboards);
+  assert.ok(logs.some((l) => l.includes('leaderboards.wins updated (desc, alltime, total, unbounded)')));
+
+  // Totals are server-written: a solo game cannot declare one.
+  await assert.rejects(
+    fixturePlan({}, { leaderboards: [{ id: 'combo', sort: 'desc', mode: 'total' }] }),
+    /leaderboards\[0\] "combo": mode "total" needs a multiplayer game/,
+  );
+});
+
+test("the repo's multiplayer games: Sumo's wins is a total, Overrun's wave and kills keep the best run", async () => {
+  const rows = async (slug: string) =>
+    leaderboardRowsFromManifest(await loadManifest(path.join(REPO_ROOT, 'games', slug))).map((b) => [b.key, b.sort, b.mode]);
+  assert.deepEqual(await rows('sumo'), [['wins', 'desc', 'total']]);
+  assert.deepEqual(await rows('overrun'), [
+    ['wave', 'desc', 'best'],
+    ['kills', 'desc', 'best'],
+  ]);
 });
 
 test('the dry-run plan printout lists every leaderboard and achievement row', async () => {
@@ -351,8 +398,8 @@ test('executePublish syncs boards one by one in manifest order, then achievement
   assert.deepEqual(ach.body, plan.db.achievements);
   const reads = calls.filter((c) => c.method === 'GET' && /leaderboards|achievements/.test(c.path));
   for (const r of reads) assert.match(r.search, /game_id=eq\.demo/);
-  assert.ok(logs.some((l) => l.includes('leaderboards.height created (desc, alltime, <= 120/min)')));
-  assert.ok(logs.some((l) => l.includes('leaderboards.best_time created (asc, weekly, unbounded)')));
+  assert.ok(logs.some((l) => l.includes('leaderboards.height created (desc, alltime, best, <= 120/min)')));
+  assert.ok(logs.some((l) => l.includes('leaderboards.best_time created (asc, weekly, best, unbounded)')));
   assert.ok(logs.some((l) => l.includes('achievements: 2 upserted (2 new)')));
   assert.ok(!logs.some((l) => l.includes('warning')));
   assert.equal(calls.filter((c) => c.method === 'DELETE').length, 0);

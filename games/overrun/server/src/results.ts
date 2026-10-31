@@ -3,11 +3,10 @@ import type { RunSummary } from './match.ts';
 /**
  * How a finished run maps onto Rally's server-written stats (apps/game-server `server_record_match`):
  *
- * - Boards (`wave`, `kills` in game.json) are **cumulative** on the server: the RPC adds an integer delta of 1…10 per
- *   player and match to their entry (deltas outside that range, or 0, are ignored). So `wave` grows by the waves a
- *   run reached (up to 10 per run) and `kills` by the run's kills (up to 10 per run). A "best wave ever" board
- *   needs a max-mode board in the database; until then the exact numbers of every run are in the result's
- *   `details` (match_results.payload).
+ * - Boards (`wave`, `kills` in game.json) are **best run** boards (`leaderboards.mode = 'best'`, the default): the
+ *   room sends each signed-in player's numbers for the run as `leaderboardScores`, and the database keeps the
+ *   highest one per player (never lowered). `wave` = the wave the run reached, `kills` = that player's kills in the
+ *   run. Nothing is capped here; the database ignores scores <= 0 (so 0 is not sent) and absurd ones (> 1e9).
  * - Achievements are keys from game.json; `server_record_match` ignores unknown keys and repeats.
  */
 
@@ -40,12 +39,21 @@ export function runAchievements(summary: RunSummary, playerId: string): Achievem
   return keys;
 }
 
-/** The largest per-match delta `server_record_match` accepts on a board. */
-export const MAX_BOARD_DELTA = 10;
+/** Board ids from game.json. */
+export type BoardKey = 'wave' | 'kills';
 
-/** A board delta the RPC accepts (an integer 1…10), or null for nothing to add. */
-export function boardDelta(value: number): number | null {
+/**
+ * `playerId`'s scores for a run on the best-run boards: the wave the run reached and the player's kills in it, as
+ * sent (no cap). null for nothing to report: the player did not take part, or the number is not a positive integer
+ * (the database ignores scores <= 0 anyway).
+ */
+export function runBoardScores(summary: RunSummary, playerId: string): Record<BoardKey, number | null> {
+  const s = summary.standings.find((x) => x.id === playerId);
+  if (!s) return { wave: null, kills: null };
+  return { wave: positive(summary.wave), kills: positive(s.kills) };
+}
+
+function positive(value: number): number | null {
   const n = Math.floor(value);
-  if (!Number.isFinite(n) || n < 1) return null;
-  return Math.min(MAX_BOARD_DELTA, n);
+  return Number.isFinite(n) && n >= 1 ? n : null;
 }

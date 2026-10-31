@@ -13,7 +13,7 @@ import type appConfig from '../src/app.config.js';
 import { createAuthenticator } from '../src/auth.js';
 import { setMatchResultSink, type MatchResult, type RecordedMatch } from '../src/results.js';
 import { RallyRoom } from '../src/rooms/RallyRoom.js';
-import { overrunBoardDeltas, overrunResultFor, type OverrunRoom } from '../src/rooms/OverrunRoom.js';
+import { overrunBoardScores, overrunResultFor, type OverrunRoom } from '../src/rooms/OverrunRoom.js';
 import { resetRateLimits } from '../src/routes.js';
 import { waitFor } from './fakes.js';
 import { testServer } from './server.js';
@@ -221,7 +221,8 @@ describe('OverrunRoom', () => {
     assert.equal(r.winnerUserId, null, 'co-op: no winner');
     assert.equal(r.private, false);
     assert.equal(r.rounds, 2);
-    assert.deepEqual(r.leaderboardDeltas, { wave: { [ANN]: 2 }, kills: { [ANN]: 10 } }, 'guests get no deltas');
+    assert.deepEqual(r.leaderboardScores, { wave: { [ANN]: 2 }, kills: { [ANN]: 12 } }, 'best-run scores; guests get none');
+    assert.deepEqual(r.leaderboardDeltas, {}, 'no total boards');
     const byName = Object.fromEntries(r.players.map((p) => [p.username, p]));
     assert.deepEqual(byName.ann!.achievements, ['medic']);
     assert.equal(byName.ann!.guest, false);
@@ -415,11 +416,11 @@ describe('Overrun result mapping', () => {
     ],
   };
 
-  it('board deltas are the run’s wave and kills, clamped to what server_record_match accepts (1…10)', () => {
-    assert.deepEqual(overrunBoardDeltas(summary, 's1'), { wave: 10, kills: 10 });
-    assert.deepEqual(overrunBoardDeltas(summary, 's2'), { wave: 10, kills: null });
-    assert.deepEqual(overrunBoardDeltas({ ...summary, wave: 3 }, 's1'), { wave: 3, kills: 10 });
-    assert.deepEqual(overrunBoardDeltas(summary, 'nobody'), { wave: null, kills: null });
+  it('board scores are the run’s wave and the player’s kills, uncapped (best-run boards)', () => {
+    assert.deepEqual(overrunBoardScores(summary, 's1'), { wave: 12, kills: 35 });
+    assert.deepEqual(overrunBoardScores(summary, 's2'), { wave: 12, kills: null });
+    assert.deepEqual(overrunBoardScores({ ...summary, wave: 3 }, 's1'), { wave: 3, kills: 35 });
+    assert.deepEqual(overrunBoardScores(summary, 'nobody'), { wave: null, kills: null });
   });
 
   it('result messages: guest, unavailable (no write, duplicate, no entry), recorded', () => {

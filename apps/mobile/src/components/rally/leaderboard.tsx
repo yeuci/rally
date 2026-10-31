@@ -24,6 +24,7 @@ import { useLeaderboardTop, useMyRank, type Board, type Scope } from '@/lib/game
 import { useProfile } from '@/lib/profile';
 import {
   boardLabel,
+  boardModeLabel,
   formatScore,
   podiumTint,
   splitLeaderboard,
@@ -56,7 +57,8 @@ function openPlayer(row: { username: string }) {
  * Game page leaderboard: board picker (when the game has several), Global / Friends, the top 10 with your row
  * tinted, and "Your rank" below them when you are on the board but outside the top 10. The top three get gold /
  * silver / bronze rank badges. Tapping your own row (or `highlightMe` changing: the page's "Best" row) flashes it.
- * Renders nothing once the game turns out to have no boards.
+ * The header's detail names the picked board's mode ("Best run" on multiplayer best boards, "Total" on cumulative
+ * ones). Renders nothing once the game turns out to have no boards.
  */
 export function LeaderboardSection({
   gameId,
@@ -64,6 +66,7 @@ export function LeaderboardSection({
   loading,
   error,
   highlightMe = 0,
+  multiplayer = false,
   onRetry,
 }: {
   gameId: string;
@@ -73,6 +76,8 @@ export function LeaderboardSection({
   error: boolean;
   /** Bumped by the caller to flash your row (0 = never asked). */
   highlightMe?: number;
+  /** A multiplayer game: best boards are labelled "Best run" (a solo board's best needs no label). */
+  multiplayer?: boolean;
   /** Reloads the board list after `error`. */
   onRetry?: () => void;
 }) {
@@ -108,6 +113,7 @@ export function LeaderboardSection({
     <View className="gap-3">
       <SectionHeader
         title="Leaderboard"
+        detail={boardModeLabel(board?.mode, multiplayer) ?? undefined}
         className="px-0"
         accessory={
           <Segmented

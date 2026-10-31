@@ -150,8 +150,11 @@ pm2's default 1.6 s `kill_timeout`). Without a service key the batches are logge
 ## Match results (`src/results.ts`)
 
 Rooms call `reportMatchResult({ matchId, gameId, roomId, private, winnerUserId, startedAt, endedAt, durationSec,
-rounds, leaderboardDeltas, players: [{ userId, username, guest, placement, score, achievements }], details })` when a
-match ends (`matchId` = `<roomId>:<n>`). It never throws and resolves with what Supabase answered, or null when
+rounds, leaderboardDeltas, leaderboardScores?, players: [{ userId, username, guest, placement, score, achievements }],
+details })` when a match ends (`matchId` = `<roomId>:<n>`). Boards follow their game.json `mode`: `leaderboardDeltas`
+(integers 1…10 that add up) are for `total` boards (Sumo's `wins`), `leaderboardScores` (the match's score; the
+database keeps each player's best, never lowering it) for `best` boards (Overrun's `wave` / `kills`); the RPC ignores
+the other pairing. It never throws and resolves with what Supabase answered, or null when
 nothing was recorded. Rooms never await it in their tick.
 
 - **With a service key:** `createSupabaseResultSink(api)` calls `server_record_match` (one transaction: `game_stats`,
@@ -179,8 +182,8 @@ HUD shows it on the match-over banner. `SERVER_VERSION` 2 (`src/version.ts`) mar
 
 **Overrun** (`SERVER_VERSION` 3 adds the room; `server.minVersion` 3) reports every finished run the same way:
 `winnerUserId: null` (co-op, so `game_stats` counts the play but no win or loss), `rounds` = the wave reached,
-`leaderboardDeltas` `{ wave, kills }` per signed-in player (the run's wave and kills clamped to the RPC's 1…10 per
-match: server boards are cumulative), the five achievement keys, and the run's exact numbers in `details`. Its
+`leaderboardScores` `{ wave, kills }` per signed-in player (the wave the run reached and the player's kills in it,
+uncapped: both are best-run boards), the five achievement keys, and the run's exact numbers in `details`. Its
 `result` message carries `{ boards, unlocked }` (no wins/losses); see games/overrun/README.md. With dev rules
 (`RALLY_DEV_RULES=1` or `NODE_ENV=test`) the room also honours a `dev` message (freeze the horde, spawn, hurt,
 place, end the wave, god mode) used by the Overrun e2e; it is ignored everywhere else. `OverrunRoom.test.ts` runs in

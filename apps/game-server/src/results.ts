@@ -40,8 +40,17 @@ export interface MatchResult {
   endedAt: string;
   durationSec: number;
   rounds: number;
-  /** Server leaderboard increments, by board id from game.json (`{ wins: 1 }` for the winner). */
+  /**
+   * Increments for `total` boards (game.json `mode: "total"`), by board id then userId: integers 1…10 that add up
+   * (Sumo: `{ wins: { <winner>: 1 } }`). Ignored by `server_record_match` on `best` boards.
+   */
   leaderboardDeltas: Record<string, Record<string, number>>;
+  /**
+   * The match's score for `best` boards (game.json `mode` omitted or `"best"`), by board id then userId: the database
+   * keeps each player's best by the board's sort, never lowering it (Overrun: `{ wave: { <user>: 12 }, kills: … }`).
+   * Must be > 0 and within the board's sanity cap; ignored on `total` boards.
+   */
+  leaderboardScores?: Record<string, Record<string, number>>;
   players: MatchResultPlayer[];
   /** Free-form game details (e.g. how the match was decided). */
   details?: Record<string, unknown>;

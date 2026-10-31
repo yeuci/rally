@@ -70,6 +70,22 @@ export type GameRoomSnapshot = {
  */
 export type SanctionStatus = { banned_until: string | null; muted_until: string | null };
 
+// ---- Board modes (20261031000300_board_modes.sql) -----------------------------------------------------------------
+
+/**
+ * `leaderboards.mode` (synced from game.json `leaderboards[].mode` by tooling/publish-game, default `best`).
+ * `best`: one entry per player and period keeping the best score by the board's sort (highest on `desc`, lowest on
+ * `asc`); written by `submit_solo_score` and by `server_record_match`'s `leaderboardScores`. `total`: the server's
+ * `leaderboardDeltas` (integers 1..10 per match) add up; `submit_solo_score` refuses it.
+ */
+export type LeaderboardMode = "best" | "total";
+
+/**
+ * Upper bound on a `leaderboardScores` value for a `best` board without `max_score_per_minute` (bounded boards:
+ * `max_score_per_minute × ceil(durationSec / 60)`, at least 1 minute). Larger scores are ignored.
+ */
+export const MAX_SERVER_BOARD_SCORE = 1e9;
+
 /** One eligible player in a `server_record_match` result. */
 export type RecordedMatchPlayer = {
   /** game_stats totals after this match. */

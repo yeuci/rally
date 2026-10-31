@@ -24,7 +24,8 @@
   "leaderboards": [
     {
       "id": "wins",
-      "sort": "desc"
+      "sort": "desc",
+      "mode": "total"
     }
   ],
   "achievements": [

@@ -134,6 +134,7 @@ describe('SumoRoom', () => {
     assert.match(aliceAuth.userId, /^guest:/);
     assert.equal(r.rounds, 1);
     assert.deepEqual(r.leaderboardDeltas, { wins: { [aliceAuth.userId]: 1 } });
+    assert.equal(r.leaderboardScores, undefined, 'wins is a total board: deltas only');
     assert.deepEqual(
       r.players.map((p) => [p.username, p.placement, p.score, p.guest, p.achievements]),
       [
