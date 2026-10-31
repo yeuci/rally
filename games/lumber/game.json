@@ -1,0 +1,59 @@
+{
+  "id": "lumber",
+  "version": "0.1.0",
+  "title": "Lumber Camp",
+  "description": "Run a lumber camp for one busy shift. Haul planks from the sawmill to the counter, sell to the builders lining up, and spend your takings on helpers and upgrades before the whistle blows.",
+  "genres": ["arcade", "tycoon"],
+  "screenshots": [],
+  "engine": "playcanvas",
+  "entry": "index.html",
+  "orientation": "portrait",
+  "players": {
+    "min": 1,
+    "max": 1
+  },
+  "modes": ["solo"],
+  "sdk": "^0.1",
+  "ageRating": "4+",
+  "leaderboards": [
+    {
+      "id": "earnings",
+      "sort": "desc",
+      "maxScorePerMinute": 3000
+    }
+  ],
+  "achievements": [
+    {
+      "key": "first_sale",
+      "title": "Open for Business",
+      "hidden": false,
+      "description": "Sell your first planks."
+    },
+    {
+      "key": "earn_1000",
+      "title": "Good Day's Work",
+      "hidden": false,
+      "description": "Earn $1,000 in one shift."
+    },
+    {
+      "key": "earn_2500",
+      "title": "Timber Tycoon",
+      "hidden": false,
+      "description": "Earn $2,500 in one shift."
+    },
+    {
+      "key": "full_camp",
+      "title": "Full Camp",
+      "hidden": false,
+      "description": "Unlock every upgrade in one shift."
+    },
+    {
+      "key": "no_walkouts",
+      "title": "Nobody Waits",
+      "hidden": false,
+      "description": "Finish a shift earning $500 or more without a single customer walking out."
+    }
+  ],
+  "capabilities": [],
+  "minAppVersion": "0.0.0"
+}
