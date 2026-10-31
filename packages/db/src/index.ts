@@ -113,3 +113,66 @@ export type RecordedMatch =
  * `game_visits_daily` the per-UTC-day count (kept 90 days).
  */
 export const MAX_SERVER_VISITS_PER_CALL = 1000 as const;
+
+// ---- Coins (20261031000400_coins.sql; docs/coins.md) --------------------------------------------------------------
+
+/** `coin_ledger.reason`. Earn reasons are positive; `purchase` is negative; `adjustment` (support) either sign. */
+export type CoinReason = "match" | "win" | "podium" | "achievement" | "solo" | "daily" | "purchase" | "adjustment";
+
+/** `coin_rules.key`: every amount, cap and threshold of the economy (tune with an UPDATE, no migration). */
+export type CoinRuleKey =
+  | "match"
+  | "win"
+  | "podium"
+  | "podium_min_players"
+  | "match_min_duration_s"
+  | "match_daily_cap"
+  | "achievement"
+  | "solo"
+  | "solo_daily_cap"
+  | "daily";
+
+/** `shop_items.kind`. `game_unlock` is never equippable (and v1 seeds none). */
+export type ShopItemKind = "name_color" | "avatar_frame" | "profile_banner" | "badge" | "game_unlock";
+
+/** The equippable kinds: one slot each per user (`equipped_items`), public through `public_cosmetics`. */
+export type CosmeticKind = Exclude<ShopItemKind, "game_unlock">;
+
+/** `shop_items.data` per kind (checked by a trigger; colours are `#RRGGBB`, `light` = the light-theme variant). */
+export type NameColorData = { color: string; light?: string };
+export type AvatarFrameData = { colors: string[] };
+export type ProfileBannerData = { colors: string[] };
+export type BadgeData = { icon: string; color: string; light?: string };
+export type GameUnlockData = { game_id: string };
+
+/** `my_wallet()`: the balance plus today's (UTC) progress toward the daily caps. */
+export type WalletSummary = {
+  balance: number;
+  lifetime_earned: number;
+  daily_claimed: boolean;
+  solo_today: number;
+  solo_cap: number;
+  match_today: number;
+  match_cap: number;
+};
+
+/** `buy_item(p_item_id)`: `owned` = already owned, nothing charged. Raises `INSUFFICIENT_FUNDS` when short. */
+export type BuyItemResult = { status: "purchased" | "owned"; item_id: string; balance: number };
+
+/** `equip_item(p_kind, p_item_id)`: the caller's equipped item per kind after the change. */
+export type EquippedItems = Partial<Record<CosmeticKind, string>>;
+
+/**
+ * Realtime broadcast on the private topic `user:<uid>`, event `coins`: one per award (never for purchases).
+ * `balance` is the wallet after this award; `id` the coin_ledger row (for de-duplication).
+ */
+export type CoinAwardEvent = {
+  type: "coins";
+  id: number;
+  amount: number;
+  reason: Exclude<CoinReason, "purchase">;
+  balance: number;
+  game_id: string | null;
+  note: string | null;
+  at: string;
+};

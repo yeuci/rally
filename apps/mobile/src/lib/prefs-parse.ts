@@ -23,6 +23,8 @@ export interface Prefs {
   friendAlerts: FriendAlertStyle;
   /** Friend requests while a game screen is open: a banner by default, so the game stays playable. */
   friendAlertsInGame: FriendAlertStyle;
+  /** The "+25 coins" toast when coins are awarded (lib/coin-toast.ts), in and out of games. */
+  coinPopups: boolean;
 }
 
 export const DEFAULTS: Prefs = {
@@ -31,6 +33,7 @@ export const DEFAULTS: Prefs = {
   haptics: true,
   friendAlerts: 'sheet',
   friendAlertsInGame: 'banner',
+  coinPopups: true,
 };
 
 export function isAppearance(v: unknown): v is Appearance {
@@ -53,6 +56,7 @@ export function parsePrefs(raw: string | null): Prefs {
       haptics: typeof p.haptics === 'boolean' ? p.haptics : DEFAULTS.haptics,
       friendAlerts: isFriendAlertStyle(p.friendAlerts) ? p.friendAlerts : DEFAULTS.friendAlerts,
       friendAlertsInGame: isFriendAlertStyle(p.friendAlertsInGame) ? p.friendAlertsInGame : DEFAULTS.friendAlertsInGame,
+      coinPopups: typeof p.coinPopups === 'boolean' ? p.coinPopups : DEFAULTS.coinPopups,
     };
   } catch {
     return DEFAULTS;

@@ -7,6 +7,7 @@ import { Skeleton, SkeletonText } from '@/components/ui/skeleton';
 import { TapPressable } from '@/components/ui/tap-pressable';
 import { Text } from '@/components/ui/text';
 import { cn } from '@/lib/utils';
+import { PlayerName } from './cosmetics';
 import { PresenceDot } from './presence-dot';
 import { ProfileAvatar } from './profile-avatar';
 
@@ -35,7 +36,8 @@ export function openPerson(username: string, self = false) {
 /**
  * A player in a list (search results, friends, requests): avatar, display name, @username, optional detail line
  * and a trailing accessory (friendship button, Accept / Decline, Join). Tapping the row opens the profile. With
- * `presence` the second line shows the live status (a dot and "Online" / "In Sumo") in place of `detail`.
+ * `presence` the second line shows the live status (a dot and "Online" / "In Sumo") in place of `detail`. The player's
+ * equipped cosmetics show on the avatar (frame) and the name (colour, badge).
  */
 export function PersonRow({
   person,
@@ -60,12 +62,14 @@ export function PersonRow({
       onPress={() => openPerson(person.username, self)}
       className={cn(ROW_CLASS, 'active:bg-accent')}
     >
-      <ProfileAvatar profile={{ username: person.username, display_name: person.displayName, avatar_url: person.avatarUrl }} size="md" />
+      <ProfileAvatar
+        userId={person.userId}
+        profile={{ username: person.username, display_name: person.displayName, avatar_url: person.avatarUrl }}
+        size="md"
+      />
       <View className="shrink grow">
         <View className="flex-row items-center gap-2">
-          <Text className="shrink text-[15px] font-semibold leading-5" numberOfLines={1}>
-            {name}
-          </Text>
+          <PlayerName userId={person.userId} name={name} className="text-[15px] font-semibold leading-5" />
           {self && (
             <Badge variant="subtle">
               <Text>You</Text>

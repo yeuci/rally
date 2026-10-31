@@ -1,8 +1,20 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
-import { LifeBuoyIcon, LogOutIcon, PencilIcon, SettingsIcon, Trash2Icon, UsersIcon, WrenchIcon } from 'lucide-react-native';
+import {
+  HistoryIcon,
+  LifeBuoyIcon,
+  LogOutIcon,
+  PencilIcon,
+  SettingsIcon,
+  StoreIcon,
+  Trash2Icon,
+  UsersIcon,
+  WrenchIcon,
+} from 'lucide-react-native';
 import { useState } from 'react';
 import { RefreshControl, ScrollView, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { CoinBalancePill } from '@/components/rally/coins';
 import { ErrorText } from '@/components/rally/form-field';
 import { Glow } from '@/components/rally/glow';
 import { LogoMark } from '@/components/rally/logo';
@@ -23,6 +35,8 @@ import { Icon } from '@/components/ui/icon';
 import { Separator } from '@/components/ui/separator';
 import { Text } from '@/components/ui/text';
 import { config } from '@/config';
+import { coinKeys, useWallet } from '@/lib/coins';
+import { formatCoins } from '@/lib/coins-model';
 import { useFriendRequests, usePublicGames } from '@/lib/friends';
 import { usePublicStats } from '@/lib/game-progress';
 import { useProfile } from '@/lib/profile';
@@ -48,12 +62,22 @@ export default function ProfileScreen() {
   const games = usePublicGames(p?.id);
   const requests = useFriendRequests();
   const incoming = countBadge(requests.data?.incoming.length);
+  const wallet = useWallet();
+  const balance = wallet.data?.balance;
+  const qc = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
 
   async function refresh() {
     setRefreshing(true);
     try {
-      await Promise.all([profile.refetch(), stats.refetch(), games.refetch(), requests.refetch()]);
+      await Promise.all([
+        profile.refetch(),
+        stats.refetch(),
+        games.refetch(),
+        requests.refetch(),
+        wallet.refetch(),
+        qc.invalidateQueries({ queryKey: coinKeys.cosmeticsAll() }),
+      ]);
     } finally {
       setRefreshing(false);
     }
@@ -80,10 +104,13 @@ export default function ProfileScreen() {
       <Glow size={glow} style={{ top: -glow / 2, left: width / 2 - glow / 2 }} />
 
       <ProfileHeader profile={p}>
-        <Button variant="outline" size="sm" className="rounded-full px-4" onPress={() => router.push('/profile/edit')} disabled={!p}>
-          <Icon as={PencilIcon} className="size-3.5" />
-          <Text>Edit profile</Text>
-        </Button>
+        <View className="flex-row items-center gap-2">
+          <Button variant="outline" size="sm" className="rounded-full px-4" onPress={() => router.push('/profile/edit')} disabled={!p}>
+            <Icon as={PencilIcon} className="size-3.5" />
+            <Text>Edit profile</Text>
+          </Button>
+          <CoinBalancePill balance={p ? balance : undefined} onPress={() => router.push('/shop')} />
+        </View>
         <StatsStrip stats={stats.data} loading={!p || stats.isLoading} onFriendsPress={() => openFriends()} />
       </ProfileHeader>
 
@@ -94,6 +121,15 @@ export default function ProfileScreen() {
           value={stats.data ? formatScore(stats.data.friends) : undefined}
           badge={incoming}
           onPress={() => openFriends(incoming ? 'requests' : undefined)}
+        />
+        <Separator className="ml-16" />
+        <LinkRow icon={StoreIcon} label="Shop" onPress={() => router.push('/shop')} />
+        <Separator className="ml-16" />
+        <LinkRow
+          icon={HistoryIcon}
+          label="Coin history"
+          value={balance !== undefined ? formatCoins(balance) : undefined}
+          onPress={() => router.push('/coins')}
         />
       </View>
 
