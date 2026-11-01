@@ -9,6 +9,8 @@
  *   rest channels, so no bone keeps another clip's pose); `boneFrames()` + `halfFloats()`: clips baked into bone
  *   matrices for instanced crowds;
  * - `staticModel()` / `objSoup()`: props from glTF or OBJ (textured parts kept apart), `modelPack()`: many in one GLB;
+ * - `bakeTexture` (character / attachment / staticModel): palette-atlas packs (each face in one flat swatch of a
+ *   texture) become vertex colours too, sampled per vertex (`texturedColors`);
  * - `Emitter`: gzipped files and a generated meta module. games/gunrun/scripts/models.ts is a complete example.
  */
 export {
@@ -49,6 +51,7 @@ export {
   parents,
   readGltf,
   staticModel,
+  texturedColors,
   worldMatrix,
   type Attachment,
   type Character,

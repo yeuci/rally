@@ -27,6 +27,7 @@ import {
   sha256,
   simplifierReady,
   staticModel,
+  texturedColors,
   toHalf,
   triangleCount,
 } from '../src/index.ts';
@@ -385,4 +386,50 @@ test('emit: gzipped files with sizes, a compact generated module', () => {
     compactJson({ a: [1, -2.5, 3e-7], b: { c: 'x' } }),
     '{\n  "a": [1, -2.5, 3e-7],\n  "b": {\n    "c": "x"\n  }\n}',
   );
+});
+
+test('bakeTexture: a palette atlas becomes vertex colours (nearest texel, sRGB → linear, × factor × COLOR_0)', () => {
+  const doc = new Document();
+  const buffer = doc.createBuffer();
+  const acc = (type: 'VEC2' | 'VEC3' | 'VEC4', a: Float32Array) =>
+    doc.createAccessor().setType(type).setArray(a).setBuffer(buffer);
+  // 2×1 atlas: left texel white, right texel sRGB 188 (≈ linear 0.5) red.
+  const png = encodePng({ width: 2, height: 1, data: Uint8Array.from([255, 255, 255, 255, 188, 0, 0, 255]) });
+  const texture = doc.createTexture('Atlas').setImage(png).setMimeType('image/png');
+  const material = doc.createMaterial('Atlas').setBaseColorTexture(texture).setBaseColorFactor([1, 1, 0.5, 1]);
+  const right = doc
+    .createPrimitive()
+    .setMaterial(material)
+    .setAttribute('POSITION', acc('VEC3', Float32Array.from([0, 0, 0, 1, 0, 0, 0, 1, 0])))
+    .setAttribute('TEXCOORD_0', acc('VEC2', Float32Array.from([0.75, 0.5, 0.8, 0.5, 1, 0.5])))
+    // COLOR_0 as normalized unsigned shorts (as the packs ship it): 65535 is 1.
+    .setAttribute(
+      'COLOR_0',
+      doc
+        .createAccessor()
+        .setType('VEC4')
+        .setArray(new Uint16Array(12).fill(65535))
+        .setNormalized(true)
+        .setBuffer(buffer),
+    );
+  const left = doc
+    .createPrimitive()
+    .setMaterial(material)
+    .setAttribute('POSITION', acc('VEC3', Float32Array.from([0, 0, 1, 1, 0, 1, 0, 1, 1])))
+    .setAttribute('TEXCOORD_0', acc('VEC2', Float32Array.from([0.1, 0.5, 0.2, 0.5, 1.25, 0.5])));
+  const baked = texturedColors(right)!;
+  assert.equal(baked.length, 9);
+  assert.ok(Math.abs(baked[0]! - 128) <= 1, `red ≈ linear 0.5, got ${baked[0]}`);
+  assert.deepEqual([baked[1], baked[2]], [0, 0]);
+  // uv 1.25 wraps to 0.25 (the white texel); blue is halved by the factor.
+  assert.deepEqual(texturedColors(left), [255, 255, 128, 255, 255, 128, 255, 255, 128]);
+  assert.equal(texturedColors(doc.createPrimitive().setMaterial(doc.createMaterial('flat'))), null);
+
+  doc.createScene().addChild(doc.createNode('n').setMesh(doc.createMesh('m').addPrimitive(right).addPrimitive(left)));
+  const plain = staticModel(doc, { triangles: 10 });
+  const atlas = staticModel(doc, { triangles: 10, bakeTexture: true });
+  const rgbs = (m: typeof plain) =>
+    new Set(Array.from({ length: m.soup.colors.length / 4 }, (_, i) => m.soup.colors.slice(i * 4, i * 4 + 3).join()));
+  assert.deepEqual([...rgbs(plain)], ['255,255,128']);
+  assert.equal(rgbs(atlas).size, 2);
 });

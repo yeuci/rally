@@ -1,4 +1,5 @@
-import { type Document, type Node as GltfNode, type NodeIO, type Primitive } from '@gltf-transform/core';
+import { type Document, type Node as GltfNode, type NodeIO, type Primitive, type Texture } from '@gltf-transform/core';
+import { decodePng, type Image } from './png.ts';
 import { compose, decompose, identity, invertAffine, mirrors, mul, transformPoint, type Mat4 } from './math.ts';
 import {
   byte,
@@ -42,21 +43,69 @@ export function worldMatrix(n: GltfNode, parentOf: Map<GltfNode, GltfNode>): Mat
 const colorOf = (prim: Primitive): Rgb =>
   (prim.getMaterial()?.getBaseColorFactor() ?? [1, 1, 1, 1]).slice(0, 3).map(byte) as Rgb;
 
-/** Append a primitive (positions through `m`) to `g`; `skin` gives each vertex's joints and weights. */
+const decoded = new WeakMap<Texture, Image>();
+const srgbToLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+
+/**
+ * Per-vertex linear colour bytes of a primitive whose material has a base colour texture (a palette atlas: every face
+ * mapped into one flat swatch): the nearest texel at each vertex's uv (sRGB → linear), times the material's factor and
+ * the vertex's COLOR_0. Null when the primitive has no (PNG) base colour texture.
+ */
+export function texturedColors(prim: Primitive): number[] | null {
+  const material = prim.getMaterial();
+  const texture = material?.getBaseColorTexture();
+  if (!material || !texture) return null;
+  let img = decoded.get(texture);
+  if (!img) {
+    const bytes = texture.getImage();
+    if (!bytes || texture.getMimeType() !== 'image/png') return null;
+    img = decodePng(bytes);
+    decoded.set(texture, img);
+  }
+  // getElement() decodes normalized integer accessors (COLOR_0 often ships as normalized unsigned shorts).
+  const uv = prim.getAttribute(`TEXCOORD_${material.getBaseColorTextureInfo()?.getTexCoord() ?? 0}`);
+  const tint = prim.getAttribute('COLOR_0');
+  const factor = material.getBaseColorFactor();
+  const n = prim.getAttribute('POSITION')!.getCount();
+  if (!uv || uv.getCount() < n) return null;
+  const { width, height, data } = img;
+  const out: number[] = [];
+  const at: number[] = [];
+  const rgba: number[] = [1, 1, 1, 1];
+  for (let i = 0; i < n; i++) {
+    uv.getElement(i, at);
+    const u = at[0]! - Math.floor(at[0]!);
+    const v = at[1]! - Math.floor(at[1]!);
+    const x = Math.min(width - 1, Math.floor(u * width));
+    const y = Math.min(height - 1, Math.floor(v * height));
+    const o = (y * width + x) * 4;
+    if (tint) tint.getElement(i, rgba);
+    for (let c = 0; c < 3; c++) out.push(byte(srgbToLinear(data[o + c]! / 255) * factor[c]! * rgba[c]!));
+  }
+  return out;
+}
+
+/**
+ * Append a primitive (positions through `m`) to `g`; `skin` gives each vertex's joints and weights. With `bake`, a
+ * textured primitive takes its colours from its texture (`texturedColors`) instead of the flat material colour.
+ */
 function appendPrimitive(
   g: Geometry,
   prim: Primitive,
   m: Mat4,
   skin?: { joints: number[]; weights: number[] } | { joint: number },
+  bake = false,
 ): void {
   const color = colorOf(prim);
+  const baked = bake ? texturedColors(prim) : null;
   const p = floats(prim.getAttribute('POSITION'));
   const base = g.positions.length / 3;
   const tmp = [0, 0, 0];
   for (let i = 0; i < p.length; i += 3) {
     transformPoint(m, p[i]!, p[i + 1]!, p[i + 2]!, tmp);
     g.positions.push(tmp[0]!, tmp[1]!, tmp[2]!);
-    g.colors.push(...color);
+    if (baked) g.colors.push(baked[i]!, baked[i + 1]!, baked[i + 2]!);
+    else g.colors.push(...color);
   }
   if (g.skin && skin) {
     if ('joint' in skin) {
@@ -120,6 +169,8 @@ export interface CharacterOptions {
   keepClips?: readonly string[];
   /** Simplification error bound (see `rebuild`). */
   error?: number;
+  /** Bake base colour textures into the vertex colours (palette-atlas packs, see `texturedColors`). */
+  bakeTexture?: boolean;
 }
 
 export interface Character {
@@ -153,10 +204,13 @@ export function character(doc: Document, options: CharacterOptions): Character {
     if (node.getSkin() === skin) {
       target ??= node;
       for (const prim of mesh.listPrimitives()) {
-        appendPrimitive(g, prim, identity(), {
-          joints: floats(prim.getAttribute('JOINTS_0')),
-          weights: floats(prim.getAttribute('WEIGHTS_0')),
-        });
+        appendPrimitive(
+          g,
+          prim,
+          identity(),
+          { joints: floats(prim.getAttribute('JOINTS_0')), weights: floats(prim.getAttribute('WEIGHTS_0')) },
+          options.bakeTexture,
+        );
       }
       used.push(node);
       continue;
@@ -171,7 +225,9 @@ export function character(doc: Document, options: CharacterOptions): Character {
     if (!p) throw new Error(`${node.getName()}: a mesh that is neither skinned nor under a bone`);
     const ji = jointIndex.get(p)!;
     const bind = invertAffine(Float64Array.from(ibm.slice(ji * 16, ji * 16 + 16)));
-    for (const prim of mesh.listPrimitives()) appendPrimitive(g, prim, mul(bind, chain), { joint: ji });
+    for (const prim of mesh.listPrimitives()) {
+      appendPrimitive(g, prim, mul(bind, chain), { joint: ji }, options.bakeTexture);
+    }
     used.push(node);
   }
   if (!target) throw new Error('character has no skinned mesh');
@@ -206,7 +262,12 @@ export interface Attachment {
  * A rigid mesh rigged to a bone (a gun in a character's hand) as its own small model: the mesh in its node's space,
  * and where it sits relative to the bone, so the game can hang it on the same bone of the animated character.
  */
-export function attachment(doc: Document, name: string, triangles: number): Attachment {
+export function attachment(
+  doc: Document,
+  name: string,
+  triangles: number,
+  options: { bakeTexture?: boolean } = {},
+): Attachment {
   const node = doc
     .getRoot()
     .listNodes()
@@ -223,7 +284,8 @@ export function attachment(doc: Document, name: string, triangles: number): Atta
   }
   if (!p) throw new Error(`${name} does not hang from a bone`);
   const g = emptyGeometry();
-  for (const prim of node.getMesh()!.listPrimitives()) appendPrimitive(g, prim, identity());
+  for (const prim of node.getMesh()!.listPrimitives())
+    appendPrimitive(g, prim, identity(), undefined, options.bakeTexture);
   const { t, r, s } = decompose(mul(chain, localMatrix(node)));
   return { soup: rebuild(g, { triangles }), colors: namedColors([node]), bone: p.getName(), t, r, s };
 }
@@ -272,6 +334,8 @@ export interface StaticOptions {
    */
   textured?: (materialName: string) => boolean;
   error?: number;
+  /** Bake base colour textures into the vertex colours (palette-atlas packs, see `texturedColors`). */
+  bakeTexture?: boolean;
 }
 
 export interface StaticModel {
@@ -314,7 +378,7 @@ export function staticModel(doc: Document, options: StaticOptions): StaticModel 
           else alpha.idx.push(base + idx[t]!, base + idx[t + 1]!, base + idx[t + 2]!);
         }
       } else {
-        appendPrimitive(g, prim, m);
+        appendPrimitive(g, prim, m, undefined, options.bakeTexture);
       }
     }
   }
