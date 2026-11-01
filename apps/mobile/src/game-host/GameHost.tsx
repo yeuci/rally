@@ -4,9 +4,8 @@ import { useKeepAwake } from 'expo-keep-awake';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { XIcon } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { ActivityIndicator, AppState, BackHandler, PixelRatio, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { AppState, BackHandler, PixelRatio, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { GameHostController, type DeviceInfo, type GameHostResult } from './controller';
@@ -14,6 +13,7 @@ import { fetchEntryDocument, type EntryDocument } from './entry';
 import { usePrefs } from '@/lib/prefs';
 import type { MatchmakingTarget } from './handlers';
 import { buildInjectedScript } from './injected';
+import { GameLoadingScreen, GameProblemScreen } from './loading-screen';
 import type { PlaySessionService } from './play-session';
 import type { ProgressStore } from './progress';
 import type { SaveStore } from './saves';
@@ -27,6 +27,14 @@ export interface GameHostProps {
   /** `game_versions.sha256`: the entry document is refused when it does not match. Null skips the check (Developer launcher). */
   entrySha256?: string | null;
   game: LaunchContext['game'];
+  /** Display name for the loading screen; null/absent (Developer launcher) shows none. */
+  title?: string | null;
+  /** The loading screen's background: the cover, else the first screenshot (`coverUriFor(game, 'feature')`). */
+  artUri?: string | null;
+  /** The game's icon, above the title on the loading screen. */
+  iconUri?: string | null;
+  /** Bytes of the page's own files (loading-copy.ts `pageBytesOf(manifest)`): "Downloading game files · 1.2 of 3.4 MB". */
+  pageBytes?: number | null;
   /** Identity handed to the game in `ready()`; only after the 4.7.3 consent sheet was accepted. */
   user: LaunchContext['user'];
   intent: LaunchIntent;
@@ -60,8 +68,12 @@ const sha256Hex = (text: string) => Crypto.digestStringAsync(Crypto.CryptoDigest
  * Session state lives in a GameHostController created once per mount (key the component to relaunch); this
  * component only renders the controller's snapshot and forwards callbacks. Every session ends in exactly one
  * `onExit`, with `reason: 'unmount'` when the component unmounts first (the callee must not navigate then).
- * `bundleUrl`, `game`, `user`, `intent`, `resume`, `saves`, `progress`, `soloScores`, `playSessions` and
- * `matchmaking` (with its join target) are read at mount.
+ * `bundleUrl`, `game`, `title`, `pageBytes`, `user`, `intent`, `resume`, `saves`, `progress`, `soloScores`,
+ * `playSessions` and `matchmaking` (with its join target) are read at mount.
+ *
+ * While the game loads (`phase === 'loading'`, which includes the hold after `ready()` for games that send loading
+ * labels) the loading screen covers the WebView (loading-screen.tsx); it fades out when the game is shown. Crashes and
+ * load failures get the same backdrop with Reload / Back. The close button only shows over a running game.
  */
 const ORIGIN_WHITELIST = ['*'];
 
@@ -86,6 +98,8 @@ export function GameHost(props: GameHostProps) {
       new GameHostController({
         bundleUrl: props.bundleUrl,
         game: props.game,
+        title: props.title ?? null,
+        pageBytes: props.pageBytes ?? null,
         user: props.user,
         intent: props.intent,
         resume: props.resume,
@@ -112,7 +126,14 @@ export function GameHost(props: GameHostProps) {
     const attempt = view.attempt;
     let cancelled = false;
     const abort = new AbortController();
-    fetchEntryDocument(bundleUrl, { expectedSha256: entrySha256 ?? null, digest: sha256Hex, signal: abort.signal })
+    fetchEntryDocument(bundleUrl, {
+      expectedSha256: entrySha256 ?? null,
+      digest: sha256Hex,
+      signal: abort.signal,
+      onProgress: (loaded, total) => {
+        if (!cancelled) controller.onEntryProgress(loaded, total);
+      },
+    })
       .then((doc) => {
         if (cancelled) return;
         controller.onEntryLoaded();
@@ -243,51 +264,46 @@ export function GameHost(props: GameHostProps) {
       )}
 
       {view.phase === 'loading' && (
-        <View
-          className="bg-background absolute inset-0 items-center justify-center gap-3 p-6"
-          style={{ paddingTop: insets.top }}
-          pointerEvents="box-none"
-        >
-          <ActivityIndicator size="large" />
-          <Text variant="large">{view.status}</Text>
-          <View className="bg-muted h-1 w-56 overflow-hidden rounded-full">
-            <View className="bg-primary h-1" style={{ width: `${Math.round(view.progress * 100)}%` }} />
-          </View>
-          {__DEV__ && (
-            <Text variant="muted" numberOfLines={1}>
-              {bundleUrl}
-            </Text>
-          )}
-        </View>
+        <GameLoadingScreen
+          key={view.attempt}
+          title={props.title ?? null}
+          artUri={props.artUri}
+          iconUri={props.iconUri}
+          progress={view.progress}
+          status={view.status}
+          detail={view.detail}
+          onLeave={controller.requestExit}
+          devNote={__DEV__ ? bundleUrl : null}
+        />
       )}
 
       {(view.phase === 'crashed' || view.phase === 'failed') && (
-        <View className="bg-background absolute inset-0 items-center justify-center gap-3 p-6">
-          <Text variant="h4">{view.phase === 'crashed' ? 'The game crashed' : 'The game failed to start'}</Text>
-          <Text variant="muted" className="text-center">
-            {view.error ?? 'unknown error'}
-          </Text>
-          <View className="mt-2 flex-row gap-3">
-            <Button onPress={() => controller.reload()}>
-              <Text>Reload</Text>
-            </Button>
-            <Button variant="secondary" onPress={() => controller.finish(view.phase)}>
-              <Text>Back</Text>
-            </Button>
-          </View>
-        </View>
+        <GameProblemScreen
+          key={`problem-${view.attempt}`}
+          title={props.title ?? null}
+          artUri={props.artUri}
+          iconUri={props.iconUri}
+          phase={view.phase}
+          error={view.error}
+          showError={__DEV__}
+          onReload={controller.reload}
+          onBack={() => controller.finish(view.phase)}
+        />
       )}
 
-      {/* Close affordance for iOS (no hardware back). Games draw under it; the HUD is top-left. */}
-      <Pressable
-        accessibilityLabel="Close game"
-        onPress={() => controller.requestExit()}
-        className="bg-card border-border absolute h-8 w-8 items-center justify-center rounded-full border"
-        style={{ top: Math.max(insets.top, 8), right: Math.max(insets.right, 8) }}
-        hitSlop={12}
-      >
-        <Icon as={XIcon} className="size-4" />
-      </Pressable>
+      {/* Close affordance for iOS (no hardware back) over a running game; games draw under it, their HUD is top-left.
+          The loading screen has its own "Leave", the problem screens their "Back". */}
+      {view.phase === 'ready' && (
+        <Pressable
+          accessibilityLabel="Close game"
+          onPress={() => controller.requestExit()}
+          className="bg-card border-border absolute h-8 w-8 items-center justify-center rounded-full border"
+          style={{ top: Math.max(insets.top, 8), right: Math.max(insets.right, 8) }}
+          hitSlop={12}
+        >
+          <Icon as={XIcon} className="size-4" />
+        </Pressable>
+      )}
     </View>
   );
 }

@@ -12,10 +12,12 @@ import { config, toWsUrl } from '@/config';
 import { HostError } from '@/game-host/bridge';
 import { GameHost, type GameHostResult } from '@/game-host/GameHost';
 import { MATCH_ENDED_EXIT, type MatchmakingTarget } from '@/game-host/handlers';
+import { pageBytesOf } from '@/game-host/loading-copy';
 import { createRejoinJournal } from '@/game-host/rejoin-journal';
 import { createSupabaseProgressStore } from '@/game-host/supabase-progress';
 import { createSupabaseSaveStore } from '@/game-host/supabase-saves';
 import { useSession } from '@/lib/auth/session';
+import { coverUriFor } from '@/lib/game-art';
 import { progressKeys } from '@/lib/game-progress';
 import { intentFor, parseFriendJoinTarget, parseJoinTarget, type FriendJoinTarget } from '@/lib/join-target';
 import {
@@ -59,7 +61,10 @@ type PlayParams = { id: string; join?: string; name?: string; room?: string; cod
 async function resolveFriend(friendId: string): Promise<FriendJoinTarget> {
   const { data, error } = await withAnonymousRetry(() => supabase.rpc('friend_join_target', { p_friend_id: friendId }));
   if (error) {
-    throw new HostError('MATCHMAKE_FAILED', /^NOT_FOUND\b/.test(error.message) ? "your friend's match cannot be joined" : error.message);
+    throw new HostError(
+      'MATCHMAKE_FAILED',
+      /^NOT_FOUND\b/.test(error.message) ? "your friend's match cannot be joined" : error.message,
+    );
   }
   const target = parseFriendJoinTarget(data);
   if (!target) throw new HostError('MATCHMAKE_FAILED', 'unexpected friend_join_target answer');
@@ -81,7 +86,10 @@ export default function PlayScreen() {
   // The private room's join code, once a join learns it (shown with Share over the game).
   const [roomCode, setRoomCode] = useState<string | null>(null);
 
-  const target = useMemo(() => parseJoinTarget({ join, name, room: roomParam, code, friend }), [join, name, roomParam, code, friend]);
+  const target = useMemo(
+    () => parseJoinTarget({ join, name, room: roomParam, code, friend }),
+    [join, name, roomParam, code, friend],
+  );
   const rejoin = useMemo(() => (userId ? createRejoinJournal(AsyncStorage, userId) : null), [userId]);
   // `resume`: the record is read once, before the game loads (nothing to resume → no launch at all).
   const resumeRecord = useQuery({
@@ -184,8 +192,21 @@ export default function PlayScreen() {
         bundleUrl={p.entryUrl}
         entrySha256={p.entrySha256}
         game={{ id: p.game.id, version: p.version }}
+        // The loading screen: the game's name, its art blurred behind the bar, and the page's download size.
+        title={p.game.title}
+        artUri={coverUriFor(p.game, 'feature')}
+        iconUri={p.game.icon_url}
+        pageBytes={pageBytesOf(p.manifest)}
         user={{ id: me.id, username: me.username, avatarUrl: resolveAvatarUrl(me.avatar_url) }}
-        intent={!p.room ? 'solo' : record ? intentFor(record.join) : target.join === 'resume' ? 'quick' : intentFor(target.join)}
+        intent={
+          !p.room
+            ? 'solo'
+            : record
+              ? intentFor(record.join)
+              : target.join === 'resume'
+                ? 'quick'
+                : intentFor(target.join)
+        }
         resume={record ? { reconnectionToken: record.token } : undefined}
         orientation={p.orientation}
         saves={saves}
