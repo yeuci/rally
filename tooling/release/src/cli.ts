@@ -42,10 +42,20 @@ class Stop extends Error {}
 
 // --- processes ------------------------------------------------------------------------------------------------------
 
-/** Run a command with the terminal attached (its prompts and output are the user's). `pnpm`/`npx` are .cmd on Windows. */
+/**
+ * `pnpm` / `npx` are .cmd shims on Windows, which only start through a shell; Node warns (DEP0190) when arguments
+ * are passed alongside `shell: true`, so there they go as one command line (every argument here is a plain token).
+ */
+function command(cmd: string, args: string[]): [string, string[], boolean] {
+  if (WIN && (cmd === 'pnpm' || cmd === 'npx')) return [[cmd, ...args].join(' '), [], true];
+  return [cmd, args, false];
+}
+
+/** Run a command with the terminal attached (its prompts and output are the user's). */
 function run(cmd: string, args: string[], cwd = ROOT): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd, stdio: 'inherit', shell: WIN && (cmd === 'pnpm' || cmd === 'npx') });
+    const [file, argv, shell] = command(cmd, args);
+    const child = spawn(file, argv, { cwd, stdio: 'inherit', shell });
     child.on('error', reject);
     child.on('exit', (code) =>
       code === 0 ? resolve() : reject(new Stop(`${cmd} ${args.join(' ')} failed (exit ${code})`)),
@@ -56,10 +66,11 @@ function run(cmd: string, args: string[], cwd = ROOT): Promise<void> {
 /** Run a command and return its stdout (trimmed); stderr stays on the terminal. */
 function capture(cmd: string, args: string[], cwd = ROOT): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, {
+    const [file, argv, shell] = command(cmd, args);
+    const child = spawn(file, argv, {
       cwd,
       stdio: ['inherit', 'pipe', 'inherit'], // stdin: ssh may ask for a password
-      shell: WIN && (cmd === 'pnpm' || cmd === 'npx'),
+      shell,
     });
     let out = '';
     child.stdout.on('data', (d: Buffer) => (out += d.toString()));

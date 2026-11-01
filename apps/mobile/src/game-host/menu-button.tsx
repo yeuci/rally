@@ -1,16 +1,7 @@
 import * as Haptics from 'expo-haptics';
 import { ChevronLeftIcon, ChevronRightIcon, SettingsIcon } from 'lucide-react-native';
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
-import { StyleSheet, type AccessibilityActionEvent } from 'react-native';
-import {
-  GestureDetector,
-  GestureHandlerRootView,
-  useCompetingGestures,
-  usePanGesture,
-  useTapGesture,
-  type PanGestureConfig,
-  type TapGestureConfig,
-} from 'react-native-gesture-handler';
+import { PanResponder, StyleSheet, View, type AccessibilityActionEvent } from 'react-native';
 import Animated, {
   Easing,
   ReduceMotion,
@@ -20,7 +11,6 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import { scheduleOnRN } from 'react-native-worklets';
 import {
   DRAG_THRESHOLD,
   FLING_VELOCITY,
@@ -55,8 +45,8 @@ import { MENU_BUTTON_SIZE } from './settings';
  * Positions, the tab and the tucked state are remembered per game and orientation (menu-button-model.ts, through
  * GameHost). The game itself is only ever told about the default top-left place (`device.menuButton`).
  *
- * The drag runs on the UI thread (gesture-handler v3 worklets, Reanimated shared values); drops, taps and haptics
- * hop to JS (`scheduleOnRN`). Reduce Motion: no springs, slides or scaling, just fades.
+ * Touches go through React Native's responder system (it works over the WebView); the drag writes Reanimated shared
+ * values, so the disc moves without re-rendering. Reduce Motion: no springs, slides or scaling, just fades.
  */
 
 export interface MenuButtonProps {
@@ -110,15 +100,9 @@ export const MenuButton = memo(function MenuButton(props: MenuButtonProps) {
   // Everything the worklets read lives in shared values; everything JS needs at drop time in a ref (current props).
   const x = useSharedValue(rest.x);
   const y = useSharedValue(rest.y);
-  // Drag anchors: the disc (or tab) and the finger at touch-down. Absolute finger positions, not the pan's
-  // translation, which starts at activation on some platforms (dropping the DRAG_THRESHOLD slop).
+  /** Drag anchor: where the disc was at touch-down (the finger's travel is the responder's dx / dy). */
   const startX = useSharedValue(0);
   const startY = useSharedValue(0);
-  const fingerX = useSharedValue(0);
-  const fingerY = useSharedValue(0);
-  /** The latest in-drag velocity: some platforms (web) report 0 at release. */
-  const lastVx = useSharedValue(0);
-  const lastVy = useSharedValue(0);
   const pressed = useSharedValue(0);
   const lifted = useSharedValue(0);
   const armed = useSharedValue(0);
@@ -248,127 +232,116 @@ export const MenuButton = memo(function MenuButton(props: MenuButtonProps) {
     [x, y],
   );
 
-  // --- Gestures (UI thread) ---------------------------------------------------------------------------------------
+  // --- Gestures (React Native's responder system) ------------------------------------------------------------------
+  // Not gesture-handler: its root view, nested over the game's WebView, never received touches on iOS (Expo Go).
+  // The core responder system works over any native view. Moves set shared values from JS (Reanimated draws them);
+  // velocities arrive in px/ms and the model works in px/s.
 
-  const discTapConfig = useMemo<TapGestureConfig>(
-    () => ({
-      maxDistance: DRAG_THRESHOLD,
-      maxDuration: 1500,
-      hitSlop: DISC_SLOP,
-      onBegin: () => {
-        'worklet';
-        pressed.set(withTiming(1, { duration: 90, reduceMotion: NEVER }));
-      },
-      onActivate: () => {
-        'worklet';
-        scheduleOnRN(open);
-      },
-      onFinalize: () => {
-        'worklet';
-        pressed.set(withTiming(0, { duration: 160, reduceMotion: NEVER }));
-      },
-    }),
-    [pressed, open],
+  const press = useCallback(
+    (on: boolean) => pressed.set(withTiming(on ? 1 : 0, { duration: on ? 90 : 160, reduceMotion: NEVER })),
+    [pressed],
   );
-  const discPanConfig = useMemo<PanGestureConfig>(
-    () => ({
-      minDistance: DRAG_THRESHOLD,
-      hitSlop: DISC_SLOP,
-      onBegin: (e) => {
-        'worklet';
-        fingerX.set(e.absoluteX);
-        fingerY.set(e.absoluteY);
+
+  const discResponder = useMemo(() => {
+    let dragging = false;
+    let rawX = 0;
+    let rawY = 0;
+    const settle = () => {
+      armed.set(0);
+      lifted.set(motion.get() ? withSpring(0, SPRING) : 0);
+    };
+    return PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderTerminationRequest: () => !dragging,
+      onShouldBlockNativeResponder: () => true,
+      onPanResponderGrant: () => {
+        dragging = false;
         startX.set(x.get());
         startY.set(y.get());
-        lastVx.set(0);
-        lastVy.set(0);
+        press(true);
       },
-      onActivate: () => {
-        'worklet';
-        armed.set(0);
-        lifted.set(motion.get() ? withSpring(1, SPRING) : 1);
-      },
-      onUpdate: (e) => {
-        'worklet';
+      onPanResponderMove: (_e, g) => {
+        if (!dragging) {
+          if (Math.hypot(g.dx, g.dy) < DRAG_THRESHOLD) return;
+          dragging = true;
+          press(false);
+          armed.set(0);
+          lifted.set(motion.get() ? withSpring(1, SPRING) : 1);
+        }
         const b = area.get();
-        const rawX = startX.get() + e.absoluteX - fingerX.get();
-        const rawY = startY.get() + e.absoluteY - fingerY.get();
+        rawX = startX.get() + g.dx;
+        rawY = startY.get() + g.dy;
         x.set(rubberBand(rawX, b.minX, b.maxX));
         y.set(rubberBand(rawY, b.minY, b.maxY));
-        lastVx.set(e.velocityX);
-        lastVy.set(e.velocityY);
         const arm = rawX < b.minX - TUCK_PULL || rawX > b.maxX + TUCK_PULL ? 1 : 0;
         if (arm !== armed.get()) {
           armed.set(arm);
-          if (arm) scheduleOnRN(armTick);
+          if (arm) armTick();
         }
       },
-      onDeactivate: (e) => {
-        'worklet';
-        const rawX = startX.get() + e.absoluteX - fingerX.get();
-        const rawY = startY.get() + e.absoluteY - fingerY.get();
-        const still = e.velocityX === 0 && e.velocityY === 0;
-        scheduleOnRN(drop, rawX, rawY, still ? lastVx.get() : e.velocityX, still ? lastVy.get() : e.velocityY);
+      onPanResponderRelease: (_e, g) => {
+        press(false);
+        if (!dragging) {
+          open();
+          return;
+        }
+        dragging = false;
+        settle();
+        drop(rawX, rawY, g.vx * 1000, g.vy * 1000);
       },
-      onFinalize: () => {
-        'worklet';
-        armed.set(0);
-        lifted.set(motion.get() ? withSpring(0, SPRING) : 0);
+      onPanResponderTerminate: () => {
+        press(false);
+        if (!dragging) return;
+        dragging = false;
+        settle();
+        drop(rawX, rawY, 0, 0);
       },
-    }),
-    [area, armed, lifted, motion, startX, startY, fingerX, fingerY, lastVx, lastVy, x, y, armTick, drop],
-  );
-  const discGesture = useCompetingGestures(usePanGesture(discPanConfig), useTapGesture(discTapConfig));
+    });
+  }, [area, armed, lifted, motion, startX, startY, x, y, press, open, armTick, drop]);
 
-  const tabTapConfig = useMemo<TapGestureConfig>(
-    () => ({
-      maxDistance: DRAG_THRESHOLD,
-      maxDuration: 1500,
-      hitSlop: TAB_SLOP,
-      onBegin: () => {
-        'worklet';
-        pressed.set(withTiming(1, { duration: 90, reduceMotion: NEVER }));
-      },
-      onActivate: () => {
-        'worklet';
-        scheduleOnRN(untuck);
-      },
-      onFinalize: () => {
-        'worklet';
-        pressed.set(withTiming(0, { duration: 160, reduceMotion: NEVER }));
-      },
-    }),
-    [pressed, untuck],
-  );
-  const tabPanConfig = useMemo<PanGestureConfig>(
-    () => ({
-      minDistance: DRAG_THRESHOLD,
-      hitSlop: TAB_SLOP,
-      onBegin: (e) => {
-        'worklet';
-        fingerX.set(e.absoluteX);
-        fingerY.set(e.absoluteY);
+  const tabResponder = useMemo(() => {
+    let dragging = false;
+    return PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderTerminationRequest: () => !dragging,
+      onShouldBlockNativeResponder: () => true,
+      onPanResponderGrant: () => {
+        dragging = false;
         tabStart.set(tabTop.get());
+        press(true);
       },
-      onUpdate: (e) => {
-        'worklet';
+      onPanResponderMove: (_e, g) => {
+        if (!dragging) {
+          if (Math.hypot(g.dx, g.dy) < DRAG_THRESHOLD) return;
+          dragging = true;
+          press(false);
+        }
         const b = area.get();
         // Along the edge, inside the area; away from it with resistance (a pull past TAB_PULL_OUT brings it out).
-        const top = tabStart.get() + e.absoluteY - fingerY.get();
+        const top = tabStart.get() + g.dy;
         const discTop = top + TAB_HEIGHT / 2 - SIZE / 2;
         tabTop.set(top + (clamp(discTop, b.minY, b.maxY) - discTop));
-        const away = Math.max(0, (e.absoluteX - fingerX.get()) * -side.get());
-        tabPull.set(rubberBand(away, 0, 0));
+        tabPull.set(rubberBand(Math.max(0, g.dx * -side.get()), 0, 0));
       },
-      onDeactivate: (e) => {
-        'worklet';
+      onPanResponderRelease: (_e, g) => {
+        press(false);
+        if (!dragging) {
+          untuck();
+          return;
+        }
+        dragging = false;
         tabPull.set(motion.get() ? withSpring(0, SPRING) : 0);
-        scheduleOnRN(dropTab, e.absoluteX - fingerX.get(), tabTop.get() - tabStart.get(), e.velocityX);
+        dropTab(g.dx, tabTop.get() - tabStart.get(), g.vx * 1000);
       },
-    }),
-    [area, motion, side, tabPull, tabStart, tabTop, fingerX, fingerY, dropTab],
-  );
-  const tabGesture = useCompetingGestures(usePanGesture(tabPanConfig), useTapGesture(tabTapConfig));
+      onPanResponderTerminate: () => {
+        press(false);
+        dragging = false;
+        tabPull.set(0);
+      },
+    });
+  }, [area, motion, side, tabPull, tabStart, tabTop, press, untuck, dropTab]);
 
   // --- Looks -------------------------------------------------------------------------------------------------------
 
@@ -411,47 +384,47 @@ export const MenuButton = memo(function MenuButton(props: MenuButtonProps) {
 
   const left = tab.side === 'left';
   return (
-    <GestureHandlerRootView style={StyleSheet.absoluteFill} pointerEvents="box-none">
-      <GestureDetector gesture={tabGesture}>
-        <Animated.View
-          style={[
-            styles.tab,
-            left ? styles.tabLeft : styles.tabRight,
-            { width: tabWidth, paddingLeft: left ? edgeInset : 0, paddingRight: left ? 0 : edgeInset },
-            tabStyle,
-          ]}
-          pointerEvents={tucked && !hidden ? 'auto' : 'none'}
-          accessible={tucked && !hidden}
-          accessibilityRole="button"
-          accessibilityLabel="Show game menu"
-          accessibilityHint="Brings back the menu button"
-          accessibilityActions={[{ name: 'activate' }, { name: 'open', label: 'Open the game menu' }]}
-          onAccessibilityAction={onTabAction}
-          testID="game-menu-tab"
-        >
-          {left ? (
-            <ChevronRightIcon size={16} color={CHEVRON} strokeWidth={2.5} />
-          ) : (
-            <ChevronLeftIcon size={16} color={CHEVRON} strokeWidth={2.5} />
-          )}
-        </Animated.View>
-      </GestureDetector>
-      <GestureDetector gesture={discGesture}>
-        <Animated.View
-          style={[styles.disc, discStyle]}
-          pointerEvents={tucked || hidden ? 'none' : 'auto'}
-          accessible={!tucked && !hidden}
-          accessibilityRole="button"
-          accessibilityLabel="Game menu"
-          accessibilityHint="Settings, how to play, and leave. Drag to move it."
-          accessibilityActions={[{ name: 'activate' }, { name: 'tuck', label: 'Tuck to the side' }]}
-          onAccessibilityAction={onDiscAction}
-          testID="game-menu-button"
-        >
-          <SettingsIcon size={21} color={WHITE} strokeWidth={2.1} />
-        </Animated.View>
-      </GestureDetector>
-    </GestureHandlerRootView>
+    <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+      <Animated.View
+        {...tabResponder.panHandlers}
+        hitSlop={TAB_SLOP}
+        style={[
+          styles.tab,
+          left ? styles.tabLeft : styles.tabRight,
+          { width: tabWidth, paddingLeft: left ? edgeInset : 0, paddingRight: left ? 0 : edgeInset },
+          tabStyle,
+        ]}
+        pointerEvents={tucked && !hidden ? 'auto' : 'none'}
+        accessible={tucked && !hidden}
+        accessibilityRole="button"
+        accessibilityLabel="Show game menu"
+        accessibilityHint="Brings back the menu button"
+        accessibilityActions={[{ name: 'activate' }, { name: 'open', label: 'Open the game menu' }]}
+        onAccessibilityAction={onTabAction}
+        testID="game-menu-tab"
+      >
+        {left ? (
+          <ChevronRightIcon size={16} color={CHEVRON} strokeWidth={2.5} />
+        ) : (
+          <ChevronLeftIcon size={16} color={CHEVRON} strokeWidth={2.5} />
+        )}
+      </Animated.View>
+      <Animated.View
+        {...discResponder.panHandlers}
+        hitSlop={DISC_SLOP}
+        style={[styles.disc, discStyle]}
+        pointerEvents={tucked || hidden ? 'none' : 'auto'}
+        accessible={!tucked && !hidden}
+        accessibilityRole="button"
+        accessibilityLabel="Game menu"
+        accessibilityHint="Settings, how to play, and leave. Drag to move it."
+        accessibilityActions={[{ name: 'activate' }, { name: 'tuck', label: 'Tuck to the side' }]}
+        onAccessibilityAction={onDiscAction}
+        testID="game-menu-button"
+      >
+        <SettingsIcon size={21} color={WHITE} strokeWidth={2.1} />
+      </Animated.View>
+    </View>
   );
 });
 
