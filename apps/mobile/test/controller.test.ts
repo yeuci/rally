@@ -128,10 +128,11 @@ test('ready timeout fails the load; reload rotates the nonce and resets state', 
   assert.equal(v.attempt, 1);
   assert.notEqual(v.nonce, NONCE);
   assert.equal(v.error, null);
-  // Old nonce is no longer accepted.
+  // Old nonce is no longer accepted: the game never becomes ready. (Not "still loading": with a 5 ms ready timeout,
+  // a slow runner can reach the timeout during the tick, which is just as much "not ready".)
   controller.handleMessage(req('ready', { sdkVersion: '1' }), BUNDLE);
   await tick();
-  assert.equal(controller.getSnapshot().phase, 'loading');
+  assert.notEqual(controller.getSnapshot().phase, 'ready');
   controller.stop();
 });
 
