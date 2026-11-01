@@ -114,6 +114,7 @@ describe('NorthdaleRoom', () => {
     assert.equal(view(alice).opened.length, LOOT_SPOTS.length);
     assert.equal(view(alice).pickups.size, 4, 'the truck parts lie out in town');
     await waitFor(() => view(alice).players.get(alice.sessionId)!.name === 'guest-Alice', 'renamed');
+    assert.equal(view(alice).players.get(alice.sessionId)!.uid, '', 'a guest has no user id for the host menu');
     assert.equal(SERVER_VERSION, 5);
     assert.deepEqual(
       {
@@ -226,6 +227,8 @@ describe('NorthdaleRoom', () => {
     const byName = Object.fromEntries(r.players.map((p) => [p.username, p]));
     assert.ok(byName.ann!.achievements.includes('getaway'));
     assert.equal(byName['guest-Zed']!.guest, true);
+    // The host menu's People list knows a signed-in survivor by user id.
+    assert.equal(view(ann.room).players.get(ann.room.sessionId)!.uid, ANN);
     await waitFor(() => ann.results.length === 1 && zed.results.length === 1, 'result messages');
     assert.equal(ann.results[0]!.recorded, true);
     assert.deepEqual(zed.results[0], { matchId: r.matchId, recorded: false, reason: 'guest' });

@@ -305,7 +305,10 @@ export class NorthdaleRoom extends RallyRoom<NorthdaleState> {
       sp.downFor = Math.min(255, Math.floor(p.downFor));
       sp.inRun = p.inRun;
       sp.connected = p.connected;
-      sp.guest = this.authOf(p.id)?.guest ?? true;
+      const auth = this.authOf(p.id);
+      sp.guest = auth?.guest ?? true;
+      // The Rally user id of a signed-in survivor (the host's game menu offers their profile); none for guests.
+      sp.uid = auth && !auth.guest ? auth.userId : '';
       sp.ack = this.lastSeq.get(p.id) ?? 0;
       if (p.life !== 'dead' || m.phase === 'escape') near.push(p);
     }

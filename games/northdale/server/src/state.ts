@@ -46,6 +46,8 @@ export interface NorthdalePlayerView {
   inRun: boolean;
   connected: boolean;
   guest: boolean;
+  /** Rally user id of a signed-in survivor ('' for guests): the host's game menu lists people by it. */
+  uid: string;
   /** Sequence number of the last input the server applied. */
   ack: number;
 }

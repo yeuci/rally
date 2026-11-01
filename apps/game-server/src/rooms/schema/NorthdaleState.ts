@@ -44,6 +44,7 @@ export const NorthdalePlayer = schema(
     inRun: t.boolean().default(false),
     connected: t.boolean().default(true),
     guest: t.boolean().default(true),
+    uid: t.string().default(''),
     ack: t.uint32().default(0),
   },
   'NorthdalePlayer',
