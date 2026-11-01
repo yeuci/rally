@@ -43,7 +43,7 @@ jobs:
 
   e2e:
     # The Playwright end-to-end checks a contributor runs by hand (`pnpm --filter <pkg> test:e2e`): the dev harness
-    # with the spike, Stack, and Sumo, Overrun, Gun Run, Topple, and Sushi Shift with two players against a real game server. Each script
+    # with the spike, Stack, and Sumo, Overrun, Gun Run and Sushi Shift with two players against a real game server. Each script
     # starts the Vite dev server (and the Colyseus server) it needs. Playwright is not a workspace dependency: it is
     # installed globally (pinned) and found through NODE_PATH, as in the dev container. Chromium + its apt deps: expect
     # under a minute.
@@ -77,6 +77,9 @@ jobs:
       - name: Stack
         run: pnpm --filter @rally/game-stack test:e2e
 
+      - name: Topple
+        run: pnpm --filter @rally/game-topple test:e2e
+
       - name: Sumo (two players, real game server)
         run: pnpm --filter @rally/game-sumo test:e2e
 
@@ -86,8 +89,6 @@ jobs:
       - name: Gun Run (two players, real game server with dev rules)
         run: pnpm --filter @rally/game-gunrun test:e2e
 
-      - name: Topple
-        run: pnpm --filter @rally/game-topple test:e2e
       - name: Northdale (two players, real game server with dev rules)
         run: pnpm --filter @rally/game-northdale test:e2e
 
