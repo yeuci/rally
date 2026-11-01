@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { GameEventSchemas, parseEnvelope, type BridgeEnvelope } from '@rally/protocol';
-import { Rally, truncate } from '../src/rally.ts';
+import { DEFAULT_SETTINGS, Rally, bindEscape, truncate } from '../src/rally.ts';
 import { RallyError } from '../src/errors.ts';
 
 const NONCE = 'n'.repeat(32);
@@ -23,7 +23,9 @@ function fakeHost(opts: { requestTimeoutMs?: number; post?: (json: string) => vo
   });
   const respond = (id: string, params: unknown) =>
     host.recv(JSON.stringify({ v: 1, nonce: NONCE, id, kind: 'res', method: 'x', params }));
-  return { rally, sent, respond };
+  /** Deliver a raw host → game envelope (an event, or a response with an error). */
+  const deliver = (env: object) => host.recv(JSON.stringify({ v: 1, nonce: NONCE, ...env }));
+  return { rally, sent, respond, deliver };
 }
 
 const launch = {
@@ -84,4 +86,94 @@ test('a post that throws settles the request at once', async () => {
     },
   });
   await assert.rejects(rally.ping(), (e: unknown) => e instanceof RallyError && e.code === 'NO_HOST');
+});
+
+const settings = {
+  volume: { master: 0.5, music: 0, effects: 1 },
+  graphics: 'low',
+  haptics: false,
+  game: { aimAssist: false },
+} as const;
+
+const tick = () => new Promise((r) => setTimeout(r, 0));
+
+test('settings: defaults, then the launch context, then each settingsChanged; game defaults from menu.define fill gaps', async () => {
+  const { rally, sent, respond, deliver } = fakeHost();
+  const evt = (method: string, params: unknown) => deliver({ id: 'e1', kind: 'evt', method, params });
+  assert.deepEqual(rally.settings, DEFAULT_SETTINGS);
+  const ready = rally.ready();
+  respond(sent[0]!.id, { ...launch, settings });
+  await ready;
+  assert.equal(rally.settings.graphics, 'low');
+  const defined = rally.menu.define({
+    settings: [
+      { type: 'toggle', key: 'aimAssist', label: 'Aim assist', default: true },
+      { type: 'slider', key: 'shake', label: 'Camera shake', min: 0, max: 1, step: 0.1, default: 0.5 },
+    ],
+    help: [{ title: 'Move', text: 'Drag the left stick.' }],
+  });
+  await tick();
+  assert.equal(sent.at(-1)!.method, 'menu.define');
+  respond(sent.at(-1)!.id, { values: { aimAssist: false } });
+  assert.deepEqual(await defined, { aimAssist: false, shake: 0.5 });
+  assert.deepEqual(rally.settings.game, { aimAssist: false, shake: 0.5 });
+  const seen: unknown[] = [];
+  rally.on('settingsChanged', (s) => seen.push(s.volume.master));
+  evt('settingsChanged', { ...settings, volume: { master: 0.2, music: 0, effects: 1 }, game: {} });
+  assert.deepEqual(seen, [0.2]);
+  assert.equal(rally.settings.volume.master, 0.2);
+  assert.deepEqual(rally.settings.game, { aimAssist: true, shake: 0.5 }, 'unsaved keys fall back to defaults');
+});
+
+test('menu.define: defaults outside the shell and on hosts without the menu; bad definitions are refused', async () => {
+  const outside = new Rally({ host: undefined, post: undefined });
+  const def = { settings: [{ type: 'toggle' as const, key: 'hints', label: 'Hints', default: true }] };
+  assert.deepEqual(await outside.menu.define(def), { hints: true });
+  const { rally, sent, deliver } = fakeHost();
+  const p = rally.menu.define(def);
+  await tick();
+  deliver({
+    id: sent.at(-1)!.id,
+    kind: 'res',
+    method: 'menu.define',
+    error: { code: 'NOT_SUPPORTED', message: 'old host' },
+  });
+  assert.deepEqual(await p, { hints: true });
+  await assert.rejects(
+    rally.menu.define({ settings: [{ type: 'slider', key: 'x', label: 'X', min: 1, max: 0, step: 1, default: 0 }] }),
+    (e: unknown) => e instanceof RallyError && e.code === 'INVALID_PARAMS',
+  );
+  await assert.rejects(
+    rally.menu.define({
+      settings: [
+        { type: 'toggle', key: 'a', label: 'A', default: true },
+        { type: 'toggle', key: 'a', label: 'A again', default: false },
+      ],
+    }),
+    (e: unknown) => e instanceof RallyError && e.code === 'INVALID_PARAMS',
+  );
+});
+
+test('menu.players is a fire-and-forget event; Escape opens the menu (not on repeat, not when the game keeps Escape)', () => {
+  const { rally, sent } = fakeHost();
+  rally.menu.players([
+    { name: 'alice', you: true, detail: '3 kills' },
+    { name: 'bob', userId: 'u2' },
+  ]);
+  assert.equal(sent.at(-1)!.kind, 'evt');
+  assert.equal(sent.at(-1)!.method, 'menu.players');
+  let listener: ((ev: Event) => void) | null = null;
+  bindEscape(rally, { addEventListener: (_type: string, fn: unknown) => (listener = fn as (ev: Event) => void) });
+  let prevented = 0;
+  const key = (k: string, repeat = false) =>
+    listener!({ key: k, repeat, preventDefault: () => prevented++ } as unknown as Event);
+  const opens = () => sent.filter((e) => e.method === 'menu.open').length;
+  key('Escape');
+  assert.equal(opens(), 1);
+  assert.equal(prevented, 1);
+  key('Escape', true);
+  key('Enter');
+  rally.escapeOpensMenu = false;
+  key('Escape');
+  assert.equal(opens(), 1);
 });
