@@ -5,6 +5,7 @@ import {
   Item,
   LIFE,
   NorthdaleMatch,
+  Rng,
   SAFE,
   SAFE_CENTER,
   TOWN_HALF,
@@ -192,7 +193,6 @@ export function artPose(shot: ArtShot): Pose {
         clean: true,
         stage(scene) {
           scene.swing(c.x, c.y, toward(c, { x: c.x + 1.4, y: c.y + 0.5 }), true, true);
-          scene.blood(c.x + 1.5, c.y + 0.4, 1);
         },
       };
     }
@@ -220,21 +220,18 @@ export function artPose(shot: ArtShot): Pose {
       spots.forEach((s, i) =>
         put(m, `p${i}`, at.x + s.x, at.y + s.y, -Math.PI / 2 + (i - 1) * 0.35, guns[i]!, melees[i]!),
       );
-      // The horde up the street.
-      const horde: [number, number, number][] = [];
+      // The horde up the street: loose ranks, a little jostled (a fixed seed), all heading for the survivors.
+      const rng = new Rng(shot === 'cover' ? 5 : 6);
+      const front = shot === 'cover' ? 4.4 : 6.5;
       for (let i = 0; i < 26; i++) {
         const row = Math.floor(i / 6);
-        horde.push([
-          at.x - 4.2 + (i % 6) * 1.7 + (row % 2) * 0.8,
-          at.y - 6.5 - row * 2.1,
-          i % 9 === 4 ? ZombieKind.chubby : i % 5 === 2 ? ZombieKind.crawler : ZombieKind.basic,
-        ]);
+        const x = at.x - 4.6 + (i % 6) * 1.75 + (row % 2) * 0.8 + rng.range(-0.45, 0.45);
+        const y = at.y - front - row * 1.9 + rng.range(-0.5, 0.5);
+        const k = i % 9 === 4 ? ZombieKind.chubby : i % 5 === 2 ? ZombieKind.crawler : ZombieKind.basic;
+        const z = m.spawnZombie(k, x, y);
+        z.facing = Math.atan2(at.y - y, at.x - x) + rng.range(-0.25, 0.25);
       }
-      for (const [x, y, k] of horde) {
-        const z = m.spawnZombie(k as ZombieKind, x, y);
-        z.facing = Math.PI / 2;
-      }
-      const brute = m.spawnZombie(ZombieKind.brute, at.x + 3.5, at.y - 13);
+      const brute = m.spawnZombie(ZombieKind.brute, at.x + 3.2, at.y - front - 6.5);
       brute.facing = Math.PI / 2 + 0.3;
       // The dog with the group, biting the nearest.
       m.dog.state = 1;
@@ -255,7 +252,7 @@ export function artPose(shot: ArtShot): Pose {
       return {
         state: view(m),
         me: 'p0',
-        zoom: shot === 'cover' ? 0.78 : 1,
+        zoom: shot === 'cover' ? 0.95 : 1.3,
         clean: shot === 'cover',
         stage(scene) {
           for (const p of m.playerList) {
@@ -275,15 +272,8 @@ export function artPose(shot: ArtShot): Pose {
       const m = run(31, 3);
       m.timer = 70;
       const j = JUNCTION;
-      put(
-        m,
-        'p0',
-        j.x + 6.5,
-        j.y - 8.6,
-        toward({ x: j.x + 6.5, y: j.y - 8.6 }, PART_SPOTS[3]!),
-        Item.pistol,
-        Item.bat_saw,
-      );
+      const me = { x: j.x + 2.6, y: j.y - 2.2 };
+      put(m, 'p0', me.x, me.y, toward(me, PART_SPOTS[3]!), Item.pistol, Item.bat_saw);
       put(m, 'p1', j.x - 3, j.y + 2.4, -0.4, Item.smg, Item.knife);
       put(m, 'p2', j.x - 6, j.y - 4.5, -2.2, Item.none, Item.axe);
       const z1 = m.spawnZombie(ZombieKind.basic, j.x + 9, j.y + 6, false);
@@ -294,7 +284,7 @@ export function artPose(shot: ArtShot): Pose {
       return {
         state: view(m),
         me: 'p0',
-        zoom: 1,
+        zoom: 1.45,
         clean: false,
         stage(scene) {
           scene.swing(j.x - 6, j.y - 4.5, -2.2, true, false);
@@ -303,7 +293,7 @@ export function artPose(shot: ArtShot): Pose {
     }
     case 'escape': {
       const m = run(41, 3);
-      m.skipToNight(5, []);
+      m.skipToNight(4, []);
       m.truck.wheels = 2;
       m.truck.fuel = 2;
       m.truck.scrap = 60;
@@ -315,18 +305,17 @@ export function artPose(shot: ArtShot): Pose {
       m.truck.y = at.y;
       m.truck.yaw = at.yaw;
       for (const p of m.playerList) m.place(p.id, at.x, at.y);
+      const rng = new Rng(9);
       for (let i = 0; i < 14; i++) {
-        const z = m.spawnZombie(
-          i % 4 === 0 ? ZombieKind.crawler : ZombieKind.basic,
-          at.x - 5 + (i % 7) * 1.6,
-          at.y + 4 + Math.floor(i / 7) * 3,
-        );
-        z.facing = -Math.PI / 2;
+        const x = at.x - 5 + (i % 7) * 1.6 + rng.range(-0.5, 0.5);
+        const y = at.y + 2.7 + Math.floor(i / 7) * 1.8 + rng.range(-0.5, 0.5);
+        const z = m.spawnZombie(i % 4 === 0 ? ZombieKind.crawler : ZombieKind.basic, x, y);
+        z.facing = Math.atan2(at.y - y, at.x - x) + rng.range(-0.3, 0.3);
       }
       return {
         state: view(m),
         me: 'p0',
-        zoom: 1.15,
+        zoom: 1,
         clean: false,
         stage(scene, hud) {
           hud.banner('Go go go!', 'Through the Northdale gantry', 'good');
@@ -363,6 +352,8 @@ export interface ArtProbe {
 }
 
 const CLEAN_CSS = '#hud, #labels, .stick, #vignette { display: none !important; }';
+/** Hosted, the shell draws its own menu button in the top-left corner: the plain-browser exit button is not shown. */
+const ART_CSS = '#exit { display: none !important; }';
 
 /**
  * A `Net` look-alike that serves the frozen pose to main.ts' normal frame loop (interpolation, labels, HUD), then
@@ -371,11 +362,9 @@ const CLEAN_CSS = '#hud, #labels, .stick, #vignette { display: none !important; 
 export function stageArt(shot: ArtShot, deps: { app: Application; scene: NorthdaleScene; hud: Hud }): Net {
   const { app, scene, hud } = deps;
   const pose = artPose(shot);
-  if (pose.clean) {
-    const style = document.createElement('style');
-    style.textContent = CLEAN_CSS;
-    document.head.appendChild(style);
-  }
+  const style = document.createElement('style');
+  style.textContent = pose.clean ? `${ART_CSS}\n${CLEAN_CSS}` : ART_CSS;
+  document.head.appendChild(style);
   hud.hideHint();
   scene.setZoom(pose.zoom);
   const patchHandlers: ((t: number) => void)[] = [];
