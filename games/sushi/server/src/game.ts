@@ -1053,7 +1053,7 @@ export class SushiGame implements WorldView {
     const base = seat.kind === 'table' ? this.tuning.tablePatience : this.tuning.patience;
     const patienceMax = (opts.patience ?? base * (opts.vip ? 1.3 : 1)) * this.rules.patience;
     const start = this.day === WEEK_DAYS ? FESTIVAL_GATE : STREET;
-    const path = [...(this.day === WEEK_DAYS ? [{ x: 0, y: 8.8 }] : []), DOOR, ...seat.path];
+    const path = [...(this.day === WEEK_DAYS ? [{ x: 0, y: 7.8 }] : []), DOOR, ...seat.path];
     const c: Customer = {
       id: ++this.customerSerial,
       look: this.rng.int(4),

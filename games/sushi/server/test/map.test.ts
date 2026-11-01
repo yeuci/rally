@@ -79,8 +79,8 @@ test('chefs slide along the bar and stay inside; the shoji and the back door onl
   assert.ok(walk(Zone.dining, { x: 7, y: -1 }, { x: 1, y: 0 }).x > 9, 'and slide away on Wednesday');
   assert.ok(walk(0, { x: -7, y: -3 }, { x: -1, y: 0 }).x > -8, 'the back door is shut');
   assert.ok(walk(Zone.alley, { x: -7, y: -3 }, { x: -1, y: 0 }).x < -8.5, 'and open on Saturday');
-  assert.ok(walk(Zone.terrace, { x: 0, y: 4 }, { x: 0, y: 1 }).y > 6, 'the terrace on Sunday');
-  assert.ok(walk(0, { x: 0, y: 4 }, { x: 0, y: 1 }).y < 5.6, 'no walking out the front before');
+  assert.ok(walk(Zone.terrace, { x: 0, y: 3.4 }, { x: 0, y: 1 }).y > 5, 'the terrace on Sunday');
+  assert.ok(walk(0, { x: 0, y: 3.4 }, { x: 0, y: 1 }).y < 4.6, 'no walking out the front before');
 });
 
 test('input: sticks clamped, presses and targets validated, garbage dropped; votes 0–2; the rate window', () => {

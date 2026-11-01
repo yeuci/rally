@@ -23,7 +23,7 @@ import type { Vec2 } from './vec.ts';
  *                 │ truck  │                    front aisle (the pass)                           ║ table    │
  *   y =  0.4      │        │     ( ═════ the kaiten belt, an oval bar the chefs can't cross ═════ )║ table    │
  *                 │        │     stools ○ ○ ○ ○ ○ ○ ○  (more around the curves)                    ║ (shoji)  │
- *   y =  5.6      └────────┴───────────────────────── door ───────────────────────────────────────┴──────────┘
+ *   y =  4.6      └────────┴───────────────────────── door ───────────────────────────────────────┴──────────┘
  *                                    terrace (Sun): two tables, the torii gate, sakura
  *
  * The bar sits in the middle with open ends, so a chef can always walk round it (no dead ends) to the stools to bus
@@ -43,10 +43,10 @@ export function zonesOn(day: number): number {
 
 /** The area each zone covers (camera framing on the client; the bots' grid). */
 export const AREAS = {
-  main: { x0: -8, y0: -6, x1: 8, y1: 5.6 },
-  dining: { x0: 8, y0: -6, x1: 14, y1: 5.6 },
+  main: { x0: -8, y0: -6, x1: 8, y1: 4.6 },
+  dining: { x0: 8, y0: -6, x1: 14, y1: 4.6 },
   alley: { x0: -12.5, y0: -6, x1: -8, y1: 2.5 },
-  terrace: { x0: -6, y0: 5.6, x1: 6, y1: 9.6 },
+  terrace: { x0: -6, y0: 4.6, x1: 6, y1: 8.6 },
 } as const satisfies Record<string, Aabb>;
 
 /** The open floor's bounds for a zone mask. */
@@ -74,7 +74,7 @@ export const COUNTER_TOP = 0.95;
  * stools at the front. The bar (BAR_R from the core line) is solid.
  */
 export const BELT = { cx: -0.4, cy: 0.4, hl: 3.6, r: 1.3 } as const;
-export const BAR_R = 1.62;
+export const BAR_R = 1.85;
 /** Height of the belt's surface (plates sit on it). */
 export const BELT_TOP = 0.98;
 export const BELT_LENGTH = 4 * BELT.hl + 2 * Math.PI * BELT.r;
@@ -226,9 +226,9 @@ export interface SeatDef {
 }
 
 /** The front door (inside), where customers come from (outside), and Sunday's way in through the terrace. */
-export const DOOR: Vec2 = { x: 0, y: 5.2 };
-export const STREET: Vec2 = { x: 0, y: 7.0 };
-export const FESTIVAL_GATE: Vec2 = { x: 0, y: 10.4 };
+export const DOOR: Vec2 = { x: 0, y: 4.2 };
+export const STREET: Vec2 = { x: 0, y: 6.0 };
+export const FESTIVAL_GATE: Vec2 = { x: 0, y: 9.4 };
 
 const STOOL_R = BAR_R + 0.45;
 /** Dining room and terrace tables (centre); each has a chair on its left and right. */
@@ -236,8 +236,8 @@ export const TABLES: readonly { x: number; y: number; zone: number }[] = [
   { x: 11, y: -3.4, zone: Zone.dining },
   { x: 11, y: -0.4, zone: Zone.dining },
   { x: 11, y: 2.6, zone: Zone.dining },
-  { x: -3.0, y: 7.6, zone: Zone.terrace },
-  { x: 3.0, y: 7.6, zone: Zone.terrace },
+  { x: -3.0, y: 6.6, zone: Zone.terrace },
+  { x: 3.0, y: 6.6, zone: Zone.terrace },
 ];
 export const TABLE_HALF = 0.55;
 export const CHAIR_OFFSET = 0.85;
@@ -259,7 +259,7 @@ function buildSeats(): SeatDef[] {
       rank: frontRank[i]!,
       grab: beltProject(x, cy + BELT.r),
       table: -1,
-      dish: { x, y: cy + BELT.r + 0.28 },
+      dish: { x, y: cy + BELT.r + 0.42 },
       path: [
         { x, y: 3.6 },
         { x, y: y + 0.5 },
@@ -292,7 +292,7 @@ function buildSeats(): SeatDef[] {
       rank,
       grab: beltProject(ccx + nx * BELT.r, cy + ny * BELT.r),
       table: -1,
-      dish: { x: ccx + nx * (BELT.r + 0.28), y: cy + ny * (BELT.r + 0.28) },
+      dish: { x: ccx + nx * (BELT.r + 0.42), y: cy + ny * (BELT.r + 0.42) },
       path: [
         { x: x + nx * 0.55, y: 3.6 },
         { x: x + nx * 0.55, y: y + ny * 0.55 },
@@ -308,13 +308,13 @@ function buildSeats(): SeatDef[] {
       const lane = t.x + side * (CHAIR_OFFSET + 0.75);
       const path: Vec2[] = terrace
         ? [
-            { x: lane, y: 8.8 },
+            { x: lane, y: 7.8 },
             { x: lane, y: t.y },
             { x, y: t.y },
           ]
         : [
-            { x: 7.6, y: 4.3 },
-            { x: lane, y: 4.3 },
+            { x: 7.6, y: 3.9 },
+            { x: lane, y: 3.9 },
             { x: lane, y: t.y },
             { x, y: t.y },
           ];
@@ -359,23 +359,23 @@ const WALLS: readonly WallSpec[] = [
   // The main room's left wall, with the back door (y -4…-2) into the alley.
   { x0: -8 - T, y0: -6, x1: -8, y1: -4 },
   { x0: -8 - T, y0: -4, x1: -8, y1: -2, unless: Zone.alley },
-  { x0: -8 - T, y0: -2, x1: -8, y1: 5.6 + T },
+  { x0: -8 - T, y0: -2, x1: -8, y1: 4.6 + T },
   // The shoji screens to the dining room (slide away on Wednesday).
-  { x0: 8, y0: -6, x1: 8 + T, y1: 5.6 + T, unless: Zone.dining },
+  { x0: 8, y0: -6, x1: 8 + T, y1: 4.6 + T, unless: Zone.dining },
   // The front: closed for chefs (customers come and go by the door) until the terrace opens.
-  { x0: -8, y0: 5.6, x1: 8, y1: 5.6 + T, unless: Zone.terrace },
-  { x0: -8, y0: 5.6, x1: -6, y1: 5.6 + T, when: Zone.terrace },
-  { x0: 6, y0: 5.6, x1: 8, y1: 5.6 + T, when: Zone.terrace },
+  { x0: -8, y0: 4.6, x1: 8, y1: 4.6 + T, unless: Zone.terrace },
+  { x0: -8, y0: 4.6, x1: -6, y1: 4.6 + T, when: Zone.terrace },
+  { x0: 6, y0: 4.6, x1: 8, y1: 4.6 + T, when: Zone.terrace },
   // The dining room's own walls.
-  { x0: 14, y0: -6, x1: 14 + T, y1: 5.6 + T, when: Zone.dining },
-  { x0: 8, y0: 5.6, x1: 14, y1: 5.6 + T, when: Zone.dining },
+  { x0: 14, y0: -6, x1: 14 + T, y1: 4.6 + T, when: Zone.dining },
+  { x0: 8, y0: 4.6, x1: 14, y1: 4.6 + T, when: Zone.dining },
   // The alley's fence.
   { x0: -12.5 - T, y0: -6, x1: -12.5, y1: 2.5 + T, when: Zone.alley },
   { x0: -12.5, y0: 2.5, x1: -8, y1: 2.5 + T, when: Zone.alley },
   // The terrace's edges.
-  { x0: -6 - T, y0: 5.6, x1: -6, y1: 9.6 + T, when: Zone.terrace },
-  { x0: 6, y0: 5.6, x1: 6 + T, y1: 9.6 + T, when: Zone.terrace },
-  { x0: -6, y0: 9.6, x1: 6, y1: 9.6 + T, when: Zone.terrace },
+  { x0: -6 - T, y0: 4.6, x1: -6, y1: 8.6 + T, when: Zone.terrace },
+  { x0: 6, y0: 4.6, x1: 6 + T, y1: 8.6 + T, when: Zone.terrace },
+  { x0: -6, y0: 8.6, x1: 6, y1: 8.6 + T, when: Zone.terrace },
 ];
 
 /** Counters, appliances and furniture chefs walk round (all zones; the closed ones are walled off anyway). */
@@ -394,10 +394,10 @@ const FIXTURES: readonly Aabb[] = [
 /** Round things: the bin, the terrace's sakura trees, the torii posts. */
 const POSTS: readonly Circle[] = [
   { x: 3.5, y: ISLAND_Y, r: BIN_RADIUS },
-  { x: -5, y: 8.5, r: 0.45 },
-  { x: 5, y: 8.5, r: 0.45 },
-  { x: -1.25, y: 9.4, r: 0.2 },
-  { x: 1.25, y: 9.4, r: 0.2 },
+  { x: -5, y: 7.5, r: 0.45 },
+  { x: 5, y: 7.5, r: 0.45 },
+  { x: -1.25, y: 8.4, r: 0.2 },
+  { x: 1.25, y: 8.4, r: 0.2 },
 ];
 
 export interface Colliders {
@@ -545,8 +545,7 @@ export const PLACEMENTS: readonly Placement[] = [
   { ...leftWall('Wall_Door', -3), unless: Zone.alley },
   leftWall('Wall_Shoji', -1),
   leftWall('Wall_Shoji', 1),
-  leftWall('Wall_Shoji', 3),
-  leftWall('Wall_Normal', 5),
+  leftWall('Wall_Normal', 3),
   // The back counter: the fridge, crate counters, the sink, the stove.
   { prop: 'Fridge', x: -7.33, y: -6 + 0.393, zone: 0 },
   { prop: 'Counter_End', x: -5.73, y: BACK_Y },
@@ -573,20 +572,20 @@ export const PLACEMENTS: readonly Placement[] = [
   { prop: 'Sign', x: 5.5, y: -5.95, h: 2.0 },
   { prop: 'Lantern', x: -7.4, y: -2.2, h: 0, scale: 1.0 },
   { prop: 'Lantern', x: 7.4, y: -2.2, h: 0, scale: 1.0 },
-  { prop: 'Plant2', x: -7.4, y: 4.9 },
-  { prop: 'Plant2', x: 7.4, y: 4.9 },
-  { prop: 'Plant1', x: -7.4, y: 3.6 },
+  { prop: 'Plant2', x: -7.4, y: 4.0 },
+  { prop: 'Plant2', x: 7.4, y: 4.0 },
+  { prop: 'Plant1', x: -7.4, y: 3.0 },
   { prop: 'Painting', x: -7.98, y: 1.4, h: 1.5, rot: 90 },
   { prop: 'WallLight', x: -7.98, y: -0.6, h: 2.1, rot: 90 },
-  { prop: 'WallLight', x: -7.98, y: 3.4, h: 2.1, rot: 90 },
+  { prop: 'WallLight', x: -7.98, y: 2.8, h: 2.1, rot: 90 },
   { prop: 'FishDecor', x: 0.2, y: -5.95, h: 2.35 },
-  { prop: 'Carpet', x: 0, y: 4.8, rot: 90, scale: 1.0 },
+  { prop: 'Carpet', x: 0, y: 4.0, rot: 90, scale: 0.7 },
   // The bar's middle: a little garden inside the belt.
   { prop: 'SakuraTree', x: -0.4, y: 0.4, h: 1.0, scale: 0.55 },
   { prop: 'Bamboo', x: -2.6, y: 0.4, h: 1.0, scale: 0.6 },
   { prop: 'Bamboo', x: 1.8, y: 0.4, h: 1.0, scale: 0.6 },
   // The shoji screens to the dining room (slide away on Wednesday).
-  ...[-5, -3, -1, 1, 3, 5].map((y) => ({
+  ...[-5, -3, -1, 1, 3].map((y) => ({
     prop: 'Wall_Shoji_Interior' as PropName,
     x: 8,
     y,
@@ -597,10 +596,10 @@ export const PLACEMENTS: readonly Placement[] = [
   backWall('Wall_Shoji', 9, Zone.dining),
   backWall('Wall_Shelves', 11, Zone.dining),
   backWall('Wall_Shoji', 13, Zone.dining),
-  ...[-5, -3, -1, 1, 3, 5].map((y) => rightWall(y < 0 ? 'Wall_Shoji' : 'Wall_Normal', y, 14, Zone.dining)),
+  ...[-5, -3, -1, 1, 3].map((y) => rightWall(y < 0 ? 'Wall_Shoji' : 'Wall_Normal', y, 14, Zone.dining)),
   { prop: 'Painting', x: 13.98, y: 1.5, h: 1.5, rot: -90, zone: Zone.dining },
   { prop: 'PaintingSmall', x: 11, y: -5.95, h: 1.6, zone: Zone.dining },
-  { prop: 'Plant2', x: 13.4, y: 4.9, zone: Zone.dining },
+  { prop: 'Plant2', x: 13.4, y: 4.0, zone: Zone.dining },
   { prop: 'Lantern', x: 13.4, y: -5.3, zone: Zone.dining },
   { prop: 'Sign3', x: 8.4, y: -5.95, h: 2.4, zone: Zone.dining },
   // The alley: a red fence, the truck, the delivery pallet.
@@ -611,11 +610,11 @@ export const PLACEMENTS: readonly Placement[] = [
   { prop: 'Truck', x: -10.5, y: 1.0, zone: Zone.alley },
   { prop: 'WoodenBoard', x: -9.3, y: -3.0, scale: 2.2, zone: Zone.alley },
   // The festival terrace.
-  { prop: 'ToriiGate', x: 0, y: 9.4, zone: Zone.terrace },
-  { prop: 'SakuraTree', x: -5, y: 8.5, scale: 2.0, zone: Zone.terrace },
-  { prop: 'SakuraTree', x: 5, y: 8.5, scale: 2.0, rot: 180, zone: Zone.terrace },
-  { prop: 'Lantern', x: -5.6, y: 6.2, zone: Zone.terrace },
-  { prop: 'Lantern', x: 5.6, y: 6.2, zone: Zone.terrace },
-  { prop: 'Lantern', x: -1.9, y: 9.2, zone: Zone.terrace },
-  { prop: 'Lantern', x: 1.9, y: 9.2, zone: Zone.terrace },
+  { prop: 'ToriiGate', x: 0, y: 8.4, zone: Zone.terrace },
+  { prop: 'SakuraTree', x: -5, y: 7.5, scale: 2.0, zone: Zone.terrace },
+  { prop: 'SakuraTree', x: 5, y: 7.5, scale: 2.0, rot: 180, zone: Zone.terrace },
+  { prop: 'Lantern', x: -5.6, y: 5.2, zone: Zone.terrace },
+  { prop: 'Lantern', x: 5.6, y: 5.2, zone: Zone.terrace },
+  { prop: 'Lantern', x: -1.9, y: 8.2, zone: Zone.terrace },
+  { prop: 'Lantern', x: 1.9, y: 8.2, zone: Zone.terrace },
 ];
