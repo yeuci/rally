@@ -13,6 +13,7 @@ import { recoverPlaySession } from '@/lib/launch';
 import { usePresenceHeartbeat } from '@/lib/presence';
 import { useSocialRealtime } from '@/lib/social-realtime';
 import { NAV_THEME } from '@/lib/theme';
+import { SHELL_ORIENTATION } from '@/lib/shell-orientation';
 
 export const unstable_settings = { anchor: 'index' };
 
@@ -36,6 +37,7 @@ export default function AppLayout() {
     <AppDrawer>
       <Stack
         screenOptions={{
+          orientation: SHELL_ORIENTATION,
           // Opaque header: the native stack's default is translucent on recent iOS and content slides under it.
           headerStyle: { backgroundColor: nav.colors.background },
           headerTintColor: nav.colors.text,

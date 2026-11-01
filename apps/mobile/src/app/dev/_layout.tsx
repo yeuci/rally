@@ -1,6 +1,7 @@
 import { Stack } from 'expo-router';
 import { useUniwind } from 'uniwind';
 import { NAV_THEME } from '@/lib/theme';
+import { SHELL_ORIENTATION } from '@/lib/shell-orientation';
 
 export default function DevLayout() {
   const { theme } = useUniwind();
@@ -8,6 +9,7 @@ export default function DevLayout() {
   return (
     <Stack
       screenOptions={{
+        orientation: SHELL_ORIENTATION,
         // Opaque header, like the (app) stack: the native default is translucent and content slides under it.
         headerStyle: { backgroundColor: nav.colors.background },
         headerTintColor: nav.colors.text,
