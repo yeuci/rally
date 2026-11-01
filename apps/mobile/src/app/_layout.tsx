@@ -5,7 +5,6 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { isRunningInExpoGo } from 'expo';
 import { Stack } from 'expo-router';
 import { ThemeProvider } from 'expo-router/react-navigation';
-import * as ScreenOrientation from 'expo-screen-orientation';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
@@ -47,12 +46,6 @@ export default function RootLayout() {
   useEffect(() => {
     if (initialized && !intro) void SplashScreen.hideAsync().catch(() => {});
   }, [initialized, intro]);
-
-  // Orientation belongs to the screens (a game's play route declares its own). Clear any app-wide lock an earlier
-  // build left in this process (it would pin every screen to one orientation).
-  useEffect(() => {
-    void ScreenOrientation.unlockAsync().catch(() => {});
-  }, []);
 
   if (!initialized) return null;
 
