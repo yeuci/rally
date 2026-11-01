@@ -274,6 +274,8 @@ export function attachment(
     .find((n) => n.getName() === name && n.getMesh());
   if (!node) throw new Error(`no mesh node ${name}`);
   const skin = doc.getRoot().listSkins()[0];
+  const own = node.getSkin();
+  if (own) return rigidSkinAttachment(node, own, triangles, options.bakeTexture);
   const jointSet = new Set(skin?.listJoints() ?? []);
   const parentOf = parents(doc);
   let chain = identity();
@@ -288,6 +290,46 @@ export function attachment(
     appendPrimitive(g, prim, identity(), undefined, options.bakeTexture);
   const { t, r, s } = decompose(mul(chain, localMatrix(node)));
   return { soup: rebuild(g, { triangles }), colors: namedColors([node]), bone: p.getName(), t, r, s };
+}
+
+/**
+ * A mesh skinned rigidly to one bone (every vertex weighted fully to the same joint, as the sushi pack rigs the knife
+ * and pan in the hand): its bind-space vertices go through that joint's inverse bind matrix into the bone's own
+ * space, so it hangs from the bone with an identity transform. Anything weighted to more than one joint is refused.
+ */
+function rigidSkinAttachment(
+  node: GltfNode,
+  skin: NonNullable<ReturnType<GltfNode['getSkin']>>,
+  triangles: number,
+  bakeTexture = false,
+): Attachment {
+  const joints = skin.listJoints();
+  const ibm = floats(skin.getInverseBindMatrices());
+  let joint = -1;
+  for (const prim of node.getMesh()!.listPrimitives()) {
+    const j = floats(prim.getAttribute('JOINTS_0'));
+    const w = floats(prim.getAttribute('WEIGHTS_0'));
+    for (let v = 0; v < j.length / 4; v++) {
+      for (let k = 0; k < 4; k++) {
+        if (w[v * 4 + k]! < 1e-3) continue;
+        if (w[v * 4 + k]! < 0.999) throw new Error(`${node.getName()}: not rigid (a vertex blends joints)`);
+        if (joint >= 0 && joint !== j[v * 4 + k]) throw new Error(`${node.getName()}: skinned to more than one joint`);
+        joint = j[v * 4 + k]!;
+      }
+    }
+  }
+  if (joint < 0 || !joints[joint]) throw new Error(`${node.getName()}: no joint weights`);
+  const toBone = Float64Array.from(ibm.slice(joint * 16, joint * 16 + 16));
+  const g = emptyGeometry();
+  for (const prim of node.getMesh()!.listPrimitives()) appendPrimitive(g, prim, toBone, undefined, bakeTexture);
+  return {
+    soup: rebuild(g, { triangles }),
+    colors: namedColors([node]),
+    bone: joints[joint]!.getName(),
+    t: [0, 0, 0],
+    r: [0, 0, 0, 1],
+    s: [1, 1, 1],
+  };
 }
 
 /**
