@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, ReduceMotion } from 'react-native-reanimated';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BugReportHost } from '@/components/rally/bug-report-sheet';
 import { CoinToastHost } from '@/components/rally/coins';
 import { FriendRequestPrompt } from '@/components/rally/friend-request-sheet';
@@ -80,8 +81,9 @@ async function resolveFriend(friendId: string): Promise<FriendJoinTarget> {
 const LEAVE_FADE_MS = 220;
 
 /**
- * Back to the game page: first turn the screen back to how the player held it before the game (a landscape game on a
- * portrait phone), so the page underneath never lays out mid-rotation; GameHost frees the orientation once unmounted.
+ * Back to the game page: first turn the screen back (a phone to portrait, a tablet the way the player held it) and wait
+ * for the window to turn, so the page underneath comes back the shape it left; GameHost applies the shell's orientation
+ * rule again once unmounted (game-host/orientation.ts).
  */
 async function leave(id: string) {
   await turnBackFromGame();
@@ -208,61 +210,67 @@ export default function PlayScreen() {
   const record = target.join === 'resume' ? resumeRecord.data : null;
 
   return (
-    <View className="flex-1 bg-[#0A0A0A]">
-      <StatusBar style="light" />
-      <GameHost
-        key={p.game.id}
-        bundleUrl={p.entryUrl}
-        entrySha256={p.entrySha256}
-        game={{ id: p.game.id, version: p.version }}
-        // The loading screen: the game's name, its art blurred behind the bar, and the page's download size.
-        title={p.game.title}
-        artUri={coverUriFor(p.game, 'feature')}
-        iconUri={p.game.icon_url}
-        pageBytes={pageBytesOf(p.manifest)}
-        // The game menu: the private room's code (People → Copy / Share) and what the game may use (haptics).
-        roomCode={roomCode}
-        capabilities={p.manifest.capabilities}
-        user={{ id: me.id, username: me.username, avatarUrl: resolveAvatarUrl(me.avatar_url) }}
-        intent={
-          !p.room
-            ? 'solo'
-            : record
-              ? intentFor(record.join)
-              : target.join === 'resume'
-                ? 'quick'
-                : intentFor(target.join)
-        }
-        resume={record ? { reconnectionToken: record.token } : undefined}
-        orientation={p.orientation}
-        saves={saves}
-        progress={progress}
-        // Multiplayer results are written by the room (architecture §8), never client-reported.
-        soloScores={!p.manifest.server}
-        playSessions={p.manifest.server ? null : playSessions}
-        matchmaking={matchmaking}
-        onExit={onExit}
-        onPlayRecorded={onPlayRecorded}
-      />
-      {roomCode ? <RoomCodePill key={roomCode} code={roomCode} gameTitle={p.game.title} /> : null}
-      {/* This screen is a native full-screen modal: the shell's toast and sheets sit underneath it. On iOS a Modal
+    // Its own safe-area provider: this screen is a native full-screen modal turned on its own, and the root's provider
+    // (under the modal) never sees the game's orientation; the game host and the overlays here read these insets.
+    <SafeAreaProvider style={styles.screen}>
+      <View className="flex-1 bg-[#0A0A0A]">
+        <StatusBar style="light" />
+        <GameHost
+          key={p.game.id}
+          bundleUrl={p.entryUrl}
+          entrySha256={p.entrySha256}
+          game={{ id: p.game.id, version: p.version }}
+          // The loading screen: the game's name, its art blurred behind the bar, and the page's download size.
+          title={p.game.title}
+          artUri={coverUriFor(p.game, 'feature')}
+          iconUri={p.game.icon_url}
+          pageBytes={pageBytesOf(p.manifest)}
+          // The game menu: the private room's code (People → Copy / Share) and what the game may use (haptics).
+          roomCode={roomCode}
+          capabilities={p.manifest.capabilities}
+          user={{ id: me.id, username: me.username, avatarUrl: resolveAvatarUrl(me.avatar_url) }}
+          intent={
+            !p.room
+              ? 'solo'
+              : record
+                ? intentFor(record.join)
+                : target.join === 'resume'
+                  ? 'quick'
+                  : intentFor(target.join)
+          }
+          resume={record ? { reconnectionToken: record.token } : undefined}
+          orientation={p.orientation}
+          saves={saves}
+          progress={progress}
+          // Multiplayer results are written by the room (architecture §8), never client-reported.
+          soloScores={!p.manifest.server}
+          playSessions={p.manifest.server ? null : playSessions}
+          matchmaking={matchmaking}
+          onExit={onExit}
+          onPlayRecorded={onPlayRecorded}
+        />
+        {roomCode ? <RoomCodePill key={roomCode} code={roomCode} gameTitle={p.game.title} /> : null}
+        {/* This screen is a native full-screen modal: the shell's toast and sheets sit underneath it. On iOS a Modal
           presents from the nearest view controller, so the friend-request host must be mounted here to rise over
           the game (components/rally/friend-request-sheet.tsx). It follows Settings → Notifications → While playing:
           a banner overlaid at the top of the game by default (a plain view, no Modal), the sheet, or nothing. */}
-      {leaving ? (
-        <Animated.View
-          entering={FadeIn.duration(LEAVE_FADE_MS).reduceMotion(ReduceMotion.System)}
-          style={StyleSheet.absoluteFill}
-        >
-          <GameBackdrop artUri={coverUriFor(p.game, 'feature')} dim />
-        </Animated.View>
-      ) : null}
-      <ToastHost />
-      {/* Coins awarded by the match (or a solo run) show over the game too, like the friend-request banner. */}
-      <CoinToastHost />
-      <FriendRequestPrompt placement="game" />
-      {/* Shake to report a bug over the game (playtest builds); the shell's host is under this modal on iOS. */}
-      <BugReportHost placement="game" />
-    </View>
+        {leaving ? (
+          <Animated.View
+            entering={FadeIn.duration(LEAVE_FADE_MS).reduceMotion(ReduceMotion.System)}
+            style={StyleSheet.absoluteFill}
+          >
+            <GameBackdrop artUri={coverUriFor(p.game, 'feature')} dim />
+          </Animated.View>
+        ) : null}
+        <ToastHost />
+        {/* Coins awarded by the match (or a solo run) show over the game too, like the friend-request banner. */}
+        <CoinToastHost />
+        <FriendRequestPrompt placement="game" />
+        {/* Shake to report a bug over the game (playtest builds); the shell's host is under this modal on iOS. */}
+        <BugReportHost placement="game" />
+      </View>
+    </SafeAreaProvider>
   );
 }
+
+const styles = StyleSheet.create({ screen: { flex: 1, backgroundColor: '#0A0A0A' } });

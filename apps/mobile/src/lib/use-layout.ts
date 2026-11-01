@@ -4,9 +4,9 @@ import { columnPadding, COLUMN_MAX_WIDTH, isLandscape, isWideLayout, pagePadding
 import { useViewport } from './viewport';
 
 /**
- * Live screen size, safe-area insets and the derived layout flags, from the measured viewport (lib/viewport.tsx:
- * re-renders on rotation, and never stale like the reported values can be). Read on every render, never stored:
- * nothing size-dependent may outlive an orientation change.
+ * Live screen size, safe-area insets and the derived layout flags (lib/viewport.tsx: the window and the nearest
+ * safe-area provider; re-renders on rotation). Read on every render, never stored: nothing size-dependent may outlive
+ * an orientation change.
  */
 export function useLayout() {
   const { width, height, insets } = useViewport();
