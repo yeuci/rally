@@ -43,6 +43,8 @@ test('storage: games bucket served by URL only (no client listing), avatars owne
   const buckets = await db.query<{ id: string; public: boolean }>(`select id, public from storage.buckets order by id`);
   assert.deepEqual(buckets.rows, [
     { id: 'avatars', public: true },
+    // Private: bug-report screenshots (20261101000200_social_discovery.sql, covered by social-discovery.test.ts).
+    { id: 'bug-reports', public: false },
     { id: 'games', public: true },
   ]);
 

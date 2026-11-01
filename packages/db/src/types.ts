@@ -110,6 +110,62 @@ export type Database = {
           },
         ]
       }
+      bug_reports: {
+        Row: {
+          app_version: string | null
+          context: Json
+          created_at: string
+          game_id: string | null
+          game_version: string | null
+          id: string
+          logs: string
+          note: string
+          os_version: string | null
+          platform: string | null
+          route: string | null
+          screenshot_path: string | null
+          user_id: string | null
+        }
+        Insert: {
+          app_version?: string | null
+          context?: Json
+          created_at?: string
+          game_id?: string | null
+          game_version?: string | null
+          id?: string
+          logs?: string
+          note?: string
+          os_version?: string | null
+          platform?: string | null
+          route?: string | null
+          screenshot_path?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          app_version?: string | null
+          context?: Json
+          created_at?: string
+          game_id?: string | null
+          game_version?: string | null
+          id?: string
+          logs?: string
+          note?: string
+          os_version?: string | null
+          platform?: string | null
+          route?: string | null
+          screenshot_path?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bug_reports_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       coin_ledger: {
         Row: {
           amount: number
@@ -557,6 +613,45 @@ export type Database = {
             columns: ["game_id"]
             isOneToOne: false
             referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      game_votes: {
+        Row: {
+          created_at: string
+          game_id: string
+          liked: boolean
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          game_id: string
+          liked: boolean
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          game_id?: string
+          liked?: boolean
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "game_votes_game_id_fkey"
+            columns: ["game_id"]
+            isOneToOne: false
+            referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "game_votes_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -1133,6 +1228,7 @@ export type Database = {
           rooms: number
         }[]
       }
+      game_vote_summary: { Args: { p_game_id: string }; Returns: Json }
       heartbeat: {
         Args: { p_game_id?: string; p_room_id?: string; p_status: string }
         Returns: Json
@@ -1220,6 +1316,20 @@ export type Database = {
       }
       public_profile_stats: { Args: { p_user_id: string }; Returns: Json }
       random_default_avatar: { Args: never; Returns: string }
+      recently_played_with: {
+        Args: { p_limit?: number }
+        Returns: {
+          avatar_url: string
+          display_name: string
+          friendship: string
+          game_id: string
+          game_title: string
+          matches: number
+          played_at: string
+          user_id: string
+          username: string
+        }[]
+      }
       record_play: {
         Args: { p_game_id: string; p_playtime_s?: number }
         Returns: undefined
@@ -1296,6 +1406,7 @@ export type Database = {
         Returns: Json
       }
       username_available: { Args: { p_username: string }; Returns: boolean }
+      vote_game: { Args: { p_game_id: string; p_liked?: boolean }; Returns: Json }
     }
     Enums: {
       age_rating: "4+" | "9+" | "12+" | "17+"
