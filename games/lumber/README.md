@@ -73,6 +73,12 @@ stars and any mode it unlocked.
 The bot earns ~$1,800 in Classic (★★–★★★) and ~$720 in Rush Hour (★★), so three stars in Rush Hour means beating it
 (that is also the `rush_hero` achievement). New modes go in `MODE_RULES` + `MODES` and a board in `game.json`.
 
+**Outfits:** the same stars dress the player (`OUTFITS` in `progress.ts`): the Cowboy to start, the Viking at 1 ★, the
+Chef at 3 ★, the Ninja at 4 ★ and the Pug suit at 6 (every star). The Outfit button at the end of the mode picker shows
+what you wear and the next look still to unlock, and a tap goes round the unlocked ones (the scene rebuilds the player
+rig, `setOutfit`); the results card names any outfit a shift unlocked. The Cowboy wears the player colour, the others
+their own.
+
 ## Deterministic, fixed-step simulation
 
 Everything runs in fixed 1/30 s ticks from an accumulator with a seeded RNG (mulberry32), so the same stick input per
@@ -89,9 +95,9 @@ Same pattern as Stack:
 
 - **Boot:** own loading veil + `rally.ui.loading(p)` → `save.get` → first frame → `rally.ready()`; safe area as
   `--safe-*` variables.
-- **Save:** slot `progress` = `{ bests: { classic, rush }, played, mode, version: 2 }` via game-kit `createSave`
-  (`parseProgress` reads version 1's single `best` as the Classic one). `bests` make the stars, `mode` is the picker's
-  choice, `played` seeds the next shift's customers and turns the first-shift tutorial hints off.
+- **Save:** slot `progress` = `{ bests: { classic, rush }, played, mode, outfit, version: 2 }` via game-kit
+  `createSave` (`parseProgress` reads version 1's single `best` as the Classic one). `bests` make the stars, `mode` and
+  `outfit` are the picker's choices, `played` seeds the next shift's customers and turns the first-shift tutorial hints off.
 - **Shift over:** `leaderboard.submit(<mode's board>, earned)`, achievements earned this shift (`first_sale`,
   `earn_1000`, `earn_2500`, `full_camp` = all eight upgrades, `no_walkouts` = no walkouts with ≥ $500, `rush_hero` =
   $800 in Rush Hour), then that board's global top 10 for the "best · #rank" line, through game-kit `createSolo` (local fallback when there is no host).
@@ -100,14 +106,15 @@ Same pattern as Stack:
   props, and closes audio.
 - **Telemetry:** `rally.telemetry.report('lumber', { fps, frameMs, p95Ms, earned, shiftTime, … })` every 10 s.
 
-`window.__lumber` (phase, time, earned, wallet, player, unlocked, mode, stars, `autoplay(on)`, `skip(seconds)`,
+`window.__lumber` (phase, time, earned, wallet, player, unlocked, mode, stars, outfit, `autoplay(on)`, `skip(seconds)`,
 `hold(on)`, `artView(view)`) exists in `vite dev` only, for the e2e and the art script.
 
 ## Models
 
 The people and the camp props come from two **CC0** (public domain) packs by [Quaternius](https://quaternius.com): the
 [Ultimate Animated Character Pack](https://quaternius.com/packs/ultimatedanimatedcharacter.html) (Cowboy_Male for the
-player, Casual3_Male for the haulers, Casual2_Female for the cashier, Worker_Male and Worker_Female for the builders)
+player, Casual3_Male for the haulers, Casual2_Female for the cashier, Worker_Male and Worker_Female for the builders;
+Viking_Male, Chef_Hat, Ninja_Male and Pug for the outfits)
 and the [Survival Pack](https://quaternius.com/packs/survival.html) (WoodLog, Axe, Tent, Bonfire_Fire, Shovel, Backpack,
 Pot). `pnpm --filter @rally/game-lumber models` rebuilds `client/src/models/` from the two zips, which it downloads from
 this repo's **`art-source` release** (sha256-pinned; keep that release, or pass `MODELS_SRC=<dir with both zips>`; in
@@ -115,7 +122,7 @@ the dev container Node's fetch needs `NODE_USE_ENV_PROXY=1`), through the shared
 runtime half in game-kit's `models.ts`):
 
 - **Characters**: flat-colour materials become vertex colours and merge into one skinned mesh each (one draw call),
-  simplified to ≈ 1,400 triangles. The five share one skeleton (checked); `clips.glb` holds the 7 clips the game plays,
+  simplified to ≈ 1,400 triangles. All nine share one skeleton (checked); `clips.glb` holds the 7 clips the game plays,
   once (Idle, Walk, Run, Walk_Carry, Run_Carry, Victory, Defeat). In the game the walk and run play at the mover's
   speed, carrying swaps in the carry walks (the plank stack sits in the arms), and the player cheers when the shift ends.
 - **Recolours**: the scene recolours a copy of each mesh per look (cached): the accent material (the player's jacket,
@@ -125,7 +132,7 @@ runtime half in game-kit's `models.ts`):
   y = 0; `meta.gen.ts` lists each one's size. Logs feed the mill and fill the yard; the rest dress the camp's edge and
   are hidden under `lowMemory`.
 
-Everything generated is ≈ 280 KB gzipped (seven `.glb.gz`, ≈ 40 KB each). The ground, mills, counter, planks, cash,
+Everything generated is ≈ 440 KB gzipped (eleven `.glb.gz`, ≈ 40 KB each). The ground, mills, counter, planks, cash,
 pads and trees are still primitives built in `scene.ts`.
 
 Lumber Camp's name, camp layout, rules, text and sounds are original to Rally. The characters and props are the CC0

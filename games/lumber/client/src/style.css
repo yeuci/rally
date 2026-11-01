@@ -87,6 +87,8 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 .mode small { font-size: 11px; font-weight: 700; color: var(--muted); }
 .mode.on { border-color: var(--cash); background: #fffaf0; }
 .mode.locked { opacity: 0.72; }
+.mode.outfit { flex: 0 0 auto; width: 96px; }
+.mode.outfit .name { font-size: 14px; font-weight: 800; color: #b06f00; }
 
 /* Floating joystick: positioned by transform at the press point. */
 .stick {

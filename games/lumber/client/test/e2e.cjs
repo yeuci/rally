@@ -175,7 +175,8 @@ async function main() {
     assert.match(await page.textContent('#over-stats'), /^Served \d+ · Walked out \d+ · Upgrades \d\/8$/);
     const stars = await page.evaluate(() => document.querySelectorAll('#over-stars i.on').length);
     assert.ok(stars >= 2, `stars ${stars}`);
-    assert.equal(await page.textContent('#over-mode'), 'New mode: Rush Hour');
+    const news = await page.textContent('#over-mode');
+    assert.match(news, /^New mode: Rush Hour · New outfits?: Viking/);
     await page.waitForFunction(
       () => /#\d+ global/.test(document.querySelector('#over-board')?.textContent ?? ''),
       null,
@@ -186,7 +187,7 @@ async function main() {
     const board = await page.textContent('#over-board');
     assert.match(await page.textContent('#over-unlocked'), /Open for Business/);
     console.log(
-      `✓ whistle → results: ${await page.textContent('#over-score')}, ${'★'.repeat(stars)}, "${await page.textContent('#over-stats')}", "${board}", Rush Hour unlocked`,
+      `✓ whistle → results: ${await page.textContent('#over-score')}, ${'★'.repeat(stars)}, "${await page.textContent('#over-stats')}", "${board}", ${news}`,
     );
 
     // 7. Harness side: leaderboard.submit / achievement.unlock / save.put went through the bridge.
@@ -205,7 +206,13 @@ async function main() {
       { timeout: 10_000 },
     );
     const saved = await local(page, 'rally-harness:save:lumber:progress');
-    assert.deepEqual(saved.data, { bests: { classic: score, rush: 0 }, played: 1, mode: 'classic', version: 2 });
+    assert.deepEqual(saved.data, {
+      bests: { classic: score, rush: 0 },
+      played: 1,
+      mode: 'classic',
+      outfit: 'cowboy',
+      version: 2,
+    });
     console.log(
       `✓ harness: board ${mine.username}=$${mine.score}, achievements [${achievements.join(', ')}], save ${JSON.stringify(saved.data)}`,
     );
@@ -222,7 +229,11 @@ async function main() {
     await togglePanel();
     await page.click('#again');
     await page.waitForSelector('#modes:not([hidden])');
+    await page.click('#modes [data-outfit]');
+    assert.equal(await lumber(page, 'outfit'), 'viking');
+    assert.match(await page.textContent('#modes [data-outfit]'), /Viking/);
     await page.click('#modes [data-mode="rush"]');
+    assert.equal(await lumber(page, 'outfit'), 'viking', 'the outfit stays on for the next shift');
     await togglePanel();
     await page.waitForSelector('#prompt:not([hidden])');
     assert.equal(await lumber(page, 'phase'), 'ready');
@@ -233,7 +244,7 @@ async function main() {
     assert.equal(await lumber(page, 'phase'), 'playing');
     assert.ok(await page.isHidden('#hint'), 'no tutorial on the second shift');
     assert.ok(await page.isHidden('#modes'), 'the mode picker goes once the shift starts');
-    console.log('✓ next shift starts fresh (no tutorial), in Rush Hour (2:00)');
+    console.log('✓ next shift starts fresh (no tutorial), as the Viking, in Rush Hour (2:00)');
 
     // 8b. The Rush Hour shift ends at 2:00 and goes to its own board.
     await page.evaluate(() => window.__lumber.autoplay(true));

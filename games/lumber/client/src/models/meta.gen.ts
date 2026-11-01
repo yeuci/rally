@@ -2,7 +2,7 @@
 export const MODELS = {
   characterScale: 0.5,
   characterTriangles: 1400,
-  characters: ['player', 'hauler', 'cashier', 'builder', 'builder2'],
+  characters: ['player', 'hauler', 'cashier', 'builder', 'builder2', 'viking', 'chef', 'ninja', 'pug'],
   looks: {
     player: {
       accent: 'Jacket',
@@ -67,6 +67,56 @@ export const MODELS = {
         Hair: [54, 30, 8],
       },
       triangles: 1397,
+    },
+    viking: {
+      accent: 'Main',
+      colors: {
+        Skin: [3, 3, 3],
+        Light: [137, 104, 72],
+        Main: [15, 7, 6],
+        Pants: [6, 3, 2],
+        Hair: [38, 9, 4],
+        Face: [255, 255, 240],
+      },
+      triangles: 1398,
+    },
+    chef: {
+      accent: 'Clothes',
+      colors: {
+        Skin: [3, 3, 3],
+        Clothes: [143, 143, 143],
+        Band: [59, 9, 5],
+        DarkClothes: [85, 85, 85],
+        Face: [255, 255, 240],
+        Moustache: [255, 255, 240],
+        Hat: [232, 231, 208],
+      },
+      triangles: 1400,
+    },
+    ninja: {
+      accent: 'Main',
+      colors: {
+        Skin: [3, 3, 3],
+        Main: [2, 2, 2],
+        Details: [15, 2, 14],
+        Grey: [18, 18, 18],
+        Face: [255, 255, 240],
+      },
+      triangles: 1400,
+    },
+    pug: {
+      accent: 'Shirt',
+      colors: {
+        Skin: [3, 3, 3],
+        Black: [1, 1, 1],
+        Belt: [2, 2, 5],
+        Shirt: [157, 157, 157],
+        Details: [16, 16, 16],
+        Face: [4, 4, 4],
+        Beige: [204, 154, 86],
+        Brown: [10, 3, 2],
+      },
+      triangles: 1400,
     },
   },
   clips: ['Idle', 'Walk', 'Run', 'Walk_Carry', 'Run_Carry', 'Victory', 'Defeat'],

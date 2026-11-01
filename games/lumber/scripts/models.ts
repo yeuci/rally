@@ -10,7 +10,8 @@
  * client/src/models/ (gzipped GLBs + meta.gen.ts, read by client/src/models.ts):
  *
  * - one GLB per character (one skinned, vertex-coloured mesh each; they share the skeleton): the player, the hauler,
- *   the cashier and two builders (the customers). Each lists its material colours so the game can recolour shirts.
+ *   the cashier, two builders (the customers) and the outfits the player unlocks (viking, chef, ninja, pug). Each lists
+ *   its material colours so the game can recolour shirts.
  * - clips.glb: the clips the game plays, once for all of them (Idle, Walk, Run, the carry walks, Victory, Defeat).
  * - props.glb: the survival props the camp uses (logs, axe, tent, campfire, …), one node each, at camp scale.
  */
@@ -56,6 +57,11 @@ const CHARACTERS = [
   { name: 'cashier', file: 'Casual2_Female', accent: 'Shirt' },
   { name: 'builder', file: 'Worker_Male', accent: 'Shirt' },
   { name: 'builder2', file: 'Worker_Female', accent: 'Shirt' },
+  // Outfits the player unlocks with stars (client/src/progress.ts); they keep their own colours.
+  { name: 'viking', file: 'Viking_Male', accent: 'Main' },
+  { name: 'chef', file: 'Chef_Hat', accent: 'Clothes' },
+  { name: 'ninja', file: 'Ninja_Male', accent: 'Main' },
+  { name: 'pug', file: 'Pug', accent: 'Shirt' },
 ] as const;
 const CHARACTER_TRIANGLES = 1400;
 const CLIPS = ['Idle', 'Walk', 'Run', 'Walk_Carry', 'Run_Carry', 'Victory', 'Defeat'] as const;

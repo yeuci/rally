@@ -18,6 +18,7 @@ import {
 } from 'playcanvas';
 import { roundedBox } from './meshes.ts';
 import { MODELS, type CharacterName, type Models, type PropName } from './models.ts';
+import type { OutfitId } from './progress.ts';
 import {
   BOUNDS,
   CASH_ZONE,
@@ -282,13 +283,13 @@ const looks = new Map<string, Mesh>();
  * The pack ships every character with the same near-black `Skin` material (meant to be coloured per character), so
  * each person gets a skin tone here as well as their accent colour.
  */
-function lookMesh(app: Application, role: CharacterName, source: Mesh, accent: string, skin: string): Mesh {
+function lookMesh(app: Application, role: CharacterName, source: Mesh, accent: string | null, skin: string): Mesh {
   const key = `${role}/${accent}/${skin}`;
   let mesh = looks.get(key);
   if (!mesh) {
     const look = MODELS.looks[role];
     mesh = recolored(app, source, look.colors, {
-      [look.accent]: toLinear(hexRgb(accent)),
+      ...(accent ? { [look.accent]: toLinear(hexRgb(accent)) } : {}),
       Skin: toLinear(hexRgb(skin)),
     });
     mesh.incRefCount();
@@ -301,13 +302,15 @@ function makeRig(
   app: Application,
   parent: Entity,
   role: CharacterName,
-  opts: { accent?: string; skin?: string; carry?: number } = {},
+  /** `accent: null` keeps the character's own colours (outfits). */
+  opts: { accent?: string | null; skin?: string; carry?: number } = {},
 ): Rig {
   const model = models.characters[role].instantiateRenderEntity();
   for (const c of model.findComponents('render')) {
     const render = c as RenderComponent;
     for (const mi of render.meshInstances) {
-      mi.mesh = lookMesh(app, role, mi.mesh!, opts.accent ?? PALETTE.player, opts.skin ?? PALETTE.skins[0]);
+      const accent = opts.accent === undefined ? PALETTE.player : opts.accent;
+      mi.mesh = lookMesh(app, role, mi.mesh!, accent, opts.skin ?? PALETTE.skins[0]);
       mi.material = vertexMat;
     }
     render.castShadows = true;
@@ -535,6 +538,8 @@ export interface LumberScene {
   setOverview(on: boolean): void;
   /** Store art (dev only): frame closer (`zoom` < 1) or wider, looking at `at`; null = the game's own framing. */
   setArtView(view: { zoom: number; at?: { x: number; z: number } } | null): void;
+  /** Dress the player in an outfit (progress.ts); the cowboy is the default. */
+  setOutfit(id: OutfitId): void;
   /** Drop non-essential work (lowMemory). */
   trim(): void;
   readonly entityCount: number;
@@ -733,7 +738,13 @@ export function createLumberScene(app: Application, loaded: Models, opts: { shad
   // --- people ----------------------------------------------------------------------------------------
   const actors = new Entity('actors');
   world.addChild(actors);
-  const player = makeRig(app, actors, 'player', { accent: PALETTE.player, carry: 28 });
+  // The player: the cowboy in the player colour, or an unlocked outfit in its own colours.
+  const makePlayer = (id: OutfitId) =>
+    id === 'cowboy'
+      ? makeRig(app, actors, 'player', { accent: PALETTE.player, carry: 28 })
+      : makeRig(app, actors, id, { accent: null, carry: 28 });
+  let outfit: OutfitId = 'cowboy';
+  let player = makePlayer(outfit);
   const cashier = makeRig(app, actors, 'cashier', { accent: PALETTE.cashier, skin: PALETTE.skins[2] });
   cashier.root.setLocalPosition(REGISTER_ZONE.x, 0, REGISTER_ZONE.z + 0.15);
   cashier.root.enabled = false;
@@ -789,6 +800,14 @@ export function createLumberScene(app: Application, loaded: Models, opts: { shad
   const scene: LumberScene = {
     get entityCount() {
       return customers.size * 16 + haulers.length * 24 + bursts.length + 450;
+    },
+    setOutfit(id) {
+      if (id === outfit) return;
+      outfit = id;
+      const yaw = player.yaw;
+      player.root.destroy();
+      player = makePlayer(id);
+      player.yaw = yaw;
     },
     reset(sim) {
       for (const rig of customers.values()) rig.root.destroy();

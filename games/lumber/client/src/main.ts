@@ -22,8 +22,14 @@ import {
   type Progress,
   isUnlocked,
   modeDef,
+  newOutfits,
   newlyUnlocked,
+  nextOutfit,
+  OUTFITS,
+  outfitDef,
+  outfitUnlocked,
   parseProgress,
+  type OutfitId,
   starText,
   starsFor,
   totalStars,
@@ -162,8 +168,15 @@ function nextMode(): ModeId {
   return isUnlocked(m, save.data.bests) ? m : 'classic';
 }
 
+/** The saved outfit, while it is unlocked. */
+function currentOutfit(): OutfitId {
+  const o = save.data.outfit;
+  return outfitUnlocked(o, save.data.bests) ? o : 'cowboy';
+}
+
 function newShift() {
   sim = new LumberSim((save.data.played * 7919 + 17) >>> 0, nextMode());
+  scene.setOutfit(currentOutfit());
   labels.clear();
   scene.reset(sim);
   ui.over.hidden = true;
@@ -185,18 +198,31 @@ function newShift() {
 function renderModes() {
   const bests = save.data.bests;
   const total = totalStars(bests);
-  ui.modes.innerHTML = MODES.map((m) => {
-    const open = isUnlocked(m.id, bests);
-    const side = open
-      ? `<span class="stars">${starText(starsFor(m.id, bests[m.id]))}</span>`
-      : `<span class="lock">🔒 ${m.unlockAt - total} ★ to go</span>`;
-    const cls = ['mode', m.id === sim.mode ? 'on' : '', open ? '' : 'locked'].filter(Boolean).join(' ');
-    return `<button type="button" class="${cls}" data-mode="${m.id}"><b>${m.title}</b>${side}<small>${m.blurb}</small></button>`;
-  }).join('');
+  ui.modes.innerHTML =
+    MODES.map((m) => {
+      const open = isUnlocked(m.id, bests);
+      const side = open
+        ? `<span class="stars">${starText(starsFor(m.id, bests[m.id]))}</span>`
+        : `<span class="lock">🔒 ${m.unlockAt - total} ★ to go</span>`;
+      const cls = ['mode', m.id === sim.mode ? 'on' : '', open ? '' : 'locked'].filter(Boolean).join(' ');
+      return `<button type="button" class="${cls}" data-mode="${m.id}"><b>${m.title}</b>${side}<small>${m.blurb}</small></button>`;
+    }).join('') + outfitButton(total);
   ui.modes.hidden = sim.phase !== 'ready';
 }
 
+/** The outfit button at the end of the picker: what you wear, and the next look still to unlock. */
+function outfitButton(total: number): string {
+  const next = OUTFITS.find((o) => o.unlockAt > total);
+  const open = OUTFITS.filter((o) => o.unlockAt <= total).length;
+  const sub = next ? `${next.title}: ${next.unlockAt - total} ★ to go` : 'All unlocked';
+  return `<button type="button" class="mode outfit" data-outfit><b>Outfit</b><span class="name">${outfitDef(currentOutfit()).title}</span><small>${open > 1 ? `Tap to change · ${sub}` : sub}</small></button>`;
+}
+
 ui.modes.addEventListener('click', (e) => {
+  if ((e.target as HTMLElement).closest('[data-outfit]')) {
+    changeOutfit();
+    return;
+  }
   const id = (e.target as HTMLElement).closest<HTMLElement>('[data-mode]')?.dataset.mode as ModeId | undefined;
   if (!id || sim.phase !== 'ready') return;
   if (!isUnlocked(id, save.data.bests)) {
@@ -212,6 +238,24 @@ ui.modes.addEventListener('click', (e) => {
   });
   newShift();
 });
+
+function changeOutfit() {
+  if (sim.phase !== 'ready') return;
+  const next = nextOutfit(currentOutfit(), save.data.bests);
+  if (next === currentOutfit()) {
+    const first = OUTFITS[1];
+    audio.blip(200, 90, { type: 'square', gain: 0.12 });
+    ui.hint.textContent = `Earn ${first.unlockAt} ★ for the ${first.title} outfit`;
+    ui.hint.hidden = false;
+    return;
+  }
+  audio.blip(660, 40, { gain: 0.2 });
+  save.update((d) => {
+    d.outfit = next;
+  });
+  scene.setOutfit(next);
+  renderModes();
+}
 
 function renderHud() {
   if (sim.wallet !== shown.wallet) {
@@ -312,14 +356,21 @@ async function gameOver() {
   const newBest = score > prevBest && score > 0;
   const stars = starsFor(mode, score);
   const opened = newlyUnlocked(before, save.data.bests);
+  const dressed = newOutfits(before, save.data.bests);
   controls.release();
   ui.hint.hidden = true;
   ui.overLabel.textContent = mode === 'classic' ? 'Shift over' : `${def.title} over`;
   ui.overScore.textContent = money(score);
   ui.overStars.innerHTML = [0, 1, 2].map((i) => `<i class="${i < stars ? 'on' : ''}">★</i>`).join('');
   ui.overStars.setAttribute('aria-label', `${stars} of 3 stars`);
-  ui.overMode.textContent = opened.length ? `New mode: ${opened.map((m) => m.title).join(' · ')}` : '';
-  ui.overMode.hidden = !opened.length;
+  const news = [
+    ...opened.map((m) => `New mode: ${m.title}`),
+    ...(dressed.length
+      ? [`New outfit${dressed.length > 1 ? 's' : ''}: ${dressed.map((o) => o.title).join(', ')}`]
+      : []),
+  ];
+  ui.overMode.textContent = news.join(' · ');
+  ui.overMode.hidden = !news.length;
   ui.overBest.textContent = newBest ? 'New best!' : `Best ${money(best)}`;
   ui.overBest.classList.toggle('new', newBest);
   ui.overStats.textContent = `Served ${sim.served} · Walked out ${sim.lost} · Upgrades ${sim.unlocked.size}/${UNLOCKS.length}`;
@@ -504,6 +555,9 @@ if (import.meta.env.DEV) {
     },
     get stars() {
       return totalStars(save.data.bests);
+    },
+    get outfit() {
+      return currentOutfit();
     },
     /** Let the greedy bot play (true) or hand control back (false). */
     autoplay(on: boolean) {

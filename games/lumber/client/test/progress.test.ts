@@ -1,7 +1,19 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { MODES, isUnlocked, newlyUnlocked, parseProgress, starText, starsFor, totalStars } from '../src/progress.ts';
+import {
+  MODES,
+  OUTFITS,
+  isUnlocked,
+  newOutfits,
+  newlyUnlocked,
+  nextOutfit,
+  outfitUnlocked,
+  parseProgress,
+  starText,
+  starsFor,
+  totalStars,
+} from '../src/progress.ts';
 
 const manifest = JSON.parse(readFileSync(new URL('../../game.json', import.meta.url), 'utf8')) as {
   leaderboards: { id: string }[];
@@ -44,19 +56,52 @@ test('the save: version 1 (one best) becomes version 2; junk falls back to defau
     bests: { classic: 1234, rush: 0 },
     played: 7,
     mode: 'classic',
+    outfit: 'cowboy',
     version: 2,
   });
   assert.deepEqual(parseProgress({ bests: { classic: 10, rush: 20 }, played: 2, mode: 'rush', version: 2 }), {
     bests: { classic: 10, rush: 20 },
     played: 2,
     mode: 'rush',
+    outfit: 'cowboy',
     version: 2,
   });
   assert.deepEqual(parseProgress({ bests: { classic: -1, rush: 'x' }, played: NaN, mode: 'turbo' }), {
     bests: { classic: 0, rush: 0 },
     played: 0,
     mode: 'classic',
+    outfit: 'cowboy',
     version: 2,
   });
-  assert.deepEqual(parseProgress(null), { bests: { classic: 0, rush: 0 }, played: 0, mode: 'classic', version: 2 });
+  assert.deepEqual(parseProgress(null), {
+    bests: { classic: 0, rush: 0 },
+    played: 0,
+    mode: 'classic',
+    outfit: 'cowboy',
+    version: 2,
+  });
+});
+
+test('outfits unlock with total stars; changing goes round the unlocked ones', () => {
+  const none = { classic: 0, rush: 0 };
+  assert.ok(outfitUnlocked('cowboy', none));
+  assert.ok(!outfitUnlocked('viking', none));
+  assert.equal(nextOutfit('cowboy', none), 'cowboy', 'only the cowboy to start with');
+  const three = { classic: 1800, rush: 0 };
+  assert.deepEqual(
+    newOutfits(none, three).map((o) => o.id),
+    ['viking', 'chef'],
+  );
+  assert.equal(nextOutfit('cowboy', three), 'viking');
+  assert.equal(nextOutfit('viking', three), 'chef');
+  assert.equal(nextOutfit('chef', three), 'cowboy');
+  const all = { classic: 1800, rush: 800 };
+  assert.ok(outfitUnlocked('pug', all), 'every star dresses you as a pug');
+  for (let i = 1; i < OUTFITS.length; i++) assert.ok(OUTFITS[i]!.unlockAt >= OUTFITS[i - 1]!.unlockAt);
+  assert.ok(OUTFITS.at(-1)!.unlockAt <= MODES.length * 3, 'the last outfit is reachable');
+});
+
+test('the save keeps a known outfit and drops an unknown one', () => {
+  assert.equal(parseProgress({ outfit: 'ninja' }).outfit, 'ninja');
+  assert.equal(parseProgress({ outfit: 'astronaut' }).outfit, 'cowboy');
 });
