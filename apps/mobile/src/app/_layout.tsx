@@ -21,7 +21,6 @@ import '@/lib/prefs';
 import { queryClient } from '@/lib/query-client';
 import { NAV_THEME } from '@/lib/theme';
 import { ViewportProvider } from '@/lib/viewport';
-import { SHELL_ORIENTATION } from '@/lib/shell-orientation';
 
 export { ErrorBoundary } from 'expo-router';
 
@@ -64,7 +63,6 @@ export default function RootLayout() {
           <StatusBar style={theme === 'light' ? 'dark' : 'light'} />
           <Stack
             screenOptions={{
-              orientation: SHELL_ORIENTATION,
               headerStyle: { backgroundColor: nav.colors.background },
               headerTintColor: nav.colors.text,
               headerShadowVisible: false,
