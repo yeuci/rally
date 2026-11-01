@@ -56,8 +56,9 @@ game time slows rather than jumps.
 
 ## Rally integration
 
-- **Boot:** own loading veil + `rally.ui.loading(p)` → `save.get` → first frame rendered → `rally.ready()` (host
-  drops its overlay); safe area = max(CSS `env()`, launch context) as `--safe-*` variables.
+- **Boot:** game-kit `createBootProgress` ("Starting the game", "Building the tower") in the host's loading screen and
+  the page's own veil → first frame rendered → `rally.ready()` → `done()` (`ui.loading` 1: the host drops its screen);
+  `save.get` runs alongside. Safe area = max(CSS `env()`, launch context) as `--safe-*` variables.
 - **Save:** slot `progress` = `{ best, played, version: 1 }` via game-kit `createSave` (debounced `save.put` with
   `ifVersion`, CONFLICT → reload + reapply, localStorage when standalone).
 - **Game over:** `leaderboard.submit('height', score)`, achievements earned this run (`first_drop`, `height_10`,

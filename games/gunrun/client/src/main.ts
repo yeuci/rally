@@ -4,9 +4,11 @@ import {
   applySafeAreaVars,
   createApp,
   createAudio,
+  createBootProgress,
   createFrameMetrics,
   createLifecycle,
   jsHeapMb,
+  matchmakingLabel,
   round,
   safeArea,
 } from '@rally/game-kit';
@@ -56,6 +58,8 @@ const ui = {
   exit: $<HTMLButtonElement>('exit'),
   loading: $('loading'),
   loadingBar: $('loading-bar'),
+  loadingLabel: $('loading-label'),
+  loadingDetail: $('loading-detail'),
 };
 const params = new URLSearchParams(location.search);
 /** `?predict=0` draws your own player interpolated like everyone else (to compare). */
@@ -68,13 +72,24 @@ const ART = import.meta.env.DEV ? params.get('art') : null;
  */
 const LOWFX = import.meta.env.DEV && !ART && params.has('lowfx') && params.get('lowfx') !== '0';
 
-function loading(progress: number) {
-  ui.loadingBar.style.width = `${Math.round(progress * 100)}%`;
-  if (rally.isHosted) void rally.ui.loading(progress).catch(() => {});
-}
+/**
+ * Boot progress through the join, in the host's loading screen (labelled, so it stays up until `done()`: the player
+ * lands in a joined match) and in the page's own veil (standalone / dev), with the same words in both. The models are
+ * most of it, reported by the byte.
+ */
+const loader = createBootProgress({
+  host: rally,
+  veil: { root: ui.loading, bar: ui.loadingBar, label: ui.loadingLabel, detail: ui.loadingDetail },
+  stages: [
+    { id: 'start', label: 'Starting the game', weight: 1 },
+    { id: 'models', label: 'Downloading characters and weapons', weight: 6 },
+    { id: 'arena', label: 'Building the arena', weight: 1.5 },
+    { id: 'match', label: 'Finding players', weight: 1.5 },
+    { id: 'join', label: 'Joining the match', weight: 1 },
+  ],
+});
 
 const bootStart = performance.now();
-loading(0.05);
 
 // --- engine, scene, HUD, input -----------------------------------------------------------------------
 const { app, onResize } = createApp({
@@ -99,7 +114,7 @@ const audio = createAudio();
 const sfx = createSfx(audio);
 const metrics = createFrameMetrics(2000);
 app.on('frameend', () => metrics.tick());
-loading(0.3);
+loader.progress(1);
 
 // --- netcode state -------------------------------------------------------------------------------------
 let net: Net | null = null;
@@ -556,14 +571,17 @@ function toWs(url: string) {
 }
 
 async function boot() {
-  const models = await loadGunRunModels(app, (f) => loading(0.3 + f * 0.5));
+  loader.stage('models');
+  const models = await loadGunRunModels(app, (f, bytes) => loader.progress(f, bytes));
+  loader.stage('arena');
   scene = createGunRunScene(app, (fn) => onResize(fn), models, sceneOptions);
   app.start();
-  loading(0.85);
+  loader.progress(0.5);
   await new Promise<void>((resolve) => {
     app.once('frameend', () => resolve());
     setTimeout(resolve, 1000);
   });
+  loader.progress(1);
   let username = params.get('name') ?? 'player';
   if (rally.isHosted) {
     const ctx = await rally.ready();
@@ -573,8 +591,6 @@ async function boot() {
     applySafeAreaVars(safeArea());
   }
   readyMs = Math.round(performance.now() - bootStart);
-  loading(1);
-  ui.loading.hidden = true;
 
   if (exiting) return;
   hud.setMessage('Joining…');
@@ -585,9 +601,12 @@ async function boot() {
       return art.stageArt(ART, { app, scene, hud });
     }
     if (rally.isHosted) {
+      loader.stage('match', matchmakingLabel(rally.context));
       const { endpoint, seatReservation } = await rally.session.join();
+      loader.stage('join');
       return connect(endpoint, { seatReservation });
     }
+    loader.stage('match', 'Connecting to the server');
     const endpoint = toWs(params.get('colyseus') ?? `ws://${location.hostname || 'localhost'}:2567`);
     return connect(endpoint, {
       roomName: 'gunrun',
@@ -600,6 +619,8 @@ async function boot() {
   } catch (err) {
     if (exiting) return;
     hud.setMessage("Couldn't join", err instanceof Error ? err.message : String(err));
+    // Our own error UI is up: the host shows the game now.
+    loader.done();
     throw err;
   }
   if (exiting) {
@@ -625,12 +646,14 @@ async function boot() {
   net.room.onLeave((code) => {
     if (!exiting) hud.setMessage('Disconnected', `The server closed the connection (${code}).`);
   });
+  // In the match: playable. The host drops its loading screen, the veil goes.
+  loader.done();
 }
 
 boot().catch((err) => {
   console.error(err);
   rally.reportError(err);
-  ui.loading.hidden = true;
+  loader.done();
 });
 
 // Dev-only probe for the Playwright e2e, perf and art scripts (stripped from production builds).

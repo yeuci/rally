@@ -1,7 +1,14 @@
 import type { LaunchContext, LaunchIntent } from '@rally/protocol';
 import { HostBridge } from './bridge';
-import { createHostHandlers, createJoinState, type HostHandlers, type JoinState, type MatchmakingTarget } from './handlers';
+import {
+  createHostHandlers,
+  createJoinState,
+  type HostHandlers,
+  type JoinState,
+  type MatchmakingTarget,
+} from './handlers';
 import { DIAG_PREFIX, buildDeliverScript, parseDiagnostic, type PageDiagnostic } from './injected';
+import { BAR_SHARE, gameBarPosition, loadingCopy, pageBarPosition, type LoadStage } from './loading-copy';
 import type { PlaySessionService } from './play-session';
 import type { ProgressStore } from './progress';
 import type { SaveStore } from './saves';
@@ -11,6 +18,16 @@ import type { WebViewHandle } from './webview';
 export const READY_TIMEOUT_MS = 20_000;
 /** A second exit request within this window force-closes the game (Android back twice, or the close button twice). */
 const FORCE_EXIT_WINDOW_MS = 2000;
+/**
+ * The hold contract's safety net: a game that sent loading labels but never `progress: 1` is shown this long after
+ * `ready()` anyway (and the host logs it), so a game that forgets the last step never strands the player.
+ */
+export const REVEAL_TIMEOUT_MS = 25_000;
+/**
+ * "Leave" while a ready game is still behind the loading screen (joining its match): it gets this long to leave its
+ * room with consent and call `exit()`, then the host closes it. It cannot ask the player anything from under there.
+ */
+export const LEAVE_GRACE_MS = 2500;
 
 export type HostPhase = 'loading' | 'ready' | 'crashed' | 'failed';
 
@@ -20,9 +37,21 @@ export interface HostView {
   attempt: number;
   /** Per-launch nonce injected before any game script runs (architecture §2). */
   nonce: string;
+  /**
+   * `loading` while the loading screen is up: before `ready()`, and after it while a game that sends loading labels
+   * has not reported `progress: 1` yet (the hold contract). The game is live (playtime, exit requests) from `ready()`.
+   */
   phase: HostPhase;
+  /** 0…1 across the whole boot (entry, page, then the game's own stages); never decreases within one load. */
   progress: number;
+  /** Which part of the boot is running (loading-copy.ts). */
+  stage: LoadStage;
+  /** The game's latest `ui.loading` label for the current page, or null. */
+  label: string | null;
+  /** The line under the bar, in plain words: the game's label, else the host's own for its stage. */
   status: string;
+  /** A quiet byte count or percentage beside the status, or null. */
+  detail: string | null;
   error: string | null;
   /** Last frame rate the game's WebView reported (once a second while the FPS overlay is on); null otherwise. */
   fps: number | null;
@@ -52,6 +81,13 @@ export type DeviceInfo = LaunchContext['device'];
 export interface GameHostControllerOptions {
   bundleUrl: string;
   game: LaunchContext['game'];
+  /** The game's display name, for the loading screen ("Getting Gun Run ready…"); null says "the game". */
+  title?: string | null;
+  /**
+   * Bytes of the files the page itself loads (loading-copy.ts `pageBytesOf`), shown as "1.2 of 3.4 MB" while the
+   * WebView loads them; null shows a percentage.
+   */
+  pageBytes?: number | null;
   user: LaunchContext['user'];
   intent: LaunchIntent;
   /** `join=resume`: the game's reconnection token, shown in the launch context until the resume was used. */
@@ -70,6 +106,10 @@ export interface GameHostControllerOptions {
   onPlayRecorded?: () => void;
   createNonce: () => string;
   readyTimeoutMs?: number;
+  /** Override {@link REVEAL_TIMEOUT_MS} (tests). */
+  revealTimeoutMs?: number;
+  /** Override {@link LEAVE_GRACE_MS} (tests). */
+  leaveGraceMs?: number;
   now?: () => number;
   warn?: (message: string) => void;
   /** Launch timings, one line per session (dev builds log them to the Metro terminal). */
@@ -119,6 +159,20 @@ export class GameHostController {
   private readyTimer: ReturnType<typeof setTimeout> | null = null;
   private unmountTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // --- the loading screen and the hold contract (per page: reset by a reload and by a new main document) ---------
+  /** Bytes of the host-side download in progress (entry document, or the page's files), when known. */
+  private bytes: { loaded: number; total: number } | null = null;
+  /** The player asked to leave (the status line says so). */
+  private leaving = false;
+  /** This page sent a `ui.loading` label: it promised `progress: 1` once playable, so ready() alone does not reveal it. */
+  private labelled = false;
+  /** This page reported `progress: 1`. */
+  private playable = false;
+  /** ready() came from a labelled page that is not playable yet: live, but still behind the loading screen. */
+  private holding = false;
+  private revealTimer: ReturnType<typeof setTimeout> | null = null;
+  private leaveTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor(opts: GameHostControllerOptions) {
     this.opts = opts;
     this.now = opts.now ?? Date.now;
@@ -128,7 +182,17 @@ export class GameHostController {
     this.startedAt = this.now();
     this.joinState = createJoinState(opts.matchmaking?.join);
     const nonce = opts.createNonce();
-    this.view = { attempt: 0, nonce, phase: 'loading', progress: 0, status: 'Loading…', error: null, fps: null };
+    this.view = {
+      attempt: 0,
+      nonce,
+      phase: 'loading',
+      progress: 0,
+      stage: 'entry',
+      label: null,
+      ...this.copy({ stage: 'entry', label: null, progress: 0 }),
+      error: null,
+      fps: null,
+    };
     this.bridge = this.createBridge(nonce);
   }
 
@@ -143,9 +207,28 @@ export class GameHostController {
 
   getSnapshot = (): HostView => this.view;
 
-  private setView(patch: Partial<HostView>) {
-    this.view = { ...this.view, ...patch };
+  /** Every change goes through here; the status line and its detail are derived, never patched. */
+  private setView(patch: Partial<Omit<HostView, 'status' | 'detail'>>) {
+    const next = { ...this.view, ...patch };
+    this.view = { ...next, ...this.copy(next) };
     for (const l of this.listeners) l();
+  }
+
+  private copy(v: Pick<HostView, 'stage' | 'label' | 'progress'>) {
+    return loadingCopy({
+      title: this.opts.title ?? null,
+      stage: v.stage,
+      label: v.label,
+      progress: v.progress,
+      bytes: this.bytes,
+      leaving: this.leaving,
+    });
+  }
+
+  /** The page's files as bytes at WebView progress `p`, when their size is known. */
+  private pageBytesAt(p: number): { loaded: number; total: number } | null {
+    const total = this.opts.pageBytes;
+    return total && total > 0 ? { loaded: Math.round(Math.min(1, Math.max(0, p)) * total), total } : null;
   }
 
   // --- lifecycle -----------------------------------------------------------------------------------------------
@@ -167,7 +250,8 @@ export class GameHostController {
     if (this.exited) return;
     this.active = true;
     this.startPlaySession();
-    if (this.view.phase === 'loading') this.armReadyTimeout();
+    if (this.holding) this.armRevealTimeout();
+    else if (this.view.phase === 'loading') this.armReadyTimeout();
   }
 
   /** The play session id for `leaderboard.submit`: waits for a start still in flight; null without a session. */
@@ -177,6 +261,8 @@ export class GameHostController {
   stop(): void {
     this.active = false;
     this.clearReadyTimeout();
+    this.clearRevealTimeout();
+    this.clearLeaveTimeout();
   }
 
   /**
@@ -212,7 +298,8 @@ export class GameHostController {
       // Same gate as bridge traffic minus the nonce (the diagnostics script has none): from the bundle's own
       // directory, while the session is live. The script caps each report at 400 chars and sends at most 12 per
       // page; anything bigger is not ours, and only what is kept (12 per attempt) is logged.
-      if (data.length > 4096 || !this.active || this.exited || !sourceUrl || !this.bridge.isInsideBundle(sourceUrl)) return;
+      if (data.length > 4096 || !this.active || this.exited || !sourceUrl || !this.bridge.isInsideBundle(sourceUrl))
+        return;
       const diag = parseDiagnostic(data);
       if (!diag) return;
       if (diag.kind === 'fps') {
@@ -237,9 +324,20 @@ export class GameHostController {
    * cold cache, a game calling location.reload()) the game will call ready() again, so the handshake is reset and
    * the loading overlay returns until it does.
    */
-  /** GameHost downloaded and verified the entry document (see entry.ts). */
+  /** Bytes of the entry document so far (`total` null when the response did not say); GameHost reports them. */
+  onEntryProgress = (loaded: number, total: number | null): void => {
+    if (this.view.phase !== 'loading' || this.view.stage !== 'entry') return;
+    this.bytes = total && total > 0 ? { loaded: Math.min(Math.max(0, loaded), total), total } : null;
+    const f = this.bytes ? this.bytes.loaded / this.bytes.total : 0;
+    this.setView({ progress: Math.max(this.view.progress, BAR_SHARE.entry * f) });
+  };
+
+  /** GameHost downloaded and verified the entry document (see entry.ts); the WebView loads the page next. */
   onEntryLoaded = (): void => {
     this.entryAt ??= this.now();
+    if (this.view.phase !== 'loading' || this.view.stage !== 'entry') return;
+    this.bytes = this.pageBytesAt(0);
+    this.setView({ stage: 'page', progress: Math.max(this.view.progress, BAR_SHARE.entry) });
   };
 
   /** Show or hide the FPS overlay: starts/stops the sampler in the page; takes effect live. */
@@ -247,7 +345,9 @@ export class GameHostController {
     if (on === this.fpsOverlay) return;
     this.fpsOverlay = on;
     if (!on && this.view.fps !== null) this.setView({ fps: null });
-    this.getWebView?.()?.injectJavaScript(`window.__rallyDiag && window.__rallyDiag.fps(${on ? 'true' : 'false'}); true;`);
+    this.getWebView?.()?.injectJavaScript(
+      `window.__rallyDiag && window.__rallyDiag.fps(${on ? 'true' : 'false'}); true;`,
+    );
   };
 
   onMainFrameLoadStart = (url: string): void => {
@@ -263,9 +363,16 @@ export class GameHostController {
     // An in-page reload: the time played so far counts; the next ready() starts a new stretch.
     this.bankPlaytime();
     this.handlers.resetHandshake();
-    if (this.view.phase === 'ready') {
-      this.setView({ phase: 'loading', progress: 0, status: 'Reloading…' });
+    // A new document makes its own promises: labels and `progress: 1` count per page.
+    const live = this.view.phase === 'ready' || this.holding;
+    this.resetHold();
+    if (live) {
+      this.bytes = this.pageBytesAt(0);
+      this.setView({ phase: 'loading', progress: 0, stage: 'page', label: null });
       this.armReadyTimeout();
+    } else if (this.view.phase === 'loading') {
+      this.bytes = this.pageBytesAt(0);
+      this.setView({ stage: 'page', label: null, progress: Math.max(this.view.progress, BAR_SHARE.entry) });
     }
   };
 
@@ -275,16 +382,23 @@ export class GameHostController {
     return false;
   };
 
+  /** WebView load progress (0…1) of the page's own files: the bar's page share, until the game reports. */
   onLoadProgress = (progress: number): void => {
-    if (this.view.phase !== 'loading') return;
-    const next = Math.max(this.view.progress, progress * 0.5);
-    if (next !== this.view.progress) this.setView({ progress: next });
+    if (this.view.phase !== 'loading' || this.holding) return;
+    const next = Math.max(this.view.progress, pageBarPosition(progress));
+    if (this.view.stage === 'game') {
+      if (next !== this.view.progress) this.setView({ progress: next });
+      return;
+    }
+    this.bytes = this.pageBytesAt(progress);
+    this.setView({ stage: 'page', progress: next });
   };
 
   onProcessGone = (message: string): void => {
     this.bankPlaytime();
     this.lastError = message;
     this.clearReadyTimeout();
+    this.resetHold();
     this.setView({ phase: 'crashed', error: message });
   };
 
@@ -292,6 +406,7 @@ export class GameHostController {
     this.bankPlaytime();
     this.lastError = message;
     this.clearReadyTimeout();
+    this.resetHold();
     this.setView({ phase: 'failed', error: message });
   };
 
@@ -312,16 +427,28 @@ export class GameHostController {
     }
   };
 
-  /** Close button / Android back: ask the game to leave; a second request (or a game that isn't ready) force-exits. */
+  /**
+   * Close button, the loading screen's "Leave", Android back: ask a live game to leave; a second request within 2 s
+   * (or a game that never became ready) force-exits. A ready game still behind the loading screen (the hold) gets
+   * {@link LEAVE_GRACE_MS} to leave its room and call `exit()`, then it is closed: it cannot show the player anything.
+   */
   requestExit = (): void => {
     const t = this.now();
-    if (this.view.phase !== 'ready' || t - this.exitRequestedAt < FORCE_EXIT_WINDOW_MS) {
+    const live = this.view.phase === 'ready' || this.holding;
+    if (!live || t - this.exitRequestedAt < FORCE_EXIT_WINDOW_MS) {
       this.finish('forced');
       return;
     }
     this.exitRequestedAt = t;
     this.bridge.sendEvent('exitRequested', {});
-    this.setView({ status: 'Leaving…' });
+    this.leaving = true;
+    this.setView({});
+    if (this.holding && this.leaveTimer === null) {
+      this.leaveTimer = setTimeout(() => {
+        this.leaveTimer = null;
+        this.finish('forced');
+      }, this.opts.leaveGraceMs ?? LEAVE_GRACE_MS);
+    }
   };
 
   /**
@@ -344,7 +471,20 @@ export class GameHostController {
     this.seenMethods = [];
     this.droppedCount = 0;
     this.diagnostics = [];
-    this.setView({ attempt: this.view.attempt + 1, nonce, phase: 'loading', progress: 0, status: 'Loading…', error: null, fps: null });
+    this.resetHold();
+    this.clearLeaveTimeout();
+    this.leaving = false;
+    this.bytes = null;
+    this.setView({
+      attempt: this.view.attempt + 1,
+      nonce,
+      phase: 'loading',
+      progress: 0,
+      stage: 'entry',
+      label: null,
+      error: null,
+      fps: null,
+    });
     if (this.active) this.armReadyTimeout();
   };
 
@@ -465,15 +605,19 @@ export class GameHostController {
           this.everReady = true;
           this.checkpoint();
           this.clearReadyTimeout();
-          this.setView({ phase: 'ready', progress: 1 });
           const ms = (t: number | null) => (t === null ? '—' : `${t - this.startedAt} ms`);
           this.opts.log?.(
             `[game-host] ${this.opts.game.id}@${this.opts.game.version} ready in ${ms(this.readyAt)} (entry downloaded ${ms(this.entryAt)}, page load started ${ms(this.pageAt)})`,
           );
+          // The hold contract: a game that sends labels stays behind the loading screen until it says it is playable.
+          if (this.labelled && !this.playable) {
+            this.holding = true;
+            this.armRevealTimeout();
+          } else {
+            this.reveal();
+          }
         },
-        onLoading: (progress) => {
-          if (this.view.phase === 'loading') this.setView({ progress: Math.max(this.view.progress, progress) });
-        },
+        onLoading: (progress, label) => this.onGameLoading(progress, label),
         onExit: (reason) => this.finish(reason),
       })),
       onGameEvent: (ev) => {
@@ -487,13 +631,77 @@ export class GameHostController {
     });
   }
 
+  /** `ui.loading` from the game: its label and progress on the bar; `progress: 1` ends a hold. */
+  private onGameLoading(progress: number, label: string | undefined) {
+    if (label) this.labelled = true;
+    if (progress >= 1) this.playable = true;
+    if (this.view.phase !== 'loading') return;
+    if (this.holding && this.playable) {
+      this.reveal();
+      return;
+    }
+    this.bytes = null;
+    this.setView({
+      stage: 'game',
+      progress: Math.max(this.view.progress, gameBarPosition(progress)),
+      ...(label ? { label } : {}),
+    });
+  }
+
+  /** Drop the loading screen: the game is on screen. */
+  private reveal() {
+    const held = this.holding;
+    this.holding = false;
+    this.clearRevealTimeout();
+    this.setView({ phase: 'ready', progress: 1 });
+    if (held && this.readyAt !== null) {
+      const t = this.now();
+      this.opts.log?.(
+        `[game-host] ${this.opts.game.id}@${this.opts.game.version} playable in ${t - this.startedAt} ms (${t - this.readyAt} ms after ready)`,
+      );
+    }
+  }
+
+  /** Forget the current page's labels, `progress: 1` and any hold (a reload, a new document, a crash). */
+  private resetHold() {
+    this.labelled = false;
+    this.playable = false;
+    this.holding = false;
+    this.clearRevealTimeout();
+  }
+
+  private armRevealTimeout() {
+    this.clearRevealTimeout();
+    const ms = this.opts.revealTimeoutMs ?? REVEAL_TIMEOUT_MS;
+    this.revealTimer = setTimeout(() => {
+      this.revealTimer = null;
+      if (!this.holding) return;
+      this.warn(
+        `[game-host] ${this.opts.game.id}@${this.opts.game.version} sent loading labels but no ui.loading progress 1 within ${Math.round(ms / 1000)}s of ready(); showing the game anyway`,
+      );
+      this.reveal();
+    }, ms);
+  }
+
+  private clearRevealTimeout() {
+    if (this.revealTimer !== null) clearTimeout(this.revealTimer);
+    this.revealTimer = null;
+  }
+
+  private clearLeaveTimeout() {
+    if (this.leaveTimer !== null) clearTimeout(this.leaveTimer);
+    this.leaveTimer = null;
+  }
+
   private armReadyTimeout() {
     this.clearReadyTimeout();
     const ms = this.opts.readyTimeoutMs ?? READY_TIMEOUT_MS;
     this.readyTimer = setTimeout(() => {
       this.readyTimer = null;
-      if (this.view.phase !== 'loading') return;
-      const seen = this.seenMethods.length ? `received: ${[...new Set(this.seenMethods)].join(', ')}` : 'no messages from the game';
+      if (this.view.phase !== 'loading' || this.holding) return;
+      const seen = this.seenMethods.length
+        ? `received: ${[...new Set(this.seenMethods)].join(', ')}`
+        : 'no messages from the game';
       const dropped = this.droppedCount ? `, ${this.droppedCount} dropped (nonce/origin)` : '';
       const booted = this.diagnostics.some((d) => d.kind === 'boot');
       const page = this.diagnostics.filter((d) => d.kind !== 'boot').map((d) => `${d.kind}: ${d.message}`);

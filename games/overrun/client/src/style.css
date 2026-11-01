@@ -472,6 +472,25 @@ canvas {
   background: var(--gold);
   transition: width 200ms;
 }
+/* The boot veil (standalone / dev; the host shows its own screen): the same words as the host, and bytes or a %. */
+#loading .bar {
+  width: min(300px, 70vw);
+}
+.veil-status {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  width: min(300px, 70vw);
+  margin-top: -4px;
+  font-size: 13px;
+  line-height: 17px;
+  color: rgba(255, 255, 255, 0.78);
+}
+.veil-status #loading-detail {
+  color: rgba(255, 255, 255, 0.45);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 
 /* --- in-world labels, sticks, damage vignette ------------------------------------------------------------- */
 #labels {

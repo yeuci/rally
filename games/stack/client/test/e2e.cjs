@@ -40,7 +40,11 @@ async function ensureServer(name, url, filter) {
     return;
   }
   console.log(`· starting ${name} (pnpm --filter ${filter} dev)`);
-  const child = spawn('pnpm', ['--filter', filter, 'dev'], { cwd: ROOT, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn('pnpm', ['--filter', filter, 'dev'], {
+    cwd: ROOT,
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
   let output = '';
   child.stdout.on('data', (d) => (output += d));
   child.stderr.on('data', (d) => (output += d));
@@ -126,16 +130,24 @@ async function main() {
     });
     await page.reload();
 
-    // 1. Boot through the fake host.
+    // 1. Boot through the fake host: labelled ui.loading stages, ready(), then progress 1 drops the host's loading
+    //    screen (the harness draws the shell's) and the page's own veil.
     await page.waitForSelector('#loading', { state: 'hidden', timeout: 30_000 });
+    await page.waitForSelector('#rally-dev-harness >> [data-role="loading-overlay"]', {
+      state: 'detached',
+      timeout: 5_000,
+    });
     await page.waitForSelector('#prompt:not([hidden])');
     assert.equal(await page.textContent('#prompt'), 'Tap to start');
     let log = await panelLog(page);
     assert.match(log, /ready\(\) after \d+ ms/);
     assert.match(log, /← save\.get ok/);
     assert.match(log, /← ui\.loading ok/);
+    assert.match(log, /loading: Starting the game/);
+    assert.match(log, /loading: Building the tower/);
+    assert.match(log, /playable \d+ ms after ready\(\): loading screen hidden/);
     assert.match(log, /boards height, 5 achievement\(s\)/);
-    console.log('✓ boot: ui.loading → save.get → ready(); "Tap to start"');
+    console.log('✓ boot: labelled ui.loading → save.get → ready() → progress 1; "Tap to start"');
 
     // 2. Tap to start, then place blocks: the score increments.
     await startGame(page);
@@ -144,7 +156,9 @@ async function main() {
       const score = await placeBlock(page, i === 1 ? 0.1 : 0.6);
       assert.equal(await page.textContent('#score'), String(score));
     }
-    console.log(`✓ taps place blocks; score ${await page.textContent('#score')} (streak ${await stack(page, 'streak')})`);
+    console.log(
+      `✓ taps place blocks; score ${await page.textContent('#score')} (streak ${await stack(page, 'streak')})`,
+    );
     const playing = SCREENSHOT.replace(/\.png$/, '-playing.png');
     await page.screenshot({ path: playing });
 
@@ -154,9 +168,13 @@ async function main() {
     await page.waitForSelector('#over:not([hidden])', { timeout: 5_000 });
     assert.equal(await page.textContent('#over-score'), String(score));
     assert.match(await page.textContent('#over-best'), /New best!|Best \d+/);
-    await page.waitForFunction(() => /#\d+ global/.test(document.querySelector('#over-board')?.textContent ?? ''), null, {
-      timeout: 10_000,
-    });
+    await page.waitForFunction(
+      () => /#\d+ global/.test(document.querySelector('#over-board')?.textContent ?? ''),
+      null,
+      {
+        timeout: 10_000,
+      },
+    );
     const board = await page.textContent('#over-board');
     assert.match(board, new RegExp(`best ${score} · #\\d+ global`));
     assert.match(await page.textContent('#over-unlocked'), /First Drop/);
@@ -213,7 +231,9 @@ async function main() {
     await page.waitForTimeout(400);
     const t2 = await stack(page, 'layerTime');
     assert.ok(t2 > t1 + 0.05, `simulation continues after resume (${t1} → ${t2})`);
-    console.log(`✓ pause freezes the simulation (layerTime ${t0.toFixed(3)} = ${t1.toFixed(3)}), resume continues (${t2.toFixed(3)})`);
+    console.log(
+      `✓ pause freezes the simulation (layerTime ${t0.toFixed(3)} = ${t1.toFixed(3)}), resume continues (${t2.toFixed(3)})`,
+    );
 
     // 6. lowMemory is handled without disrupting play.
     await page.click('#rally-dev-harness >> button[data-action="lowMemory"]');
@@ -235,11 +255,14 @@ async function main() {
     await standalone.goto(`${STACK_URL}?nohost`);
     assert.equal(await standalone.evaluate(() => typeof window.__rally), 'undefined');
     await standalone.waitForSelector('#loading', { state: 'hidden', timeout: 30_000 });
+    assert.equal(await standalone.$('#rally-dev-harness >> [data-role="loading-overlay"]'), null, 'no host screen');
     await startGame(standalone);
     await placeBlock(standalone, 0.6);
     await forceMiss(standalone);
     await standalone.waitForSelector('#over:not([hidden])');
-    await standalone.waitForFunction(() => /Offline · best \d+/.test(document.querySelector('#over-board')?.textContent ?? ''));
+    await standalone.waitForFunction(() =>
+      /Offline · best \d+/.test(document.querySelector('#over-board')?.textContent ?? ''),
+    );
     console.log(`✓ ?nohost → standalone game over: "${await standalone.textContent('#over-board')}"`);
 
     const unexpected = errors.filter((e) => !/WebGPU|GPU stall|favicon/i.test(e));

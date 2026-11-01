@@ -115,7 +115,7 @@ Requests resolve a promise with a 10 s timeout; `evt` is fire-and-forget.
 - `rally.save.get(slot)` / `rally.save.put(slot, data, { ifVersion })` — per-game JSON ≤ 64 KB, optimistic concurrency; host writes via RPC as the user.
 - `rally.leaderboard.top(boardId, { scope: 'global' | 'friends' })`, `rally.leaderboard.submit(boardId, score)` and `rally.achievement.unlock(key)` — **single-player games only**; multiplayer results are written by the room.
 - `rally.invite.open()` — host presents the native invite sheet for the current room. `rally.party.get()`.
-- `rally.exit(reason?)`, `rally.ui.loading(progress)`.
+- `rally.exit(reason?)`, `rally.ui.loading(progress, label?)`: boot progress 0…1 for the host's loading screen (the game's art blurred behind a bar), with a few plain words for what is loading now ("Downloading characters", "Joining the match"). The hold contract: a game that sends labels keeps that screen up after `ready()` (it is live: playtime, exit requests) until it sends `progress: 1` (playable: models loaded and the match joined, or its own menu / error UI showing), so the whole boot is one screen; if 1 never comes the host shows the game 25 s after `ready()` anyway. A game that never sends a label is revealed at `ready()` (which "hides the loading overlay" above). game-kit `createBootProgress` drives the host's screen and the game's own veil from weighted stages.
 - Behind a kill-switch flag (4.7.2 exposure risk): `rally.haptics(kind)`, `rally.orientation.lock(mode)`.
 - Host → game events: `pause`, `resume`, `exitRequested` (back button / close), `partyUpdated`, `lowMemory`.
 

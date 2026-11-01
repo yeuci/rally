@@ -123,6 +123,23 @@ async function waitJoined(page, who) {
     );
   }
   assert.equal(await sumo(page, 'lowfx'), true, `${who}: ?lowfx=1 in effect`);
+  await assertBootScreen(page, who);
+}
+
+/**
+ * The host's loading screen (the harness draws the shell's) followed the game's labels through the join and went away
+ * once the game reported progress 1, after ready() (the hold contract).
+ */
+async function assertBootScreen(page, who) {
+  await page.waitForSelector('#rally-dev-harness >> [data-role="loading-overlay"]', {
+    state: 'detached',
+    timeout: 5_000,
+  });
+  await page.waitForSelector('#loading', { state: 'hidden', timeout: 5_000 });
+  const log = await page.textContent('#rally-dev-harness >> [data-role="log"]');
+  assert.match(log, /the loading screen stays up until progress 1/, `${who}: held after ready()`);
+  assert.match(log, /loading: Joining the match/, `${who}: labelled join stage`);
+  assert.match(log, /playable \d+ ms after ready\(\): loading screen hidden/, `${who}: revealed at progress 1`);
 }
 
 async function open(browser, query, errors, { waitForJoin = true, beforeGoto, viewport = SMALL } = {}) {
@@ -286,9 +303,7 @@ async function main() {
     // ...and it is gone once the room resets for the next match.
     await alice.waitForFunction(() => window.__sumo.phase !== 'matchOver', null, { timeout: 10_000 });
     await alice.waitForFunction(() => window.__sumo.resultLine === null, null, { timeout: 2_000 });
-    passed(
-      `Alice won the match: both match-over banners say "Guest: sign in to keep your wins" (${SHOT}-result.png)`,
-    );
+    passed(`Alice won the match: both match-over banners say "Guest: sign in to keep your wins" (${SHOT}-result.png)`);
 
     // 3. Private room by code. Cleo has a long name (guest-Cleopatra_VI).
     const cleo = await open(browser, 'name=Cleopatra_VII&private', errors, { viewport: FULL });
@@ -448,7 +463,11 @@ async function main() {
       (r) => r.roomId === bobSeat.roomId,
     );
     assert.deepEqual(
-      { clients: afterReload?.clients, players: afterReload?.metadata.players, connected: afterReload?.metadata.connected },
+      {
+        clients: afterReload?.clients,
+        players: afterReload?.metadata.players,
+        connected: afterReload?.metadata.connected,
+      },
       { clients: 2, players: 2, connected: 2 },
     );
     passed('Fay refreshed her tab: the old seat was freed at once (2 players, none reconnecting)');
