@@ -4,6 +4,7 @@ import {
   AIM_LIMIT,
   CRASH_SECONDS,
   FALL_Y,
+  MODE_RULES,
   PEDESTAL_HALF,
   PIECES,
   TICK,
@@ -197,4 +198,23 @@ test('an all-bot match ends with one winner and every place handed out', () => {
   assert.ok(sim.maxStanding >= 2);
   assert.deepEqual(sim.advance(1), [], 'nothing happens after the match');
   sim.dispose();
+});
+
+test('Speed: a person gets 5 s, then the piece drops where it is; bots hurry and still finish a match', () => {
+  const speed = MODE_RULES.speed;
+  const sim = new ToppleSim(humans(2), 6, 'speed');
+  assert.equal(sim.mode, 'speed');
+  assert.equal(sim.turnLeft, speed.turnSeconds);
+  sim.setAim(-0.2, 0.1);
+  const events = runUntil(sim, (s) => s.phase !== 'aim', speed.turnSeconds + 0.5);
+  assert.ok(sim.tick * TICK <= speed.turnSeconds + TICK, `dropped by ${speed.turnSeconds} s`);
+  const drop = events.find((e) => e.type === 'drop');
+  assert.ok(drop && drop.type === 'drop' && drop.auto);
+  sim.dispose();
+
+  const match = new ToppleSim(bots(3), 11, 'speed');
+  for (let t = 0; t < 900 && !match.finished; t += 1 / 30) match.advance(1 / 30);
+  assert.ok(match.finished, 'a Speed match between bots ends');
+  assert.ok(match.maxStanding >= 3, `tower ${match.maxStanding}`);
+  match.dispose();
 });

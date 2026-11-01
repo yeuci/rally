@@ -22,6 +22,11 @@
       "id": "tower",
       "sort": "desc",
       "maxScorePerMinute": 40
+    },
+    {
+      "id": "speed",
+      "sort": "desc",
+      "maxScorePerMinute": 40
     }
   ],
   "achievements": [
@@ -54,6 +59,12 @@
       "title": "Full Table",
       "hidden": false,
       "description": "Finish a pass-and-play match with four or more people."
+    },
+    {
+      "key": "speed_win",
+      "title": "Quick Hands",
+      "hidden": false,
+      "description": "Win a Speed match."
     }
   ],
   "capabilities": [],

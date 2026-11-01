@@ -17,6 +17,23 @@ const MAX_TICKS_PER_ADVANCE = 8;
 
 /** Seconds a player has to aim before their piece drops where it is. */
 export const TURN_SECONDS = 15;
+
+export type ModeId = 'classic' | 'speed';
+
+export interface ModeRules {
+  /** Seconds a person has to aim and drop (then the piece drops where it is). */
+  turnSeconds: number;
+  /** Bots' pause before letting go, × their level's. */
+  thinkScale: number;
+  /** Candidate drops a bot tries, × its level's (rushed bots weigh fewer). */
+  candidateScale: number;
+}
+
+/** Classic: 15 s turns. Speed: 5 s turns, and the bots hurry too (shorter pauses, fewer candidates weighed). */
+export const MODE_RULES: Record<ModeId, ModeRules> = {
+  classic: { turnSeconds: TURN_SECONDS, thinkScale: 1, candidateScale: 1 },
+  speed: { turnSeconds: 5, thinkScale: 0.4, candidateScale: 0.5 },
+};
 /** After a drop: wait at least this long, then until everything is still for SETTLE_STILL seconds (or SETTLE_MAX). */
 const SETTLE_MIN = 0.5;
 const SETTLE_STILL = 0.35;
@@ -416,8 +433,13 @@ export class ToppleSim {
 
   events: SimEvent[] = [];
 
-  constructor(seats: Seat[], seed = 1) {
+  readonly mode: ModeId;
+  readonly rules: ModeRules;
+
+  constructor(seats: Seat[], seed = 1, mode: ModeId = 'classic') {
     if (seats.length < 2 || seats.length > 6) throw new Error('Topple needs 2–6 seats');
+    this.mode = mode;
+    this.rules = MODE_RULES[mode];
     this.random = rng(seed);
     this.botRandom = rng(seed ^ 0x9e3779b9);
     this.world = createWorld();
@@ -562,7 +584,7 @@ export class ToppleSim {
       this.botTarget = { ...c, x: clampAim(c.x + miss()), z: clampAim(c.z + miss()) };
       this.aim.yaw = c.yaw;
       this.aim.flip = c.flip;
-      this.botWait = cfg.think;
+      this.botWait = cfg.think * this.rules.thinkScale;
     }
     if (!this.botTarget) return;
     // Glide the held piece to the chosen spot, pause, let go.
@@ -640,7 +662,7 @@ export class ToppleSim {
 
   private startTurn(): void {
     this.phase = 'aim';
-    this.turnLeft = TURN_SECONDS;
+    this.turnLeft = this.rules.turnSeconds;
     this.aim = { x: 0, z: 0, yaw: 0, flip: false };
     this.dropRequested = false;
     this.botTarget = null;
@@ -648,7 +670,12 @@ export class ToppleSim {
     this.planner = null;
     const p = this.currentPlayer;
     if (p.kind === 'bot')
-      this.planner = new BotPlanner(this, this.piece, BOT[p.level ?? 'normal'].candidates, this.botRandom);
+      this.planner = new BotPlanner(
+        this,
+        this.piece,
+        Math.max(2, Math.round(BOT[p.level ?? 'normal'].candidates * this.rules.candidateScale)),
+        this.botRandom,
+      );
     this.events.push({ type: 'turn', player: this.current });
   }
 

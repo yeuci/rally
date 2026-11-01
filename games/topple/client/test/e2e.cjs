@@ -8,7 +8,8 @@
 // drop a piece that lands on the pedestal, pause/resume freeze/continue the turn timer, Player 2 drops off the edge,
 // topples and is out, and "You win!" shows the places, the tallest tower on the leaderboard and the unlocked
 // achievement (leaderboard.submit, achievement.unlock('first_win') and save.put reached the harness); then a match
-// with a bot, whose planned drop lands; exitRequested → save → exit("host"); and ?nohost plays standalone.
+// with a bot in Speed (locked until 2 stars; unlocked here through the dev probe: 5 s turns), whose planned drop lands;
+// exitRequested → save → exit("host"); and ?nohost plays standalone.
 // Every page runs the dev-only ?lowfx=1 mode (≤ 15 fps, DPR 1, no MSAA or shadows): CI renders WebGL in software.
 // Env: TOPPLE_URL, E2E_SCREENSHOT=<png path> (default <tmp>/topple.png).
 'use strict';
@@ -103,7 +104,7 @@ async function main() {
     let log = await panelLog(page);
     assert.match(log, /ready\(\) after \d+ ms/);
     assert.match(log, /← save\.get ok/);
-    assert.match(log, /boards tower, 5 achievement\(s\)/);
+    assert.match(log, /boards tower, speed, 6 achievement\(s\)/);
     console.log('✓ boot: ui.loading → save.get → ready(); seat setup with You + 2 bots');
 
     // 2. Set up pass-and-play for two: seat 2 becomes a person (normal → hard → pass & play), seat 3 is removed.
@@ -199,7 +200,13 @@ async function main() {
       { timeout: 10_000 },
     );
     const saved = await local(page, 'rally-harness:save:topple:progress');
-    assert.deepEqual(saved.data, { best: mine.score, played: 1, wins: 1, version: 1 });
+    assert.deepEqual(saved.data, {
+      bests: { classic: mine.score, speed: 0 },
+      played: 1,
+      wins: 1,
+      mode: 'classic',
+      version: 2,
+    });
     console.log(
       `✓ harness: board ${mine.username}=${mine.score}, achievements [${achievements.join(', ')}], save ${JSON.stringify(saved.data)}`,
     );
@@ -207,12 +214,22 @@ async function main() {
     await page.screenshot({ path: SCREENSHOT });
     await page.evaluate(() => (document.getElementById('rally-dev-harness').style.display = ''));
 
-    // 7. Change players: You + a bot. Drop safely; the bot plans its drop and it lands too.
+    // 7. Change players: You + a bot, in Speed (unlocked by hand: the short first match made no stars). Drop safely;
+    // the bot plans its drop and it lands too.
     await page.click('#change');
     await page.waitForSelector('#setup:not([hidden])');
     await page.click('[data-seat="1"]'); // pass & play → easy bot
     assert.deepEqual(await topple(page, 'seats'), ['human', 'easy']);
+    if ((await topple(page, 'stars')) < 2) {
+      await page.click('#modes [data-mode="speed"]');
+      assert.equal(await page.textContent('#modes [data-mode="speed"] small'), 'Earn 2 ★ to unlock');
+      assert.equal(await topple(page, 'mode'), 'classic');
+      await page.evaluate(() => window.__topple.setBests({ classic: 12 }));
+    }
+    await page.click('#modes [data-mode="speed"]');
+    assert.equal(await topple(page, 'mode'), 'speed');
     await page.click('#start');
+    assert.ok((await page.evaluate(() => window.__topple.sim.turnLeft)) <= 5, 'a Speed turn is 5 s');
     await page.waitForSelector('#controls:not([hidden])');
     await page.evaluate(() => window.__topple.aim(0, 0));
     await page.click('#drop');
@@ -226,7 +243,7 @@ async function main() {
     await page.screenshot({ path: playing });
     await page.evaluate(() => (document.getElementById('rally-dev-harness').style.display = ''));
     console.log(
-      `✓ You vs a bot: the bot planned and dropped (${await topple(page, 'pieces')} pieces); screenshots ${SCREENSHOT}, ${playing}`,
+      `✓ You vs a bot in Speed (5 s turns): the bot planned and dropped (${await topple(page, 'pieces')} pieces); screenshots ${SCREENSHOT}, ${playing}`,
     );
 
     // 8. exitRequested → the game saves and calls exit("host").

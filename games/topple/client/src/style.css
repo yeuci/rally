@@ -83,6 +83,28 @@ button { font: inherit; cursor: pointer; }
 .hint { text-align: center; font-size: 12px; font-weight: 700; color: var(--ink); opacity: 0.6; }
 
 /* --- cards ------------------------------------------------------------------------------------------- */
+/* Mode picker on the setup card; stars and "New mode" on the results card. */
+.card .modes { display: flex; gap: 8px; margin-top: 12px; }
+.card .mode {
+  flex: 1 1 0; display: grid; gap: 1px; padding: 8px 10px; border-radius: 14px; border: 2px solid var(--line);
+  background: #fff; color: var(--ink); font: inherit; text-align: left; cursor: pointer;
+}
+.card .mode b { font-size: 15px; font-weight: 900; }
+.card .mode .stars { font-size: 15px; letter-spacing: 0.06em; color: #f5b82e; }
+.card .mode .lock { font-size: 13px; font-weight: 800; color: var(--muted); }
+.card .mode small { font-size: 11px; font-weight: 700; color: var(--muted); }
+.card .mode.on { border-color: var(--go); }
+.card .mode.locked { opacity: 0.7; }
+.card .stars-row { margin-top: 2px; font-size: 30px; letter-spacing: 0.08em; color: rgba(47, 42, 58, 0.15); }
+.card .stars-row i { font-style: normal; }
+.card .stars-row i.on { color: #f5b82e; text-shadow: 0 2px 0 rgba(209, 138, 0, 0.35); animation: star-pop 360ms ease-out backwards; }
+.card .stars-row i.on:nth-child(2) { animation-delay: 140ms; }
+.card .stars-row i.on:nth-child(3) { animation-delay: 280ms; }
+@keyframes star-pop { from { transform: scale(0.2); opacity: 0; } 70% { transform: scale(1.25); } to { transform: scale(1); opacity: 1; } }
+.card .newmode {
+  margin-top: 8px; padding: 6px 10px; border-radius: 10px; background: rgba(245, 184, 46, 0.18);
+  font-size: 14px; font-weight: 800; color: #b06f00;
+}
 .card {
   position: absolute; left: 50%; bottom: calc(var(--safe-bottom) + 5vh); transform: translateX(-50%);
   width: min(90vw, 360px); max-height: calc(100% - var(--safe-top) - 10vh); overflow: auto;

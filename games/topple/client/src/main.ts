@@ -16,20 +16,23 @@ import { rally } from '@rally/sdk';
 import { applyLowFx } from './lowfx.ts';
 import { loadToppleModels } from './models.ts';
 import { SEAT_COLORS, type ToppleScene, createToppleScene } from './scene.ts';
-import { PIECES, TURN_SECONDS, ToppleSim, initPhysics, type BotLevel, type Seat, type SimEvent } from './sim.ts';
+import {
+  MODES,
+  type Progress,
+  isUnlocked,
+  modeDef,
+  newlyUnlocked,
+  parseProgress,
+  starText,
+  starsFor,
+  totalStars,
+} from './progress.ts';
+import { PIECES, ToppleSim, initPhysics, type BotLevel, type ModeId, type Seat, type SimEvent } from './sim.ts';
 
-const BOARD = 'tower';
 const TELEMETRY_MS = 10_000;
 const MAX_SEATS = 6;
 /** Held-piece speed with the keyboard, world units per second. */
 const KEY_SPEED = 1.6;
-
-interface Progress {
-  best: number;
-  played: number;
-  wins: number;
-  version: 1;
-}
 
 /** Seat 0 is the phone's owner (the Rally account); the others are friends passing the phone, or bots. */
 type SeatChoice = 'human' | BotLevel;
@@ -51,6 +54,7 @@ const ACHIEVEMENTS: { key: string; title: string; earned: (s: ToppleSim) => bool
   { key: 'tower_15', title: 'Skyline', earned: (s) => s.maxStanding >= 15 },
   { key: 'tower_30', title: 'Cloud Scraper', earned: (s) => s.maxStanding >= 30 },
   { key: 'full_table', title: 'Full Table', earned: (s) => s.players.filter((p) => p.kind === 'human').length >= 4 },
+  { key: 'speed_win', title: 'Quick Hands', earned: (s) => s.mode === 'speed' && s.winner === 0 },
 ];
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -70,12 +74,15 @@ const ui = {
   drop: $<HTMLButtonElement>('drop'),
   setup: $('setup'),
   seats: $('seats'),
+  modes: $('modes'),
   addSeat: $<HTMLButtonElement>('add-seat'),
   start: $<HTMLButtonElement>('start'),
   over: $('over'),
   overTitle: $('over-title'),
   overPlaces: $('over-places'),
+  overStars: $('over-stars'),
   overStats: $('over-stats'),
+  overMode: $('over-mode'),
   overBoard: $('over-board'),
   overUnlocked: $('over-unlocked'),
   again: $<HTMLButtonElement>('again'),
@@ -110,21 +117,11 @@ let scene!: ToppleScene;
 loading(0.1);
 
 // --- services --------------------------------------------------------------------------------------
-const save = createSave<Progress>(
-  rally,
-  'progress',
-  { best: 0, played: 0, wins: 0, version: 1 },
-  {
-    debounceMs: 800,
-    parse: (raw, d) => {
-      const r = (raw ?? {}) as Partial<Progress>;
-      const num = (v: unknown, f: number) =>
-        typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : f;
-      return { best: num(r.best, d.best), played: num(r.played, d.played), wins: num(r.wins, d.wins), version: 1 };
-    },
-    onError: (err) => console.warn('[topple] save failed', err),
-  },
-);
+const save = createSave<Progress>(rally, 'progress', parseProgress(null), {
+  debounceMs: 800,
+  parse: (raw) => parseProgress(raw),
+  onError: (err) => console.warn('[topple] save failed', err),
+});
 const solo = createSolo(rally, { user: () => rally.context?.user ?? null });
 const audio = createAudio();
 const metrics = createFrameMetrics(2000);
@@ -195,7 +192,45 @@ function renderSetup() {
     })
     .join('');
   ui.addSeat.hidden = seats.length >= MAX_SEATS;
+  renderModes();
 }
+
+/** The mode the next match plays: the saved choice, while it is unlocked. */
+function nextMode(): ModeId {
+  const m = save.data.mode;
+  return isUnlocked(m, save.data.bests) ? m : 'classic';
+}
+
+/** The mode picker on the setup card: each mode with its best stars, or what it takes to unlock it. */
+function renderModes() {
+  const bests = save.data.bests;
+  const total = totalStars(bests);
+  const chosen = nextMode();
+  ui.modes.innerHTML = MODES.map((m) => {
+    const open = isUnlocked(m.id, bests);
+    const side = open
+      ? `<span class="stars">${starText(starsFor(m.id, bests[m.id]))}</span>`
+      : `<span class="lock">🔒 ${m.unlockAt - total} ★ to go</span>`;
+    const cls = ['mode', m.id === chosen ? 'on' : '', open ? '' : 'locked'].filter(Boolean).join(' ');
+    return `<button type="button" class="${cls}" data-mode="${m.id}"><b>${m.title}</b>${side}<small>${m.blurb}</small></button>`;
+  }).join('');
+}
+
+ui.modes.addEventListener('click', (e) => {
+  const id = (e.target as HTMLElement).closest<HTMLElement>('[data-mode]')?.dataset.mode as ModeId | undefined;
+  if (!id) return;
+  if (!isUnlocked(id, save.data.bests)) {
+    audio.blip(200, 90, { type: 'square', gain: 0.12 });
+    const def = modeDef(id);
+    ui.modes.querySelector(`[data-mode="${id}"] small`)!.textContent = `Earn ${def.unlockAt} ★ to unlock`;
+    return;
+  }
+  audio.blip(520, 40, { gain: 0.2 });
+  save.update((d) => {
+    d.mode = id;
+  });
+  renderModes();
+});
 
 ui.seats.addEventListener('click', (e) => {
   const t = e.target as HTMLElement;
@@ -241,12 +276,12 @@ function showSetup() {
 function startMatch() {
   sim?.dispose();
   scene.reset();
-  sim = new ToppleSim(toSeats(seats), (save.data.played * 7919 + 101) >>> 0);
+  sim = new ToppleSim(toSeats(seats), (save.data.played * 7919 + 101) >>> 0, nextMode());
   ui.setup.hidden = true;
   ui.over.hidden = true;
   lastTurnKey = '';
   renderPlayers();
-  announce('Round 1');
+  announce(sim.mode === 'classic' ? 'Round 1' : `${modeDef(sim.mode).title} · Round 1`);
 }
 
 // --- HUD -------------------------------------------------------------------------------------------
@@ -291,7 +326,7 @@ function renderTurn() {
     ui.turnSub.textContent = `${PIECES[sim.piece].label} · next: ${PIECES[sim.next].label}`;
     renderPlayers();
   }
-  const k = Math.max(0, sim.turnLeft / TURN_SECONDS);
+  const k = Math.max(0, sim.turnLeft / sim.rules.turnSeconds);
   ui.timer.style.transform = `scaleX(${k.toFixed(3)})`;
   ui.timer.parentElement!.classList.toggle('hurry', k < 0.3 && p.kind === 'human');
 }
@@ -333,11 +368,14 @@ async function gameOver() {
   const s = sim!;
   const token = ++gameOverToken;
   const score = s.maxStanding;
-  const prevBest = save.data.best;
+  const mode = s.mode;
+  const def = modeDef(mode);
+  const before = { ...save.data.bests };
+  const prevBest = before[mode];
   const won = s.winner === 0;
   save.update((d) => {
     d.played += 1;
-    d.best = Math.max(d.best, score);
+    d.bests[mode] = Math.max(d.bests[mode], score);
     if (won) d.wins += 1;
   });
   renderPlayers();
@@ -353,7 +391,13 @@ async function gameOver() {
     )
     .join('');
   const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
-  ui.overStats.textContent = `Tallest tower ${plural(score, 'piece')} · ${plural(s.round, 'round')}${score > prevBest && score > 0 ? ' · new best!' : ''}`;
+  const stars = starsFor(mode, score);
+  ui.overStars.innerHTML = [0, 1, 2].map((i) => `<i class="${i < stars ? 'on' : ''}">★</i>`).join('');
+  ui.overStars.setAttribute('aria-label', `${stars} of 3 stars`);
+  const opened = newlyUnlocked(before, save.data.bests);
+  ui.overMode.textContent = opened.length ? `New mode: ${opened.map((m) => m.title).join(' · ')}` : '';
+  ui.overMode.hidden = !opened.length;
+  ui.overStats.textContent = `${mode === 'classic' ? '' : `${def.title} · `}Tallest tower ${plural(score, 'piece')} · ${plural(s.round, 'round')}${score > prevBest && score > 0 ? ' · new best!' : ''}`;
   ui.overBoard.textContent = 'Leaderboard …';
   ui.overUnlocked.hidden = true;
   if (won)
@@ -366,10 +410,10 @@ async function gameOver() {
 
   const earned = ACHIEVEMENTS.filter((a) => a.earned(s));
   const [submit, unlocks] = await Promise.all([
-    solo.submit(BOARD, score),
+    solo.submit(def.board, score),
     Promise.all(earned.map(async (a) => ({ a, r: await solo.unlock(a.key) }))),
   ]);
-  const top = await solo.top(BOARD, { scope: 'global', limit: 10 });
+  const top = await solo.top(def.board, { scope: 'global', limit: 10 });
   if (token !== gameOverToken) return;
   const fresh = unlocks.filter((u) => u.r.unlocked && !u.r.alreadyHad).map((u) => u.a.title);
   if (fresh.length) {
@@ -377,7 +421,7 @@ async function gameOver() {
     ui.overUnlocked.hidden = false;
   }
   const me = solo.findMe(top.entries);
-  const boardBest = Math.max(me?.score ?? 0, submit.best ?? 0, save.data.best);
+  const boardBest = Math.max(me?.score ?? 0, submit.best ?? 0, save.data.bests[mode]);
   if (submit.source === 'local' || top.source === 'local') {
     ui.overBoard.textContent = rally.isHosted
       ? `Leaderboard unavailable · best ${boardBest}`
@@ -500,7 +544,9 @@ function collect() {
     seats: sim?.players.length ?? 0,
     pieces: sim?.pieces.length ?? 0,
     round: sim?.round ?? 0,
-    best: save.data.best,
+    best: save.data.bests.classic,
+    mode: sim && !sim.finished ? sim.mode : nextMode(),
+    stars: totalStars(save.data.bests),
     played: save.data.played,
     paused: lifecycle.isPaused,
     entities: scene?.entityCount ?? 0,
@@ -583,6 +629,19 @@ if (import.meta.env.DEV) {
     },
     get seats() {
       return [...seats];
+    },
+    get mode() {
+      return sim && !sim.finished ? sim.mode : nextMode();
+    },
+    get stars() {
+      return totalStars(save.data.bests);
+    },
+    /** Set best matches (stars) by hand, e.g. to unlock a mode in the e2e. */
+    setBests(bests: Partial<Progress['bests']>) {
+      save.update((d) => {
+        Object.assign(d.bests, bests);
+      });
+      renderModes();
     },
     /** Aim the held piece (on a human turn). */
     aim(x: number, z: number) {
