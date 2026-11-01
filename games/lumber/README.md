@@ -101,7 +101,7 @@ runtime half in game-kit's `models.ts`):
   once (Idle, Walk, Run, Walk_Carry, Run_Carry, Victory, Defeat). In the game the walk and run play at the mover's
   speed, carrying swaps in the carry walks (the plank stack sits in the arms), and the player cheers when the shift ends.
 - **Recolours**: the scene recolours a copy of each mesh per look (cached): the accent material (the player's jacket,
-  everyone else's shirt) and **Skin**, which the pack ships as one near-white placeholder over half the body, so each
+  everyone else's shirt) and **Skin**, which the pack ships as one near-black placeholder over half the body, so each
   person gets a tone from `PALETTE.skins`.
 - **Props**: one node each in `props.glb`, simplified (160–400 triangles), scaled to the camp and re-based to stand on
   y = 0; `meta.gen.ts` lists each one's size. Logs feed the mill and fill the yard; the rest dress the camp's edge and
