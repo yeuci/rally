@@ -94,27 +94,45 @@ one at 23:59 UTC loses nothing.
 
 ### The templates (`challenge_templates`, seeded)
 
-| Tier | Key         | Challenge                       | Counts                                  |
-| ---- | ----------- | ------------------------------- | --------------------------------------- |
-| 1    | `play_2`    | Play 2 matches                  | counted multiplayer matches             |
-| 1    | `sumo_1`    | Play a round of Sumo            | counted Sumo matches                    |
-| 1    | `gunrun_1`  | Play a round of Gun Run         | counted Gun Run matches                 |
-| 1    | `stack_2`   | Play Stack twice                | valid Stack runs (one per session)      |
-| 2    | `play_3`    | Play 3 matches                  | counted multiplayer matches             |
-| 2    | `variety_2` | Play 2 different games          | distinct games (matches or solo runs)   |
-| 2    | `sumo_2`    | Play Sumo twice                 | counted Sumo matches                    |
-| 2    | `gunrun_2`  | Play Gun Run twice              | counted Gun Run matches                 |
-| 2    | `overrun_1` | Play a round of Overrun         | counted Overrun matches                 |
-| 2    | `stack_15`  | Build a 15-block tower in Stack | best valid `height` score today         |
-| 3    | `win_1`     | Win a match                     | wins in counted matches                 |
-| 3    | `play_5`    | Play 5 matches                  | counted multiplayer matches             |
-| 3    | `friend_1`  | Play a match with a friend      | counted matches with an accepted friend |
-| 3    | `variety_3` | Play 3 different games          | distinct games                          |
-| 3    | `stack_20`  | Build a 20-block tower in Stack | best valid `height` score today         |
+27 templates: 15 from `20261101000100_progress.sql` and 12 from `20261102000300_more_content.sql` (marked +), pinned by
+`packages/db/test/progress.test.ts` and `packages/db/test/more-content.test.ts`.
+
+| Tier | Key             | Challenge                       | Counts                                        |
+| ---- | --------------- | ------------------------------- | --------------------------------------------- |
+| 1    | `play_2`        | Play 2 matches                  | counted multiplayer matches                   |
+| 1    | `sumo_1`        | Play a round of Sumo            | counted Sumo matches                          |
+| 1    | `gunrun_1`      | Play a round of Gun Run         | counted Gun Run matches                       |
+| 1    | `stack_2`       | Play Stack twice                | valid Stack runs (one per session)            |
+| 1    | `solo_2` +      | Finish 2 solo runs              | valid solo runs of any game (one per session) |
+| 1    | `stack_10` +    | Build a 10-block tower in Stack | best valid `height` score today               |
+| 1    | `topple_1` +    | Play a game of Topple           | valid Topple runs                             |
+| 1    | `lumber_1` +    | Work a shift at Lumber Camp     | valid Lumber Camp runs                        |
+| 1    | `sawline_1` +   | Work a shift in Sawline         | valid Sawline runs                            |
+| 2    | `play_3`        | Play 3 matches                  | counted multiplayer matches                   |
+| 2    | `variety_2`     | Play 2 different games          | distinct games (matches or solo runs)         |
+| 2    | `sumo_2`        | Play Sumo twice                 | counted Sumo matches                          |
+| 2    | `gunrun_2`      | Play Gun Run twice              | counted Gun Run matches                       |
+| 2    | `overrun_1`     | Play a round of Overrun         | counted Overrun matches                       |
+| 2    | `stack_15`      | Build a 15-block tower in Stack | best valid `height` score today               |
+| 2    | `play_4` +      | Play 4 matches                  | counted multiplayer matches                   |
+| 2    | `solo_3` +      | Finish 3 solo runs              | valid solo runs of any game                   |
+| 2    | `sushi_1` +     | Play a round of Sushi Shift     | counted Sushi Shift matches                   |
+| 2    | `northdale_1` + | Play a round of Northdale       | counted Northdale matches                     |
+| 3    | `win_1`         | Win a match                     | wins in counted matches                       |
+| 3    | `play_5`        | Play 5 matches                  | counted multiplayer matches                   |
+| 3    | `friend_1`      | Play a match with a friend      | counted matches with an accepted friend       |
+| 3    | `variety_3`     | Play 3 different games          | distinct games                                |
+| 3    | `stack_20`      | Build a 20-block tower in Stack | best valid `height` score today               |
+| 3    | `solo_5` +      | Finish 5 solo runs              | valid solo runs of any game                   |
+| 3    | `variety_4` +   | Play 4 different games          | distinct games (needs 4 published)            |
+| 3    | `friend_2` +    | Play 2 matches with a friend    | counted matches with an accepted friend       |
 
 Kinds: `play_matches`, `win_matches`, `friend_match`, `play_games`, `play_game`, `score` (a solo `best` board with
-`desc` sort; progress is the best valid score today) and `solo_runs` (any solo game; none seeded yet). Every target is
-at most 5 of anything, reachable in a 15-20 minute session. Add or retire templates with an insert / `active = false`:
+`desc` sort; progress is the best valid score today) and `solo_runs` (valid runs of any solo game, one per play
+session). These are exactly the kinds `private.challenge_event` counts; a new template must use one of them. Every
+target is at most 5 of anything, reachable in a 15-20 minute session, and every template pays its tier's reward
+(20 / 35 / 50 coins, 30 / 50 / 70 XP). With 9 / 10 / 8 templates per tier, a player sees a given template every week or
+two. Add or retire templates with an insert / `active = false`:
 
 ```sql
 insert into public.challenge_templates (key, kind, game_id, target, title, tier, coins, xp)
@@ -183,5 +201,6 @@ cd packages\db
 npx supabase db push
 ```
 
-Nothing else: the rules and the 15 templates are seeded, existing players start at level 1 with 0 XP, and the purge
-job schedules itself where pg_cron is enabled.
+Nothing else: the rules and the 27 templates are seeded (`20261101000100_progress.sql` and
+`20261102000300_more_content.sql`), existing players start at level 1 with 0 XP, and the purge job schedules itself
+where pg_cron is enabled.

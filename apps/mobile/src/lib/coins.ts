@@ -138,7 +138,7 @@ export function useShop() {
     enabled: !!userId,
     queryFn: async (): Promise<ShopData> => {
       const [items, owned, equipped] = await Promise.all([
-        supabase.from('shop_items').select('id, kind, name, description, price, data, available, sort').order('sort'),
+        supabase.from('shop_items').select('id, kind, name, description, price, data, available, sort, created_at').order('sort'),
         supabase.from('user_items').select('item_id').eq('user_id', userId!),
         supabase.from('equipped_items').select('kind, item_id').eq('user_id', userId!),
       ]);

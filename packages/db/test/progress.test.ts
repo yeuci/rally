@@ -413,7 +413,7 @@ describe('progress: rules, tables and privileges', () => {
     for (const run of [(fn: () => Promise<void>) => asUser(db, ann, fn), (fn: () => Promise<void>) => asAnon(db, fn)]) {
       await run(async () => {
         assert.equal(await count(db, `select 1 from public.progress_rules`), 9);
-        assert.equal(await count(db, `select 1 from public.challenge_templates`), 16);
+        assert.equal(await count(db, `select 1 from public.challenge_templates`), 28);
         await assert.rejects(
           db.query(`update public.progress_rules set value = 1000 where key = 'win'`),
           permissionDenied,
@@ -429,7 +429,7 @@ describe('progress: rules, tables and privileges', () => {
     }
   });
 
-  test('the seeded templates: 15, five per tier, rewards growing with the tier, short targets', async () => {
+  test('the seeded templates: 27 in three tiers, rewards growing with the tier, short targets', async () => {
     const r = await db.query<{
       key: string;
       kind: ChallengeKind;
@@ -440,11 +440,12 @@ describe('progress: rules, tables and privileges', () => {
     }>(
       `select key, kind, tier, target, coins, xp from public.challenge_templates where key <> 'secret_1' order by tier, key`,
     );
-    assert.equal(r.rows.length, 15);
+    // 15 from 20261101000100_progress.sql, 12 from 20261102000300_more_content.sql (pinned in more-content.test.ts).
+    assert.equal(r.rows.length, 27);
     const byTier = (t: number) => r.rows.filter((x) => x.tier === t);
     assert.deepEqual(
       [1, 2, 3].map((t) => byTier(t).length),
-      [4, 6, 5],
+      [9, 10, 8],
     );
     for (const [t, coins, xp] of [
       [1, 20, 30],
@@ -896,6 +897,16 @@ describe('levels: level-up coins once per level, my_progress, public_progress', 
 
 // =====================================================================================================================
 
+interface PoolTemplate {
+  key: string;
+  kind: string;
+  tier: number;
+  game_id: string | null;
+}
+/** The games setupGames publishes: templates naming any other game are never picked in these tests. */
+const PUBLISHED_GAMES = new Set(['sumo', 'stack', 'gunrun', 'overrun']);
+const published = (t: PoolTemplate) => t.game_id === null || PUBLISHED_GAMES.has(t.game_id);
+
 /** The pick, re-implemented from the migration's rules: one template per tier in md5(user/day/key) order. */
 function modelPick(uid: string, day: string, pool: { key: string; kind: string; tier: number }[]): string[] {
   const md5 = (s: string) => createHash('md5').update(s).digest('hex');
@@ -924,15 +935,15 @@ describe('daily challenges: the seeded pick', () => {
   let db: PGlite;
   let ann: string;
   let ben: string;
-  let pool: { key: string; kind: string; tier: number }[];
+  let pool: PoolTemplate[];
   before(async () => {
     db = await createTestDb();
     await setupGames(db);
     ann = await user(db, 'ann');
     ben = await user(db, 'ben');
     pool = (
-      await db.query<{ key: string; kind: string; tier: number }>(
-        `select key, kind, tier from public.challenge_templates where active order by key`,
+      await db.query<PoolTemplate>(
+        `select key, kind, tier, game_id from public.challenge_templates where active order by key`,
       )
     ).rows;
   });
@@ -940,7 +951,8 @@ describe('daily challenges: the seeded pick', () => {
   after(() => db.close());
 
   const eligible = (opts: { friend: boolean }) =>
-    pool.filter((t) => t.key !== 'secret_1' && (opts.friend || t.kind !== 'friend_match'));
+    pool.filter((t) => t.key !== 'secret_1' && published(t) && (opts.friend || t.kind !== 'friend_match'));
+  const friendKeys = () => pool.filter((t) => t.kind === 'friend_match').map((t) => t.key);
 
   test('three per day, one per tier, distinct kinds, titles filled in; stable once picked', async () => {
     const rows = await myChallenges(db, ann);
@@ -1048,7 +1060,7 @@ describe('daily challenges: the seeded pick', () => {
       );
     const annKeys = await keys(ann);
     assert.ok(!annKeys.has('secret_1'), 'never a draft game');
-    assert.ok(!annKeys.has('friend_1'), 'no friend, no friend challenge');
+    assert.ok(!friendKeys().some((k) => annKeys.has(k)), 'no friend, no friend challenge');
     // With a friend it comes up (the same days now include it where the model says so).
     await befriend(db, ann, ben);
     await db.query(`delete from public.daily_challenges`);
@@ -1060,15 +1072,21 @@ describe('daily challenges: the seeded pick', () => {
         modelPick(ann, day, eligible({ friend: true })),
       );
     }
-    assert.ok((await keys(ann)).has('friend_1'));
-    // Only Stack published: Stack challenges only, still three, still one per tier where possible.
+    const withFriend = await keys(ann);
+    assert.ok(
+      friendKeys().some((k) => withFriend.has(k)),
+      'a friend challenge comes up',
+    );
+    // Only Stack published (solo only, one game): Stack challenges and any-solo-game runs only, still three, one per
+    // tier where possible.
     await db.query(`update public.games set status = 'hidden' where id <> 'stack'`);
     await db.query(`delete from public.daily_challenges`);
     await generate(db, ann);
-    assert.deepEqual(
-      (await stateOf(db, ann)).map((c) => c.template_key),
-      ['stack_2', 'stack_15', 'stack_20'],
-    );
+    const stackOnly = pool.filter((t) => t.game_id === 'stack' || t.kind === 'solo_runs');
+    const picked = (await stateOf(db, ann)).map((c) => c.template_key);
+    assert.deepEqual(picked, modelPick(ann, today(), stackOnly));
+    assert.equal(picked.length, 3);
+    assert.ok(picked.every((k) => stackOnly.some((t) => t.key === k)));
     // Nothing published: no challenges (the app shows its empty state).
     await db.query(`update public.games set status = 'hidden'`);
     await db.query(`delete from public.daily_challenges`);
@@ -1178,6 +1196,32 @@ describe('daily challenges: progress from matches and solo runs', () => {
     assert.ok((await stateOf(db, ann))[0]!.completed);
   });
 
+  test('the 20261102000300 templates move through the same counters as the v1 pool', async () => {
+    await assign(db, ann, ['solo_2', 'play_4', 'friend_2']);
+    await assign(db, ben, ['stack_10', 'variety_4', 'solo_5']);
+    await befriend(db, ann, cat);
+    // Solo runs (any game, one per session) and the best Stack tower today.
+    await submit(db, ann, 4, await session(db, ann));
+    await submit(db, ann, 6, await session(db, ann));
+    await submit(db, ben, 11, await session(db, ben));
+    assert.deepEqual(await progressOf(db, ann), { solo_2: '2/2', play_4: '0/4', friend_2: '0/2' });
+    assert.deepEqual(await progressOf(db, ben), { stack_10: '10/10', variety_4: '1/4', solo_5: '1/5' });
+    // Matches: every counted one for play_4, those with an accepted friend for friend_2, distinct games for variety_4.
+    await record(db, match([p(ann), p(cat)]));
+    await record(db, match([p(ann), p(cat)], { gameId: 'gunrun' }));
+    await record(db, match([p(ann), p(ben)], { gameId: 'overrun' }));
+    await record(db, match([p(ann), p(ben)], { gameId: 'overrun' }));
+    assert.deepEqual(await progressOf(db, ann), { solo_2: '2/2', play_4: '4/4', friend_2: '2/2' });
+    assert.deepEqual(await progressOf(db, ben), { stack_10: '10/10', variety_4: '2/4', solo_5: '1/5' });
+    await record(db, match([p(ben), p(cat)], { gameId: 'gunrun' }));
+    await record(db, match([p(ben), p(cat)]));
+    assert.deepEqual(await progressOf(db, ben), { stack_10: '10/10', variety_4: '4/4', solo_5: '1/5' });
+    assert.deepEqual(
+      (await stateOf(db, ann)).map((c) => c.completed),
+      [true, true, true],
+    );
+  });
+
   test('a match played before the app was opened today still counts (the pick is made on the spot)', async () => {
     await record(db, match([p(ann), p(ben)], { winnerUserId: ann }));
     const state = await stateOf(db, ann);
@@ -1188,10 +1232,11 @@ describe('daily challenges: progress from matches and solo runs', () => {
         ann,
         today(),
         (
-          await db.query<{ key: string; kind: string; tier: number }>(
-            `select key, kind, tier from public.challenge_templates where active and key not in ('secret_1', 'friend_1')`,
+          await db.query<PoolTemplate>(
+            `select key, kind, tier, game_id from public.challenge_templates
+              where active and key <> 'secret_1' and kind <> 'friend_match'`,
           )
-        ).rows,
+        ).rows.filter(published),
       ),
     );
     // The dashboard then shows the same rows, with the match in them.
