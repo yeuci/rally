@@ -16,6 +16,7 @@ pnpm --filter @rally/game-topple build      # -> client/dist
 pnpm --filter @rally/game-topple test       # rules + physics unit tests (node:test)
 pnpm --filter @rally/game-topple test:e2e   # Playwright through the dev harness (needs Chromium; playwright via NODE_PATH)
 pnpm --filter @rally/game-topple models     # rebuild client/src/models/ from the art-source release (Models)
+pnpm --filter @rally/game-topple art        # re-render the store art in art/ (Artwork)
 pnpm --filter @rally/publish-game publish-game topple --dry-run
 ```
 
@@ -72,8 +73,8 @@ pieces standing at once)`, the achievements earned (`first_win`, `beat_five` = w
 `exitRequested` / `lowMemory`; telemetry every 10 s. Achievements and the board belong to the phone's owner (seat 1,
 "You").
 
-`window.__topple` (sim, phase, current, round, pieces, winner, seats, `aim(x, z)`) exists in `vite dev` only, for the
-e2e.
+`window.__topple` (sim, phase, current, round, pieces, winner, seats, `aim(x, z)`, `skip`, `hold`, `artView`) exists
+in `vite dev` only, for the e2e and the art script.
 
 ## Models
 
@@ -101,4 +102,14 @@ primitives). The players are the CC0 Quaternius models above.
 
 ## Artwork
 
-None yet: the app shows generated art.
+`pnpm --filter @rally/game-topple art` renders `art/*.webp` (listed in `game.json`) with the game itself: headless
+Chromium, software WebGL, through the dev harness. It plays matches through the dev-only `window.__topple` probe
+(`skip`, `hold`, `artView`), with bots on every seat while the tower goes up (seeded and fixed-step, so the same
+towers come out every run), and holds the sim at the moment wanted. `ART_ONLY=icon,cover` renders a subset.
+
+- `icon` 1024², a tall tower with the next piece hovering over it; `cover` 1920 × 1080, a full table round a tall
+  tower (no HUD on either).
+- `shot-1` the seat setup (you, a pass-and-play friend, bots), `shot-2` your turn over a tall tower, `shot-3`
+  "TOPPLED!" with the tower coming down (1170 × 2532, iPhone portrait @3×).
+
+Re-render after a visual change.

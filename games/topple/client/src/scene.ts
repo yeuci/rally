@@ -154,6 +154,8 @@ export interface ToppleScene {
   project(x: number, y: number, z: number, out: { x: number; y: number }): void;
   /** A sim event the players react to (a topple). */
   event(e: SimEvent): void;
+  /** Store art (dev only): frame closer (`zoom` < 1) or wider, from a fixed yaw; null = the game's own framing. */
+  setArtView(view: { zoom: number; yaw?: number; lift?: number } | null): void;
   trim(): void;
   readonly entityCount: number;
 }
@@ -297,6 +299,7 @@ export function createToppleScene(app: Application, models: Models, opts: { shad
     });
   }
 
+  let artView: { zoom: number; yaw?: number; lift?: number } | null = null;
   let yaw = START_YAW;
   let wantYaw = yaw;
   let focusY = 0.8;
@@ -390,6 +393,10 @@ export function createToppleScene(app: Application, models: Models, opts: { shad
       const k = dt > 0 ? 1 - Math.exp(-dt * 4) : 1;
       yaw += (wantYaw - yaw) * (dt > 0 ? 1 - Math.exp(-dt * 8) : 1);
       const want = fit(sim.towerTop);
+      if (artView) {
+        want.dist *= artView.zoom;
+        want.focus += artView.lift ?? 0;
+      }
       focusY += (want.focus - focusY) * k;
       dist += (want.dist - dist) * k;
       shakeAmp = Math.max(0, shakeAmp - dt * 1.5);
@@ -406,6 +413,10 @@ export function createToppleScene(app: Application, models: Models, opts: { shad
     },
     orbit(delta) {
       wantYaw += delta;
+    },
+    setArtView(view) {
+      artView = view;
+      if (view?.yaw !== undefined) yaw = wantYaw = view.yaw;
     },
     event(e) {
       if (e.type !== 'topple') return;

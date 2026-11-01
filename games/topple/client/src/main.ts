@@ -479,7 +479,7 @@ app.on('update', (dt: number) => {
       const len = Math.hypot(m.x, m.z) || 1;
       sim.setAim(sim.aim.x + (m.x / len) * KEY_SPEED * dt, sim.aim.z + (m.z / len) * KEY_SPEED * dt);
     }
-    for (const e of sim.advance(dt)) onEvent(e);
+    if (!hold) for (const e of sim.advance(dt)) onEvent(e);
     scene.sync(sim, dt);
   } else if (!sim) {
     scene.sync(idle, dt);
@@ -516,6 +516,8 @@ const telemetryTimer = setInterval(() => rally.telemetry.report('topple', collec
 // --- boot ------------------------------------------------------------------------------------------
 /** An empty table behind the setup screen (a sim nobody plays: the scene just shows the pedestal). */
 let idle: ToppleSim;
+/** Dev only (store art): the sim stands still while the scene keeps rendering and animating. */
+let hold = false;
 
 async function boot() {
   const saved = save.load().catch(() => save.data);
@@ -585,6 +587,17 @@ if (import.meta.env.DEV) {
     /** Aim the held piece (on a human turn). */
     aim(x: number, z: number) {
       sim?.setAim(x, z);
+    },
+    /** Run the match `seconds` ahead at once (bots play; events reach the HUD). */
+    skip(seconds: number) {
+      for (let t = 0; t < seconds && sim && !sim.finished; t += 1 / 60) for (const e of sim.advance(1 / 60)) onEvent(e);
+    },
+    /** Store art: stop the sim (the scene keeps animating), and frame the camera. */
+    hold(on: boolean) {
+      hold = on;
+    },
+    artView(view: { zoom: number; yaw?: number; lift?: number } | null) {
+      scene.setArtView(view);
     },
   };
 }

@@ -11,7 +11,8 @@
     "lint": "eslint . --max-warnings 0",
     "test": "node --experimental-strip-types --no-warnings=ExperimentalWarning --test test/*.test.ts",
     "test:e2e": "node test/e2e.cjs",
-    "models": "node --experimental-strip-types --no-warnings=ExperimentalWarning ../scripts/models.ts"
+    "models": "node --experimental-strip-types --no-warnings=ExperimentalWarning ../scripts/models.ts",
+    "art": "node --experimental-strip-types --no-warnings=ExperimentalWarning ../scripts/art.ts"
   },
   "dependencies": {
     "@dimforge/rapier3d-deterministic-compat": "0.21.0",
