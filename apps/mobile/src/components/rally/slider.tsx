@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { StyleSheet, View, type GestureResponderEvent, type LayoutChangeEvent } from 'react-native';
+import { useScreenToFrame } from '@/lib/viewport';
 
 const THUMB = 22;
 
@@ -38,7 +39,9 @@ export function Slider({
 }) {
   const [width, setWidth] = useState(0);
   /** The drag in progress: where it started (in the track and on the page) and the last value reported. */
-  const drag = useRef({ x: 0, page: 0, last: value });
+  const drag = useRef({ x: 0, pageX: 0, pageY: 0, last: value });
+  // Page coordinates are screen axes; inside a turned game frame the track runs along another one (game-frame.tsx).
+  const toFrame = useScreenToFrame();
 
   const at = (x: number) => {
     const usable = Math.max(1, width - THUMB);
@@ -51,7 +54,8 @@ export function Slider({
     drag.current.last = v;
     onChange(v, final);
   };
-  const xOf = (e: GestureResponderEvent) => drag.current.x + e.nativeEvent.pageX - drag.current.page;
+  const xOf = (e: GestureResponderEvent) =>
+    drag.current.x + toFrame(e.nativeEvent.pageX - drag.current.pageX, e.nativeEvent.pageY - drag.current.pageY).dx;
 
   const f = max > min ? (Math.min(max, Math.max(min, value)) - min) / (max - min) : 0;
   const thumbX = f * Math.max(0, width - THUMB);
@@ -71,7 +75,12 @@ export function Slider({
       onMoveShouldSetResponder={() => true}
       onResponderTerminationRequest={() => false}
       onResponderGrant={(e) => {
-        drag.current = { x: e.nativeEvent.locationX, page: e.nativeEvent.pageX, last: value };
+        drag.current = {
+          x: e.nativeEvent.locationX,
+          pageX: e.nativeEvent.pageX,
+          pageY: e.nativeEvent.pageY,
+          last: value,
+        };
         report(at(e.nativeEvent.locationX), false);
       }}
       onResponderMove={(e) => report(at(xOf(e)), false)}

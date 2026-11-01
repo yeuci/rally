@@ -13,6 +13,7 @@ import { RoomCodePill } from '@/components/rally/room-code-pill';
 import { ToastHost } from '@/components/rally/toast';
 import { config, toWsUrl } from '@/config';
 import { HostError } from '@/game-host/bridge';
+import { GameFrame } from '@/game-host/game-frame';
 import { GameHost, type GameHostResult } from '@/game-host/GameHost';
 import { MATCH_ENDED_EXIT, type MatchmakingTarget } from '@/game-host/handlers';
 import { turnBackFromGame } from '@/game-host/orientation';
@@ -210,11 +211,11 @@ export default function PlayScreen() {
   const record = target.join === 'resume' ? resumeRecord.data : null;
 
   return (
-    // Its own safe-area provider: this screen is a native full-screen modal turned on its own, and the root's provider
-    // (under the modal) never sees the game's orientation; the game host and the overlays here read these insets.
+    // Its own safe-area provider: this screen is a native full-screen modal, and the root's provider sits under it.
+    // The game's frame holds the game and everything over it; on an iPhone it turns a landscape game inside the app
+    // (game-host/game-frame.tsx), and the host and overlays read the frame's size and insets.
     <SafeAreaProvider style={styles.screen}>
-      <View className="flex-1 bg-[#0A0A0A]">
-        <StatusBar style="light" />
+      <GameFrame orientation={p.orientation}>
         <GameHost
           key={p.game.id}
           bundleUrl={p.entryUrl}
@@ -268,7 +269,7 @@ export default function PlayScreen() {
         <FriendRequestPrompt placement="game" />
         {/* Shake to report a bug over the game (playtest builds); the shell's host is under this modal on iOS. */}
         <BugReportHost placement="game" />
-      </View>
+      </GameFrame>
     </SafeAreaProvider>
   );
 }

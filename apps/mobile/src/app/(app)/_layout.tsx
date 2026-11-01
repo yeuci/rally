@@ -13,6 +13,7 @@ import { recoverPlaySession } from '@/lib/launch';
 import { usePresenceHeartbeat } from '@/lib/presence';
 import { useSocialRealtime } from '@/lib/social-realtime';
 import { NAV_THEME } from '@/lib/theme';
+import { PLAY_SCREEN_ORIENTATION } from '@/game-host/orientation';
 
 export const unstable_settings = { anchor: 'index' };
 
@@ -46,10 +47,10 @@ export default function AppLayout() {
       >
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="game/[id]/index" options={{ headerShown: false }} />
-        {/* A full-screen modal: iOS turns only the modal to the game's orientation, the page underneath leaves the
-            window and stays as it was. Leaving turns the screen back before the modal closes (game-host/orientation.ts).
-            A transparent modal kept the page attached, but iOS then kept the game in the page's orientation (drawn
-            sideways on a phone held in landscape). */}
+        {/* A full-screen modal. On an iPhone nothing ever rotates: the screen declares portrait (so iOS never turns
+            it when the phone is held sideways) and a landscape game is turned inside it (game-host/game-frame.tsx).
+            On tablets and Android the system turns only this modal to the game's orientation, and leaving turns the
+            screen back before it closes (game-host/orientation.ts). The home indicator fades out during a game. */}
         <Stack.Screen
           name="game/[id]/play"
           options={{
@@ -57,6 +58,8 @@ export default function AppLayout() {
             presentation: 'fullScreenModal',
             animation: 'fade',
             gestureEnabled: false,
+            autoHideHomeIndicator: true,
+            orientation: PLAY_SCREEN_ORIENTATION,
             contentStyle: { backgroundColor: '#0A0A0A' },
           }}
         />
