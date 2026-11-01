@@ -2,7 +2,7 @@ import type { LaunchContext, LaunchIntent } from '@rally/protocol';
 import * as Crypto from 'expo-crypto';
 import * as Haptics from 'expo-haptics';
 import { useKeepAwake } from 'expo-keep-awake';
-import * as ScreenOrientation from 'expo-screen-orientation';
+import { Stack } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { AppState, BackHandler, PixelRatio, Platform, StyleSheet, View } from 'react-native';
 import { Text } from '@/components/ui/text';
@@ -23,7 +23,6 @@ import { NetBanner } from './net-banner';
 import type { MatchmakingTarget } from './handlers';
 import { buildInjectedScript } from './injected';
 import { GameLoadingScreen, GameProblemScreen } from './loading-screen';
-import { lockForGame, releaseGameOrientation, turnBackFromGame } from './orientation';
 import { autoGraphics, menuButtonRect, type GameSettingsStore } from './settings';
 import { gameSettingsStore, menuButtonStore } from '@/lib/game-settings';
 import type { PlaySessionService } from './play-session';
@@ -33,6 +32,9 @@ import { WebView, type WebViewHandle } from './webview';
 import { useViewport } from '@/lib/viewport';
 
 export type { GameHostResult } from './controller';
+
+/** game.json `orientation` → the native stack's screen orientation. */
+const SCREEN_ORIENTATION = { landscape: 'landscape', portrait: 'portrait', any: 'default' } as const;
 
 export interface GameHostProps {
   /** Absolute URL of the game's entry document (`game_versions.entry_url`). */
@@ -246,21 +248,6 @@ export function GameHost(props: GameHostProps) {
     return () => controller.unmount();
   }, [controller]);
 
-  // Orientation lock per manifest (remembering the shell's, see orientation.ts). On unmount the shell turns back (if
-  // the play route has not already) and follows the device again.
-  useEffect(() => {
-    const lock =
-      orientation === 'landscape'
-        ? ScreenOrientation.OrientationLock.LANDSCAPE
-        : orientation === 'portrait'
-          ? ScreenOrientation.OrientationLock.PORTRAIT_UP
-          : null;
-    void lockForGame(lock);
-    return () => {
-      void turnBackFromGame().then(releaseGameOrientation);
-    };
-  }, [orientation]);
-
   // Background / foreground → pause / resume.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
@@ -288,6 +275,10 @@ export function GameHost(props: GameHostProps) {
 
   return (
     <View style={styles.root}>
+      {/* The game's orientation (game.json), declared on the screen that hosts it: the native stack has iOS rotate as
+          the screen opens and rotate back as it closes, so every screen underneath is resized the normal way. Forcing
+          it from here (expo-screen-orientation) left the page underneath laid out for the other orientation. */}
+      <Stack.Screen options={{ orientation: SCREEN_ORIENTATION[orientation] }} />
       {view.phase !== 'crashed' && entry !== null && (
         <WebView
           key={view.attempt}

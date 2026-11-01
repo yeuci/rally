@@ -5,6 +5,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { isRunningInExpoGo } from 'expo';
 import { Stack } from 'expo-router';
 import { ThemeProvider } from 'expo-router/react-navigation';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
@@ -20,6 +21,7 @@ import '@/lib/prefs';
 import { queryClient } from '@/lib/query-client';
 import { NAV_THEME } from '@/lib/theme';
 import { ViewportProvider } from '@/lib/viewport';
+import { SHELL_ORIENTATION } from '@/lib/shell-orientation';
 
 export { ErrorBoundary } from 'expo-router';
 
@@ -47,6 +49,12 @@ export default function RootLayout() {
     if (initialized && !intro) void SplashScreen.hideAsync().catch(() => {});
   }, [initialized, intro]);
 
+  // Orientation belongs to the screens (a game's play route declares its own). Clear any app-wide lock an earlier
+  // build left in this process (it would pin every screen to one orientation).
+  useEffect(() => {
+    void ScreenOrientation.unlockAsync().catch(() => {});
+  }, []);
+
   if (!initialized) return null;
 
   return (
@@ -56,6 +64,7 @@ export default function RootLayout() {
           <StatusBar style={theme === 'light' ? 'dark' : 'light'} />
           <Stack
             screenOptions={{
+              orientation: SHELL_ORIENTATION,
               headerStyle: { backgroundColor: nav.colors.background },
               headerTintColor: nav.colors.text,
               headerShadowVisible: false,
