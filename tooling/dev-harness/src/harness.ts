@@ -235,6 +235,9 @@ function main(): void {
   const menu = new HarnessMenu({
     title: screen.title,
     button: menuButton,
+    gameId: cfg.game.id,
+    safeArea,
+    onButtonChange: (what) => log(`menu button: ${what}`),
     state: () => ({
       platform,
       game: gameValues(),

@@ -59,8 +59,8 @@ test('player settings and the menu button rect match the shell', () => {
     controls: { swapSticks: false, stickSize: 1, stickOpacity: 0.8, aimAssist: true },
     game: { shake: true },
   });
-  assert.deepEqual(menuButtonRect({ top: 0, left: 0 }), { x: 12, y: 12, width: 36, height: 36 });
-  assert.deepEqual(menuButtonRect({ top: 47, left: 0 }), { x: 12, y: 51, width: 36, height: 36 });
+  assert.deepEqual(menuButtonRect({ top: 0, left: 0 }), { x: 12, y: 12, width: 40, height: 40 });
+  assert.deepEqual(menuButtonRect({ top: 47, left: 0 }), { x: 12, y: 51, width: 40, height: 40 });
 });
 
 test('the local store keeps platform settings per browser and game values per game', () => {

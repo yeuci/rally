@@ -124,7 +124,7 @@ export function playerSettings(
 
 /** Same as the shell: the menu button's rect, top-left inside the (simulated) safe area. */
 export function menuButtonRect(safeArea: Pick<SafeArea, 'top' | 'left'>): Rect {
-  return { x: Math.max(safeArea.left, 8) + 4, y: Math.max(safeArea.top, 8) + 4, width: 36, height: 36 };
+  return { x: Math.max(safeArea.left, 8) + 4, y: Math.max(safeArea.top, 8) + 4, width: 40, height: 40 };
 }
 
 export interface LocalSettingsStore {

@@ -1,12 +1,40 @@
-import type { GameSetting, MenuPlayer, Rect } from '@rally/protocol';
+import type { GameSetting, MenuPlayer, Rect, SafeArea } from '@rally/protocol';
+import {
+  BUTTON_SIZE,
+  DEFAULT_BUTTON_PREFS,
+  DRAG_THRESHOLD,
+  TAB_HEIGHT,
+  TAB_WIDTH,
+  TUCK_PULL,
+  buttonBounds,
+  buttonKey,
+  clamp,
+  parseButtonPrefs,
+  placeAt,
+  restingPoint,
+  rubberBand,
+  setTucked,
+  snapToEdge,
+  tabPlacement,
+  tuckSideFor,
+  tuckTo,
+  type Bounds,
+  type ButtonPrefs,
+  type Orientation,
+  type Point,
+} from './menu-button.ts';
 import { GRAPHICS_CHOICES, type GameValues, type PlatformSettings, type SettingsPatch } from './settings.ts';
 
 /**
  * The shell's game menu, in plain HTML for the harness (apps/mobile/src/game-host/game-menu.tsx is the real one):
- * a corner button over the running game (Escape in the game does the same, through `menu.open`), and a panel with
+ * a cog button over the running game (Escape in the game does the same, through `menu.open`), and a panel with
  * Settings (volume, graphics, haptics, touch controls, then the game's own), How to play and People, Resume and
  * Leave. Also the shell's connection banner ("Reconnecting…" / "Connection lost") and the menu's ping. Every control
  * has a `data-role` / `data-setting` so the games' e2e can drive it.
+ *
+ * The cog moves like the shell's (src/menu-button.ts): drag it anywhere inside the safe area (it settles with a
+ * little pull toward the nearest edge), drag or fling it into a side edge to tuck it into a tab, click the tab to
+ * bring it back; "Tuck menu button to the side" in the menu does the same. Remembered per game in localStorage.
  */
 
 export interface MenuNet {
@@ -25,22 +53,39 @@ export interface MenuState {
 
 export interface HarnessMenuOptions {
   title: string;
-  /** Where the corner button sits (the launch context's `device.menuButton`). */
+  /** Where the cog sits by default (the launch context's `device.menuButton`). */
   button: Rect;
+  /** The game id (the cog's place is remembered per game) and the simulated safe area it stays inside. */
+  gameId: string;
+  safeArea: SafeArea;
   state: () => MenuState;
   onOpen: () => void;
   onClose: () => void;
   /** A control changed: `final` false while a range input is dragged, true when it settles. */
   onChange: (patch: SettingsPatch, final: boolean) => void;
   onLeave: () => void;
+  /** The cog was moved, tucked or brought back (for the harness log). */
+  onButtonChange?: (what: string) => void;
 }
 
 const CSS = `
 :host { all: initial; }
-.button { position: fixed; z-index: 2147483644; width: 36px; height: 36px; border-radius: 50%; display: flex;
-  align-items: center; justify-content: center; background: rgba(0,0,0,.42); border: 1px solid rgba(255,255,255,.22);
-  cursor: pointer; padding: 0; }
-.button[hidden], .menu[hidden], .banner[hidden] { display: none; }
+.button { position: fixed; left: 0; top: 0; z-index: 2147483644; width: 40px; height: 40px; box-sizing: border-box;
+  border-radius: 50%; display: flex; align-items: center; justify-content: center; padding: 0; color: #fff;
+  background: rgba(22,22,26,.88); border: 1.5px solid rgba(255,255,255,.4); cursor: grab; touch-action: none;
+  box-shadow: 0 4px 14px rgba(0,0,0,.45), 0 1px 3px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.16);
+  transition: transform .32s cubic-bezier(.2,.9,.3,1.15), scale .14s, opacity .2s; }
+.button.pressed { scale: .9; } .button.dragging { scale: 1.08; cursor: grabbing; transition: scale .14s, opacity .2s; }
+.button.armed { scale: .92; opacity: .75; } .button.tucked { opacity: 0; scale: .55; pointer-events: none; }
+.button.still { transition: none; }
+.tab { position: fixed; left: 0; top: 0; z-index: 2147483644; height: 56px; box-sizing: border-box; padding: 0;
+  display: flex; align-items: center; justify-content: center; color: #fff; cursor: pointer; opacity: 0; pointer-events: none;
+  background: rgba(22,22,26,.88); border: 1.5px solid rgba(255,255,255,.4);
+  box-shadow: 0 3px 12px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.14); transition: transform .26s ease-out, opacity .2s; }
+.tab.left { border-left: 0; border-radius: 0 22px 22px 0; } .tab.right { border-right: 0; border-radius: 22px 0 0 22px; }
+.tab.shown { opacity: 1; pointer-events: auto; } .tab.still { transition: none; }
+@media (prefers-reduced-motion: reduce) { .button, .tab, .button.dragging { transition: opacity .2s; scale: none; } }
+.button[hidden], .tab[hidden], .menu[hidden], .banner[hidden] { display: none; }
 .menu { position: fixed; inset: 0; z-index: 2147483645; display: flex; align-items: center; justify-content: center;
   background: rgba(0,0,0,.55); font: 14px/1.35 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; color: #fff; }
 .panel { width: min(680px, calc(100vw - 24px)); max-height: calc(100vh - 24px); display: flex; flex-direction: column;
@@ -76,6 +121,30 @@ const CSS = `
 .banner button { height: 26px; padding: 0 12px; border-radius: 13px; border: 0; background: #fff; color: #0a0a0a; font: 700 13px system-ui, sans-serif; cursor: pointer; }
 `;
 
+const COG =
+  '<svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/>' +
+  '<circle cx="12" cy="12" r="3"/></svg>';
+const chevron = (d: string) =>
+  `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.9)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;
+
+/** A drag in progress on the cog. */
+interface Drag {
+  id: number;
+  /** Finger and cog at pointerdown. */
+  fx: number;
+  fy: number;
+  sx: number;
+  sy: number;
+  moved: boolean;
+  /** Last move, for the release velocity. */
+  t: number;
+  lx: number;
+  ly: number;
+  vx: number;
+  vy: number;
+}
+
 const MARK =
   '<svg width="22" height="22" viewBox="0 0 100 100" aria-hidden="true"><g stroke="#fff" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">' +
   '<path d="M28.5 16 L28.5 84" fill="none"/><path d="M28.5 16 L28.5 56 L71.5 36 Z" fill="#fff"/><path d="M52.5 68 L69.5 84" fill="none"/></g></svg>';
@@ -106,9 +175,18 @@ export class HarnessMenu {
   private tab: 'settings' | 'help' | 'people' = 'settings';
   private buttonShown = false;
   private openNow = false;
+  private prefs: ButtonPrefs = DEFAULT_BUTTON_PREFS;
+  private pos: Point = { x: 0, y: 0 };
+  private drag: Drag | null = null;
+  private suppressClick = false;
 
   constructor(opts: HarnessMenuOptions) {
     this.opts = opts;
+    try {
+      this.prefs = parseButtonPrefs(localStorage.getItem(buttonKey(opts.gameId)));
+    } catch {
+      /* storage blocked: defaults */
+    }
     if (document.readyState === 'loading')
       document.addEventListener('DOMContentLoaded', () => this.mount(), { once: true });
     else this.mount();
@@ -127,14 +205,17 @@ export class HarnessMenu {
     this.root = root;
     const b = this.opts.button;
     root.innerHTML = `<style>${CSS}</style>
-<button class="button" data-role="menu-button" aria-label="Game menu" style="left:${b.x}px;top:${b.y}px" hidden>${MARK}</button>
 <div class="banner" data-role="net-banner" style="top:${b.y}px" hidden></div>
+<button class="tab left" data-role="menu-tab" aria-label="Show game menu" title="Show the menu button" hidden></button>
+<button class="button still" data-role="menu-button" aria-label="Game menu" title="Game menu (drag to move)" hidden>${COG}</button>
 <div class="menu" data-role="menu" hidden></div>`;
-    root.querySelector('[data-role="menu-button"]')!.addEventListener('click', () => this.opts.onOpen());
-    // Keep the game's input handlers from seeing clicks on the menu.
+    this.wireButton(root);
+    // Keep the game's input handlers from seeing clicks and drags on the menu.
     for (const type of [
       'pointerdown',
+      'pointermove',
       'pointerup',
+      'pointercancel',
       'mousedown',
       'mouseup',
       'touchstart',
@@ -145,16 +226,150 @@ export class HarnessMenu {
     ]) {
       host.addEventListener(type, (ev) => ev.stopPropagation());
     }
+    this.place(false);
     this.showButton(this.buttonShown);
     if (this.openNow) this.render();
     this.renderNet();
+    window.addEventListener('resize', () => this.place(false));
   }
 
-  /** The corner button: over a running game only (not over the loading screen, not after exit). */
+  /** The cog (or its tab): over a running game only (not over the loading screen, not after exit), not over the menu. */
   showButton(on: boolean): void {
     this.buttonShown = on;
+    const hide = !on || this.openNow;
     const el = this.root?.querySelector<HTMLElement>('[data-role="menu-button"]');
-    if (el) el.hidden = !on || this.openNow;
+    if (el) el.hidden = hide;
+    const tab = this.root?.querySelector<HTMLElement>('[data-role="menu-tab"]');
+    if (tab) tab.hidden = hide;
+  }
+
+  private orientation(): Orientation {
+    return window.innerWidth > window.innerHeight ? 'landscape' : 'portrait';
+  }
+
+  private bounds(): Bounds {
+    return buttonBounds(window.innerWidth, window.innerHeight, this.opts.safeArea);
+  }
+
+  /** Puts the cog at its resting spot (or parks it behind its tab) and the tab on its edge. */
+  private place(animate = true): void {
+    const btn = this.root?.querySelector<HTMLElement>('[data-role="menu-button"]');
+    const tab = this.root?.querySelector<HTMLElement>('[data-role="menu-tab"]');
+    if (!btn || !tab) return;
+    const b = this.bounds();
+    const o = this.orientation();
+    const tucked = this.prefs.tucked;
+    const t = tabPlacement(this.prefs, o, b);
+    this.pos = tucked
+      ? { x: t.side === 'left' ? b.minX : b.maxX, y: t.top + TAB_HEIGHT / 2 - BUTTON_SIZE / 2 }
+      : restingPoint(this.prefs, o, b);
+    btn.classList.toggle('still', !animate);
+    btn.style.transform = `translate(${this.pos.x}px, ${this.pos.y}px)`;
+    btn.classList.toggle('tucked', tucked);
+    btn.tabIndex = tucked ? -1 : 0;
+    // The tab runs from the screen edge across any side inset to TAB_WIDTH inside the safe area.
+    const inset = t.side === 'left' ? this.opts.safeArea.left : this.opts.safeArea.right;
+    const width = TAB_WIDTH + inset;
+    const shownX = t.side === 'left' ? 0 : window.innerWidth - width;
+    const x = tucked ? shownX : t.side === 'left' ? -width - 4 : window.innerWidth + 4;
+    tab.className = `tab ${t.side}${tucked ? ' shown' : ''}${animate ? '' : ' still'}`;
+    tab.style.width = `${width}px`;
+    tab.style.paddingLeft = t.side === 'left' ? `${inset}px` : '0';
+    tab.style.paddingRight = t.side === 'right' ? `${inset}px` : '0';
+    tab.style.transform = `translate(${x}px, ${t.top}px)`;
+    tab.tabIndex = tucked ? 0 : -1;
+    tab.setAttribute('aria-hidden', String(!tucked));
+    tab.innerHTML = chevron(t.side === 'left' ? 'm9 18 6-6-6-6' : 'm15 18-6-6 6-6');
+  }
+
+  private setPrefs(next: ButtonPrefs, what: string): void {
+    this.prefs = next;
+    try {
+      localStorage.setItem(buttonKey(this.opts.gameId), JSON.stringify(next));
+    } catch {
+      /* storage blocked: this session only */
+    }
+    this.place();
+    this.opts.onButtonChange?.(what);
+  }
+
+  /** Click opens; past DRAG_THRESHOLD the pointer drags the cog; a drop settles or tucks it; the tab brings it back. */
+  private wireButton(root: ShadowRoot): void {
+    const btn = root.querySelector<HTMLElement>('[data-role="menu-button"]')!;
+    const tab = root.querySelector<HTMLElement>('[data-role="menu-tab"]')!;
+    btn.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      btn.setPointerCapture(e.pointerId);
+      const now = performance.now();
+      this.drag = {
+        id: e.pointerId,
+        fx: e.clientX,
+        fy: e.clientY,
+        sx: this.pos.x,
+        sy: this.pos.y,
+        moved: false,
+        t: now,
+        lx: e.clientX,
+        ly: e.clientY,
+        vx: 0,
+        vy: 0,
+      };
+      btn.classList.remove('still');
+      btn.classList.add('pressed');
+    });
+    btn.addEventListener('pointermove', (e) => {
+      const d = this.drag;
+      if (!d || e.pointerId !== d.id) return;
+      const dx = e.clientX - d.fx;
+      const dy = e.clientY - d.fy;
+      if (!d.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+      if (!d.moved) {
+        d.moved = true;
+        btn.classList.remove('pressed');
+        btn.classList.add('dragging');
+      }
+      const now = performance.now();
+      const dt = Math.max(1, now - d.t) / 1000;
+      d.vx = (e.clientX - d.lx) / dt;
+      d.vy = (e.clientY - d.ly) / dt;
+      d.t = now;
+      d.lx = e.clientX;
+      d.ly = e.clientY;
+      const b = this.bounds();
+      const rawX = d.sx + dx;
+      this.pos = { x: rubberBand(rawX, b.minX, b.maxX), y: rubberBand(d.sy + dy, b.minY, b.maxY) };
+      btn.style.transform = `translate(${this.pos.x}px, ${this.pos.y}px)`;
+      btn.classList.toggle('armed', rawX < b.minX - TUCK_PULL || rawX > b.maxX + TUCK_PULL);
+    });
+    const end = (e: PointerEvent, cancelled: boolean) => {
+      const d = this.drag;
+      if (!d || e.pointerId !== d.id) return;
+      this.drag = null;
+      btn.classList.remove('pressed', 'dragging', 'armed');
+      if (!d.moved) return; // the click that follows opens the menu
+      this.suppressClick = true;
+      setTimeout(() => (this.suppressClick = false), 0);
+      if (cancelled) return this.place();
+      const b = this.bounds();
+      const o = this.orientation();
+      const raw = { x: d.sx + e.clientX - d.fx, y: d.sy + e.clientY - d.fy };
+      // A pointer that rested before letting go has no fling left in it.
+      const fresh = performance.now() - d.t < 80;
+      const side = tuckSideFor({ x: raw.x, vx: fresh ? d.vx : 0, vy: fresh ? d.vy : 0 }, b);
+      if (side) {
+        this.setPrefs(tuckTo(this.prefs, o, side, b, clamp(raw.y, b.minY, b.maxY)), `tucked ${side}`);
+      } else {
+        const to = snapToEdge(raw, b);
+        this.setPrefs(placeAt(this.prefs, o, to, b), `moved to ${Math.round(to.x)},${Math.round(to.y)}`);
+      }
+    };
+    btn.addEventListener('pointerup', (e) => end(e, false));
+    btn.addEventListener('pointercancel', (e) => end(e, true));
+    btn.addEventListener('click', () => {
+      if (this.suppressClick) return;
+      this.opts.onOpen();
+    });
+    tab.addEventListener('click', () => this.setPrefs({ ...this.prefs, tucked: false }, 'back from the side'));
   }
 
   open(): void {
@@ -250,7 +465,15 @@ export class HarnessMenu {
       const el = ev.target as HTMLInputElement;
       if (el.type === 'range') fire(el, false);
     };
-    menu.onchange = (ev) => fire(ev.target as HTMLInputElement | HTMLSelectElement, true);
+    menu.onchange = (ev) => {
+      const el = ev.target as HTMLInputElement | HTMLSelectElement;
+      if (el.dataset.role === 'setting-tuck' && el instanceof HTMLInputElement) {
+        const tucked = el.checked;
+        this.setPrefs(setTucked(this.prefs, this.orientation(), tucked, this.bounds()), tucked ? 'tucked' : 'untucked');
+        return;
+      }
+      fire(el, true);
+    };
   }
 
   /** `data-setting="volume.master"` / `controls.stickSize` / `graphics` / `haptics`, or `data-game="key"`, as a patch. */
@@ -299,6 +522,7 @@ export class HarnessMenu {
     ).join('')}</select></div></div>
 <div class="section"><h3>Controls</h3>${check('controls.swapSticks', 'Left-handed (swap sticks)', p.controls.swapSticks)}${range('controls.stickSize', 'Stick size', p.controls.stickSize, 0.75, 1.5, 0.05)}${range('controls.stickOpacity', 'Stick opacity', p.controls.stickOpacity, 0.2, 1, 0.05)}${check('controls.aimAssist', 'Aim assist', p.controls.aimAssist)}</div>
 <div class="section"><h3>Haptics</h3>${check('haptics', 'Vibration', p.haptics)}</div>
+<div class="section"><h3>Menu button</h3><div class="row"><label>Tuck menu button to the side</label><input type="checkbox" data-role="setting-tuck" ${this.prefs.tucked ? 'checked' : ''}></div></div>
 ${game ? `<div class="section"><h3>${esc(this.opts.title)}</h3>${game}</div>` : ''}`;
   }
 
