@@ -1,0 +1,73 @@
+{
+  "id": "sushi",
+  "version": "0.1.0",
+  "title": "Sushi Shift",
+  "description": "Run a tiny conveyor-belt sushi bar with up to three friends, one week of shifts at a time. Chop fish, cook rice, roll nigiri and maki, and set the plates on the kaiten belt: the customers on the stools grab what they ordered as it rides past. From Wednesday the dining room opens for ramen, udon, gyoza and steamed buns carried to the tables, then come the dirty dishes, a picky VIP, the fish truck and Sunday's festival rush. Every night the crew votes on an upgrade. Keep the stars, survive the week, then see how far Overtime goes. The boards keep your best day reached and your best day of tips.",
+  "genres": ["cooking", "co-op", "casual"],
+  "icon": "art/icon.webp",
+  "cover": "art/cover.webp",
+  "screenshots": ["art/shot-1.webp", "art/shot-2.webp", "art/shot-3.webp"],
+  "engine": "playcanvas",
+  "entry": "index.html",
+  "orientation": "landscape",
+  "players": {
+    "min": 1,
+    "max": 4
+  },
+  "modes": ["quick", "browser", "private"],
+  "server": {
+    "room": "sushi",
+    "minVersion": 5
+  },
+  "sdk": "^0.1",
+  "ageRating": "4+",
+  "leaderboards": [
+    {
+      "id": "days",
+      "sort": "desc"
+    },
+    {
+      "id": "tips",
+      "sort": "desc"
+    }
+  ],
+  "achievements": [
+    {
+      "key": "survive_week",
+      "title": "Survive the Week",
+      "hidden": false,
+      "description": "Keep the restaurant open through Sunday's festival rush.",
+      "icon": "🎏"
+    },
+    {
+      "key": "five_star_day",
+      "title": "Five-Star Day",
+      "hidden": false,
+      "description": "Finish a day with five stars and no angry customers.",
+      "icon": "⭐"
+    },
+    {
+      "key": "belt_master",
+      "title": "Belt Master",
+      "hidden": false,
+      "description": "From Wednesday on, finish a day without a single stale plate on the belt.",
+      "icon": "🍣"
+    },
+    {
+      "key": "gold_rush",
+      "title": "Gold Rush",
+      "hidden": false,
+      "description": "Serve 10 gold plates in one day.",
+      "icon": "🥇"
+    },
+    {
+      "key": "full_house",
+      "title": "Full House",
+      "hidden": false,
+      "description": "Have every seat in the restaurant filled at once.",
+      "icon": "🏮"
+    }
+  ],
+  "capabilities": [],
+  "minAppVersion": "0.0.0"
+}

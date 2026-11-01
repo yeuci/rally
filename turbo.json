@@ -91,7 +91,22 @@
         "../scripts/**"
       ]
     },
+    "@rally/game-sushi#typecheck": {
+      "dependsOn": [
+        "^build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "../scripts/**"
+      ]
+    },
     "@rally/game-northdale#lint": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "../scripts/**"
+      ]
+    },
+    "@rally/game-sushi#lint": {
       "inputs": [
         "$TURBO_DEFAULT$",
         "../scripts/**"

@@ -236,6 +236,54 @@ test('attachment(): a rigid mesh with its transform relative to its bone', () =>
   assert.equal(triangleCount(a.soup), 1);
 });
 
+test('attachment(): a mesh skinned rigidly to one bone comes out in that bone’s space (identity transform)', () => {
+  const doc = rig();
+  const skin = doc.getRoot().listSkins()[0]!;
+  const buffer = doc.getRoot().listBuffers()[0]!;
+  const acc = (type: 'VEC3' | 'VEC4', a: Float32Array | Uint8Array) =>
+    doc.createAccessor().setType(type).setArray(a).setBuffer(buffer);
+  // A knife skinned to the hand (joint 1, bound 2 units up): bind-space y 2…3 is bone-space y 0…1.
+  const knife = (weights: number[]) =>
+    doc.createMesh('knife').addPrimitive(
+      doc
+        .createPrimitive()
+        .setAttribute('POSITION', acc('VEC3', Float32Array.from([0, 2, 0, 1, 2, 0, 0, 3, 0])))
+        .setAttribute('JOINTS_0', acc('VEC4', Uint8Array.from([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0])))
+        .setAttribute('WEIGHTS_0', acc('VEC4', Float32Array.from(weights))),
+    );
+  doc
+    .getRoot()
+    .listScenes()[0]!
+    .addChild(
+      doc
+        .createNode('Knife')
+        .setMesh(knife([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]))
+        .setSkin(skin),
+    );
+  const a = attachment(doc, 'Knife', 10);
+  assert.equal(a.bone, 'Hand');
+  assert.deepEqual(
+    [a.t, a.r, a.s],
+    [
+      [0, 0, 0],
+      [0, 0, 0, 1],
+      [1, 1, 1],
+    ],
+  );
+  const ys = Array.from(a.soup.positions.filter((_, i) => i % 3 === 1)).map((y) => Math.round(y * 1e6) / 1e6);
+  assert.deepEqual([Math.min(...ys), Math.max(...ys)], [0, 1]);
+  doc
+    .getRoot()
+    .listScenes()[0]!
+    .addChild(
+      doc
+        .createNode('Blend')
+        .setMesh(knife([0.5, 0.5, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]))
+        .setSkin(skin),
+    );
+  assert.throws(() => attachment(doc, 'Blend', 10), /not rigid/);
+});
+
 test('farthestVertex(): the tip of a rigged mesh along a direction, in a pose, in the mesh’s own space', () => {
   assert.deepEqual(farthestVertex(rig(), 'Gun', [1, 0, 0], null), [1, 0, 0]);
   assert.deepEqual(farthestVertex(rig(), 'Gun', [0, 1, 0], 'Idle', 1), [0, 1, 0]);

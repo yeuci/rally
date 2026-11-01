@@ -1,0 +1,35 @@
+{
+  "name": "@rally/game-sushi-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sushi Shift's engine-free rules: the restaurant and its stations, the kaiten belt, items and recipes, customers and their orders, the week of shifts, upgrade votes, the difficulty tuning, helper bots and results. Runs authoritatively inside apps/game-server's SushiRoom and in the client for prediction of the local chef's movement.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "rally-source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint . --max-warnings 0",
+    "test": "node --experimental-strip-types --no-warnings=ExperimentalWarning --test test/*.test.ts",
+    "prepare": "pnpm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "~6.0.3"
+  }
+}
