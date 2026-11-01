@@ -7,7 +7,7 @@ import { SkeletonText } from '@/components/ui/skeleton';
 import { TapPressable } from '@/components/ui/tap-pressable';
 import { Text } from '@/components/ui/text';
 import { hideCoinToast, useCoinToast } from '@/lib/coin-toast';
-import { COIN_TOAST_MS, coinsLabel, coinToastText, formatCoins } from '@/lib/coins-model';
+import { COIN_TOAST_MS, coinsLabel, coinToastText, formatCoins, formatCoinsShort } from '@/lib/coins-model';
 import { useToast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import { CelebrationToast } from './level-toast';
@@ -47,7 +47,8 @@ export function CoinAmount({
 
 /**
  * The balance as a gold-tinted pill. Tappable with `onPress` (opens the shop); a skeleton bar while `balance` is
- * undefined.
+ * undefined. It sits in tight rows (the profile header, the drawer header), so from 10,000 the amount is compact
+ * ("12.3K", "1M"); screen readers still hear the exact amount. The shop and the coin history show full numbers.
  */
 export function CoinBalancePill({
   balance,
@@ -71,7 +72,7 @@ export function CoinBalancePill({
       <>
         <CoinIcon className={sm ? 'size-3.5' : undefined} />
         <Text className={cn('text-foreground font-bold', sm ? 'text-[12px] leading-4' : 'text-[14px] leading-5')} style={TABULAR}>
-          {formatCoins(balance)}
+          {formatCoinsShort(balance)}
         </Text>
       </>
     );

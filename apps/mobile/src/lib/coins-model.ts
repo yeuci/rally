@@ -33,6 +33,22 @@ export function coinsLabel(n: number, locale?: string): string {
   return `${formatCoins(n, locale)} ${Math.abs(n) === 1 ? 'coin' : 'coins'}`;
 }
 
+/**
+ * A compact amount for tight spots (the balance pill): exact below 10,000 ("9,999"), then three significant digits
+ * with K / M / B ("12.3K", "250K", and "1M" for 999,999). Locale-aware like formatCoins: the digits and the decimal
+ * separator follow `locale` ("12,3K" in German); the suffixes stay K / M / B. Pair it with the full amount for
+ * screen readers (coinsLabel).
+ */
+export function formatCoinsShort(n: number, locale?: string): string {
+  const v = Number.isFinite(n) ? Math.round(n) : 0;
+  if (Math.abs(v) < 10_000) return formatCoins(v, locale);
+  // Rounded first, so 999,999 becomes 1,000,000 and reads "1M" rather than "1,000K".
+  const rounded = Number(Math.abs(v).toPrecision(3));
+  const [unit, suffix] = rounded >= 1e9 ? [1e9, 'B'] : rounded >= 1e6 ? [1e6, 'M'] : [1e3, 'K'];
+  const body = new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format((v < 0 ? -rounded : rounded) / unit);
+  return `${body}${suffix}`;
+}
+
 // --- wallet --------------------------------------------------------------------------------------------------------
 
 export const EMPTY_WALLET: WalletSummary = {
@@ -233,22 +249,84 @@ export function coinToastText(t: Pick<CoinToast, 'amount' | 'reasons'>): { amoun
 
 // --- cosmetics -----------------------------------------------------------------------------------------------------
 
+// The optional keys (glow, spin, dotted, pattern, shine, fill) are set only when the item's data asks for them, so a v1
+// item parses to exactly what it always did. Older app builds ignore them and draw the plain look.
+
 export interface NameColor {
   color: string;
   /** The colour on the light theme (falls back to `color`). */
   light: string;
+  /** A soft halo in the name's colour (`data.glow: true`; prestige names). */
+  glow?: true;
 }
 export interface FrameStyle {
   colors: string[];
+  /** The ring slowly turns (`data.spin: true`; prestige frames). Still under Reduce Motion. */
+  spin?: true;
+  /** The ring is a string of round beads instead of a solid stroke (`data.dotted: true`). */
+  dotted?: true;
 }
+/** Faint white textures a banner can lay over its gradient (`data.pattern`). */
+export const BANNER_PATTERNS = ['stripes', 'dots', 'grid', 'stars'] as const;
+export type BannerPattern = (typeof BANNER_PATTERNS)[number];
 export interface BannerStyle {
   colors: string[];
+  pattern?: BannerPattern;
+  /** A sheen sweeps across every few seconds (`data.shine: true`; prestige banners). None under Reduce Motion. */
+  shine?: true;
 }
 export interface BadgeStyle {
   icon: string;
   color: string;
   light: string;
+  /** A second colour inside the icon (`data.fill`, both themes); otherwise the icon is faintly filled with its own. */
+  fill?: string;
 }
+
+/**
+ * The badge icons the app draws (lucide names, `shop_items.data.icon`); cosmetics.tsx maps each one to its component,
+ * and the type keeps the two in step. Any other name draws a star, so a badge added for a newer build still shows
+ * something on an older one. Items: 20261031000400_coins.sql (v1) and 20261102000300_more_content.sql; the rest are
+ * spares for badges added later with an insert.
+ */
+export const BADGE_ICON_NAMES = [
+  'star',
+  'flame',
+  'crown',
+  'zap',
+  'gem',
+  'heart',
+  'rocket',
+  'ghost',
+  'skull',
+  'trophy',
+  'sparkles',
+  'medal',
+  'award',
+  'leaf',
+  'moon',
+  'shield',
+  'swords',
+  'sun',
+  'snowflake',
+  'feather',
+  'anchor',
+  'mountain',
+  'target',
+  'infinity',
+  'clover',
+  'music',
+  'compass',
+  'puzzle',
+  'gamepad-2',
+] as const;
+export type BadgeIconName = (typeof BADGE_ICON_NAMES)[number];
+export function isBadgeIconName(v: unknown): v is BadgeIconName {
+  return typeof v === 'string' && (BADGE_ICON_NAMES as readonly string[]).includes(v);
+}
+
+const isBannerPattern = (v: unknown): v is BannerPattern =>
+  typeof v === 'string' && (BANNER_PATTERNS as readonly string[]).includes(v);
 
 /** A player's equipped look, as drawn by the shared components (avatar frame, name colour, banner, badge). */
 export interface Cosmetics {
@@ -277,18 +355,24 @@ export function parseCosmeticData(kind: string, data: unknown): NameColor | Fram
   if (!d) return null;
   switch (kind) {
     case 'name_color':
-      return isHex(d.color) ? { color: d.color, light: isHex(d.light) ? d.light : d.color } : null;
+      return isHex(d.color)
+        ? { color: d.color, light: isHex(d.light) ? d.light : d.color, ...(d.glow === true ? { glow: true as const } : {}) }
+        : null;
     case 'badge':
       return isHex(d.color) && typeof d.icon === 'string' && /^[a-z][a-z0-9-]{1,31}$/.test(d.icon)
-        ? { icon: d.icon, color: d.color, light: isHex(d.light) ? d.light : d.color }
+        ? { icon: d.icon, color: d.color, light: isHex(d.light) ? d.light : d.color, ...(isHex(d.fill) ? { fill: d.fill } : {}) }
         : null;
     case 'avatar_frame': {
       const colors = colorList(d.colors, 1, 4);
-      return colors ? { colors } : null;
+      return colors
+        ? { colors, ...(d.spin === true ? { spin: true as const } : {}), ...(d.dotted === true ? { dotted: true as const } : {}) }
+        : null;
     }
     case 'profile_banner': {
       const colors = colorList(d.colors, 2, 3);
-      return colors ? { colors } : null;
+      return colors
+        ? { colors, ...(isBannerPattern(d.pattern) ? { pattern: d.pattern } : {}), ...(d.shine === true ? { shine: true as const } : {}) }
+        : null;
     }
     default:
       return null;
@@ -347,6 +431,32 @@ export function gradientStops(colors: readonly string[]): { offset: number; colo
   return colors.map((color, i) => ({ offset: i / (colors.length - 1), color }));
 }
 
+/** "#RRGGBB" + alpha → "rgba(r, g, b, a)" (anything that is not a hex colour comes back unchanged). */
+export function withAlpha(hex: string, alpha: number): string {
+  if (!isHex(hex)) return hex;
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+
+/**
+ * A `glow` name's halo for the active theme, as a text shadow (no offset): stronger on the dark theme, where light
+ * text glows naturally; subtle on the light one. Null for names without glow.
+ */
+export function nameGlow(c: NameColor | undefined, theme: 'light' | 'dark'): { color: string; radius: number } | null {
+  if (!c?.glow) return null;
+  return theme === 'light' ? { color: withAlpha(c.light, 0.35), radius: 6 } : { color: withAlpha(c.color, 0.7), radius: 10 };
+}
+
+/**
+ * A dotted frame's stroke dash pattern for a ring of radius `r` drawn `width` wide with round caps: near-zero dashes
+ * (each cap draws a bead `width` across) spaced so an even number of beads, about 1.2 widths apart, close the circle.
+ */
+export function beadDashes(r: number, width: number): [number, number] {
+  const circumference = 2 * Math.PI * Math.max(1, r);
+  const beads = Math.max(8, 2 * Math.round(circumference / (Math.max(0.5, width) * 2.2) / 2));
+  return [0.01, circumference / beads - 0.01];
+}
+
 // --- shop ----------------------------------------------------------------------------------------------------------
 
 /** A shop item as the app uses it (only the cosmetic kinds the app can draw; game unlocks are not shown in v1). */
@@ -359,6 +469,8 @@ export interface ShopItem {
   data: unknown;
   available: boolean;
   sort: number;
+  /** `created_at` (ISO), for the "New" tag; null when the row did not include it. */
+  createdAt: string | null;
 }
 
 /** shop_items rows → items the app can show: known cosmetic kinds with drawable data. */
@@ -378,9 +490,38 @@ export function toShopItems(rows: readonly unknown[] | null | undefined): ShopIt
       data: r.data,
       available: r.available !== false,
       sort: num(r.sort) ?? 0,
+      createdAt: str(r.created_at),
     });
   }
   return out;
+}
+
+/** How long the latest batch of items keeps its "New" tag. */
+export const NEW_ITEM_DAYS = 30;
+/** Rows of one batch: inserted within this of the newest item (one migration or SQL editor session). */
+const NEW_BATCH_WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * The items the shop tags "New": the latest batch on sale (created within an hour of the newest item on sale), for
+ * NEW_ITEM_DAYS after it arrived. Nothing is new when every item on sale is in that batch (a first catalog, or a
+ * database built in one go), or when the dates are missing.
+ */
+export function newItemIds(items: readonly Pick<ShopItem, 'id' | 'available' | 'createdAt'>[], now = Date.now()): Set<string> {
+  const dated = items
+    .filter((i) => i.available)
+    .map((i) => ({ id: i.id, at: i.createdAt ? Date.parse(i.createdAt) : Number.NaN }))
+    .filter((i) => Number.isFinite(i.at));
+  if (dated.length === 0) return new Set();
+  const newest = Math.max(...dated.map((i) => i.at));
+  if (now - newest > NEW_ITEM_DAYS * 86_400_000) return new Set();
+  const batch = dated.filter((i) => newest - i.at <= NEW_BATCH_WINDOW_MS);
+  return batch.length === dated.length ? new Set() : new Set(batch.map((i) => i.id));
+}
+
+/** From this price an item is a prestige item: the shop marks its tile (the look itself does the rest). */
+export const PRESTIGE_PRICE = 5000;
+export function isPrestige(item: Pick<ShopItem, 'price'>): boolean {
+  return item.price >= PRESTIGE_PRICE;
 }
 
 export const KIND_TITLES: Record<CosmeticKind, string> = {
@@ -424,19 +565,76 @@ export interface ShopSection {
   items: { item: ShopItem; state: ItemState }[];
 }
 
+/** The shop's order inside each section: `sort` (the catalog's ladder, cheapest first), or by price either way. */
+export type ShopSort = 'featured' | 'price_asc' | 'price_desc';
+export const SHOP_SORTS: readonly { value: ShopSort; label: string }[] = [
+  { value: 'featured', label: 'Featured' },
+  { value: 'price_asc', label: 'Low to high' },
+  { value: 'price_desc', label: 'High to low' },
+];
+
+/** What the shop shows: everything, the "New" batch, or one kind. */
+export type ShopFilter = 'all' | 'new' | CosmeticKind;
+
+/** The kinds' short names, for the shop's filter. */
+export const KIND_SHORT: Record<CosmeticKind, string> = {
+  name_color: 'Names',
+  avatar_frame: 'Frames',
+  profile_banner: 'Banners',
+  badge: 'Badges',
+};
+
+const visibleIn = (i: ShopItem, owned: ReadonlySet<string>) => i.available || owned.has(i.id);
+
+/** The filter's choices that have something to show: All, New (while a batch is new), then each kind present. */
+export function shopFilters(items: readonly ShopItem[], owned: ReadonlySet<string>, newIds: ReadonlySet<string>): { value: ShopFilter; label: string }[] {
+  const shown = items.filter((i) => visibleIn(i, owned));
+  return [
+    { value: 'all' as const, label: 'All' },
+    ...(shown.some((i) => newIds.has(i.id)) ? [{ value: 'new' as const, label: 'New' }] : []),
+    ...COSMETIC_KINDS.filter((k) => shown.some((i) => i.kind === k)).map((k) => ({ value: k, label: KIND_SHORT[k] })),
+  ];
+}
+
+const ORDERS: Record<ShopSort, (a: ShopItem, b: ShopItem) => number> = {
+  featured: (a, b) => a.sort - b.sort || a.price - b.price || a.id.localeCompare(b.id),
+  price_asc: (a, b) => a.price - b.price || a.sort - b.sort || a.id.localeCompare(b.id),
+  price_desc: (a, b) => b.price - a.price || a.sort - b.sort || a.id.localeCompare(b.id),
+};
+
 /**
- * The shop's sections in a fixed order (name colours, frames, banners, badges), each sorted by `sort`, price, id.
- * Retired items appear only when owned (the database already hides the others). Empty sections are dropped.
+ * The shop's sections in a fixed order (name colours, frames, banners, badges), each sorted by `sort`, price, id
+ * (`featured`, the default) or by price. Retired items appear only when owned (the database already hides the
+ * others). `filter` keeps one kind, or only the items in `newIds`. Empty sections are dropped.
  */
-export function shopSections(items: readonly ShopItem[], owned: ReadonlySet<string>, equipped: EquippedItems, balance: number): ShopSection[] {
-  return COSMETIC_KINDS.map((kind) => ({
-    kind,
-    title: KIND_TITLES[kind],
-    items: items
-      .filter((i) => i.kind === kind && (i.available || owned.has(i.id)))
-      .sort((a, b) => a.sort - b.sort || a.price - b.price || a.id.localeCompare(b.id))
-      .map((item) => ({ item, state: itemState(item, owned, equipped, balance) })),
-  })).filter((s) => s.items.length > 0);
+export function shopSections(
+  items: readonly ShopItem[],
+  owned: ReadonlySet<string>,
+  equipped: EquippedItems,
+  balance: number,
+  { sort = 'featured', filter = 'all', newIds = new Set<string>() }: { sort?: ShopSort; filter?: ShopFilter; newIds?: ReadonlySet<string> } = {},
+): ShopSection[] {
+  return COSMETIC_KINDS.filter((kind) => filter === 'all' || filter === 'new' || filter === kind)
+    .map((kind) => ({
+      kind,
+      title: KIND_TITLES[kind],
+      items: items
+        .filter((i) => i.kind === kind && visibleIn(i, owned) && (filter !== 'new' || newIds.has(i.id)))
+        .sort(ORDERS[sort])
+        .map((item) => ({ item, state: itemState(item, owned, equipped, balance) })),
+    }))
+    .filter((s) => s.items.length > 0);
+}
+
+/** "12 items · 3 owned" counts for a set of sections (equipped items count as owned). */
+export function shopCounts(sections: readonly ShopSection[]): { items: number; owned: number } {
+  let items = 0;
+  let owned = 0;
+  for (const s of sections) {
+    items += s.items.length;
+    owned += s.items.filter((x) => x.state === 'owned' || x.state === 'equipped').length;
+  }
+  return { items, owned };
 }
 
 /** Shop tiles per row for a content width: 2 on phones, 3 from 520 pt, 4 from 760 pt. */

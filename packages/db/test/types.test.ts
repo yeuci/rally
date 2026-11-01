@@ -6,6 +6,8 @@ import { createClient } from '@supabase/supabase-js';
 import {
   Constants,
   PROFILE_COLUMNS,
+  REPORT_LIMITS,
+  REPORT_REASONS,
   type BuyItemResult,
   type CoinAwardEvent,
   type Database,
@@ -19,6 +21,7 @@ import {
   type ProfilePrivacy,
   type PublicPresence,
   type RecordedMatch,
+  type ReportReason,
   type SanctionStatus,
   type Json,
   type LeaderboardMode,
@@ -157,6 +160,17 @@ test('Database type drives supabase-js inference', async () => {
   const award: CoinAwardEvent = { type: 'coins', id: 1, amount: 25, reason: 'win', balance: 35, game_id: 'sumo', note: 'Sumo', at: '' };
   assert.equal(wallet.solo_cap + bought.balance + award.amount, 75);
   assert.equal(equipped.name_color, 'name-mint');
+
+  // Moderation and account deletion (20261102000100_moderation.sql).
+  const reason: ReportReason = 'inappropriate_profile';
+  const _report = client.rpc('report_user', { p_user_id: '00000000-0000-0000-0000-000000000000', p_reason: reason });
+  assertType<Equal<Awaited<typeof _report>['data'], undefined | null>>();
+  const _delete = client.rpc('delete_my_account');
+  assertType<Equal<Awaited<typeof _delete>['data'], undefined | null>>();
+  assertType<Equal<Tables<'reports'>['reporter_id'], string | null>>();
+  assertType<Equal<Tables<'reports'>['target_snapshot'], Json>>();
+  assert.ok(REPORT_REASONS.includes(reason));
+  assert.equal(REPORT_LIMITS.note, 500);
 
   // The selectable profile columns parse into a typed row.
   const _profile = client.from('profiles').select(PROFILE_COLUMNS);

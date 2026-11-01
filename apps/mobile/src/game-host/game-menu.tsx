@@ -7,6 +7,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   CopyIcon,
+  FlagIcon,
   LogOutIcon,
   PlayIcon,
   ShareIcon,
@@ -19,6 +20,7 @@ import { ScopedTheme } from 'uniwind';
 import { FriendButtons } from '@/components/rally/friend-button';
 import { LogoMark } from '@/components/rally/logo';
 import { ProfileAvatar } from '@/components/rally/profile-avatar';
+import { ReportSheet, type ReportTarget } from '@/components/rally/report-sheet';
 import { Segmented } from '@/components/rally/segmented';
 import { Slider } from '@/components/rally/slider';
 import { Icon } from '@/components/ui/icon';
@@ -49,8 +51,10 @@ import { useViewport } from '@/lib/viewport';
  * - **Settings**: the platform ones (volume master / music / effects, graphics Auto / Low / Medium / High, haptics),
  *   then the game's own from `menu.define`. Sliders report while dragging (`final` false) and once on release.
  * - **How to play**: the game's help entries, or a short empty state.
- * - **People**: `menu.players` rows; rows with a Rally user id open a small profile peek with Add friend (no
- *   navigation away from the game). The private room's code with Copy / Share when the play screen knows it.
+ * - **People**: `menu.players` rows; rows with a Rally user id open a small profile peek with Add friend and Report
+ *   (no navigation away from the game). The private room's code with Copy / Share when the play screen knows it.
+ *   Report opens the report sheet (components/rally/report-sheet.tsx), a BottomSheet: it rises over the game upright
+ *   with the screen's insets, also when an iPhone shows this menu turned inside a landscape game's frame.
  *
  * GameHost mounts it while `view.menuOpen`; Android back closes a sub-view (the peek, the leave confirmation) first.
  */
@@ -69,6 +73,9 @@ export interface GameMenuProps {
   leaving: boolean;
   /** The private room's join code, when the play screen knows it. */
   roomCode?: string | null;
+  /** The game and the joined room, sent with a report as context for moderators. */
+  gameId?: string | null;
+  roomId?: string | null;
   onResume: () => void;
   /** Leave game (confirmed in the menu). */
   onLeave: () => void;
@@ -88,13 +95,14 @@ const GRAPHICS_LABEL: Record<GraphicsChoice, string> = { auto: 'Auto', low: 'Low
 
 export function GameMenu(props: GameMenuProps) {
   const { title, iconUri, menu, settings, leaving, roomCode, net, onResume, onLeave, onChange, initialTab } = props;
-  const { buttonTucked = false, onButtonTuckedChange } = props;
+  const { buttonTucked = false, onButtonTuckedChange, gameId = null, roomId = null } = props;
   const { width, height, insets } = useViewport();
   const landscape = width > height;
   const multiplayer = menu.players.length > 0 || !!roomCode;
   const [tab, setTab] = useState<Tab>(initialTab ?? (multiplayer && menu.players.length > 1 ? 'people' : 'settings'));
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [peek, setPeek] = useState<MenuPlayer | null>(null);
+  const [reporting, setReporting] = useState<ReportTarget | null>(null);
   const name = title?.trim() || 'the game';
 
   // Android back closes a sub-view before the menu itself (GameHost's handler runs after this one).
@@ -125,111 +133,121 @@ export function GameMenu(props: GameMenuProps) {
   );
 
   return (
-    <ScopedTheme theme="dark">
-      <View style={StyleSheet.absoluteFill} accessibilityViewIsModal>
-        <Animated.View
-          entering={FadeIn.duration(180).reduceMotion(NEVER)}
-          exiting={FadeOut.duration(160).reduceMotion(NEVER)}
-          style={[StyleSheet.absoluteFill, styles.backdrop]}
-        >
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={onResume}
-            accessibilityLabel="Resume"
-            accessibilityRole="button"
-          />
-        </Animated.View>
-        <View style={styles.center} pointerEvents="box-none">
+    <>
+      <ScopedTheme theme="dark">
+        <View style={StyleSheet.absoluteFill} accessibilityViewIsModal>
           <Animated.View
             entering={FadeIn.duration(180).reduceMotion(NEVER)}
-            exiting={FadeOut.duration(140).reduceMotion(NEVER)}
-            style={[styles.panel, { width: panelWidth, maxHeight: panelHeight }]}
+            exiting={FadeOut.duration(160).reduceMotion(NEVER)}
+            style={[StyleSheet.absoluteFill, styles.backdrop]}
           >
-            {/* Header: the game, the tabs (beside it in landscape), and a close button. */}
-            <View style={[styles.header, landscape && styles.headerRow]}>
-              <View style={styles.titleRow}>
-                {iconUri ? (
-                  <ExpoImage
-                    source={{ uri: iconUri }}
-                    style={styles.icon}
-                    contentFit="cover"
-                    accessibilityIgnoresInvertColors
+            <Pressable
+              style={StyleSheet.absoluteFill}
+              onPress={onResume}
+              accessibilityLabel="Resume"
+              accessibilityRole="button"
+            />
+          </Animated.View>
+          <View style={styles.center} pointerEvents="box-none">
+            <Animated.View
+              entering={FadeIn.duration(180).reduceMotion(NEVER)}
+              exiting={FadeOut.duration(140).reduceMotion(NEVER)}
+              style={[styles.panel, { width: panelWidth, maxHeight: panelHeight }]}
+            >
+              {/* Header: the game, the tabs (beside it in landscape), and a close button. */}
+              <View style={[styles.header, landscape && styles.headerRow]}>
+                <View style={styles.titleRow}>
+                  {iconUri ? (
+                    <ExpoImage
+                      source={{ uri: iconUri }}
+                      style={styles.icon}
+                      contentFit="cover"
+                      accessibilityIgnoresInvertColors
+                    />
+                  ) : (
+                    <View style={[styles.icon, styles.iconFallback]}>
+                      <LogoMark size={22} color={WHITE} />
+                    </View>
+                  )}
+                  <Text className="text-white" style={styles.title} numberOfLines={1} accessibilityRole="header">
+                    {title?.trim() || 'Game menu'}
+                  </Text>
+                  {net ? <PingBars net={net} /> : null}
+                  {!landscape ? <CloseButton onPress={onResume} /> : null}
+                </View>
+                <View style={[styles.tabsRow, landscape && styles.tabsRowLandscape]}>
+                  <Segmented
+                    options={tabs}
+                    value={shownTab}
+                    onChange={(t) => {
+                      setPeek(null);
+                      setTab(t);
+                    }}
+                    size="sm"
+                    accessibilityLabel="Menu sections"
+                  />
+                  {landscape ? <CloseButton onPress={onResume} /> : null}
+                </View>
+              </View>
+
+              <ScrollView
+                style={styles.body}
+                contentContainerStyle={styles.bodyContent}
+                showsVerticalScrollIndicator={false}
+              >
+                {shownTab === 'settings' ? (
+                  <SettingsTab
+                    title={name}
+                    menu={menu}
+                    settings={settings}
+                    onChange={onChange}
+                    buttonTucked={buttonTucked}
+                    onButtonTuckedChange={onButtonTuckedChange}
+                  />
+                ) : shownTab === 'help' ? (
+                  <HelpTab menu={menu} />
+                ) : peek ? (
+                  <PlayerPeek
+                    player={peek}
+                    onBack={() => setPeek(null)}
+                    onReport={(target) => setReporting({ ...target, gameId, roomId })}
                   />
                 ) : (
-                  <View style={[styles.icon, styles.iconFallback]}>
-                    <LogoMark size={22} color={WHITE} />
-                  </View>
+                  <PeopleTab players={menu.players} roomCode={roomCode ?? null} gameTitle={name} onPeek={setPeek} />
                 )}
-                <Text className="text-white" style={styles.title} numberOfLines={1} accessibilityRole="header">
-                  {title?.trim() || 'Game menu'}
-                </Text>
-                {net ? <PingBars net={net} /> : null}
-                {!landscape ? <CloseButton onPress={onResume} /> : null}
-              </View>
-              <View style={[styles.tabsRow, landscape && styles.tabsRowLandscape]}>
-                <Segmented
-                  options={tabs}
-                  value={shownTab}
-                  onChange={(t) => {
-                    setPeek(null);
-                    setTab(t);
-                  }}
-                  size="sm"
-                  accessibilityLabel="Menu sections"
-                />
-                {landscape ? <CloseButton onPress={onResume} /> : null}
-              </View>
-            </View>
+              </ScrollView>
 
-            <ScrollView
-              style={styles.body}
-              contentContainerStyle={styles.bodyContent}
-              showsVerticalScrollIndicator={false}
-            >
-              {shownTab === 'settings' ? (
-                <SettingsTab
-                  title={name}
-                  menu={menu}
-                  settings={settings}
-                  onChange={onChange}
-                  buttonTucked={buttonTucked}
-                  onButtonTuckedChange={onButtonTuckedChange}
-                />
-              ) : shownTab === 'help' ? (
-                <HelpTab menu={menu} />
-              ) : peek ? (
-                <PlayerPeek player={peek} onBack={() => setPeek(null)} />
-              ) : (
-                <PeopleTab players={menu.players} roomCode={roomCode ?? null} gameTitle={name} onPeek={setPeek} />
-              )}
-            </ScrollView>
-
-            <View style={styles.footer}>
-              {confirmLeave ? (
-                <>
-                  <Text className="text-white" style={styles.confirmText} numberOfLines={1}>
-                    {leaving ? `Leaving ${name}…` : `Leave ${name}?`}
-                  </Text>
-                  {!leaving ? <MenuButton label="Stay" onPress={() => setConfirmLeave(false)} /> : null}
-                  <MenuButton
-                    label={leaving ? 'Close now' : 'Leave'}
-                    tone="danger"
-                    icon={LogOutIcon}
-                    onPress={onLeave}
-                  />
-                </>
-              ) : (
-                <>
-                  <MenuButton label="Leave game" icon={LogOutIcon} onPress={() => setConfirmLeave(true)} />
-                  <View style={styles.flex} />
-                  <MenuButton label="Resume" tone="primary" icon={PlayIcon} onPress={onResume} />
-                </>
-              )}
-            </View>
-          </Animated.View>
+              <View style={styles.footer}>
+                {confirmLeave ? (
+                  <>
+                    <Text className="text-white" style={styles.confirmText} numberOfLines={1}>
+                      {leaving ? `Leaving ${name}…` : `Leave ${name}?`}
+                    </Text>
+                    {!leaving ? <MenuButton label="Stay" onPress={() => setConfirmLeave(false)} /> : null}
+                    <MenuButton
+                      label={leaving ? 'Close now' : 'Leave'}
+                      tone="danger"
+                      icon={LogOutIcon}
+                      onPress={onLeave}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <MenuButton label="Leave game" icon={LogOutIcon} onPress={() => setConfirmLeave(true)} />
+                    <View style={styles.flex} />
+                    <MenuButton label="Resume" tone="primary" icon={PlayIcon} onPress={onResume} />
+                  </>
+                )}
+              </View>
+            </Animated.View>
+          </View>
         </View>
-      </View>
-    </ScopedTheme>
+      </ScopedTheme>
+      {/* A Modal, so it is presented by the play screen (on iOS a Modal rises over the full-screen game only from inside
+        it) and drawn upright on the screen even when this menu sits in a turned game frame. Outside the dark scope: it
+        follows the app's theme, like the other sheets over a game. */}
+      <ReportSheet target={reporting} onClose={() => setReporting(null)} />
+    </>
   );
 }
 
@@ -688,8 +706,16 @@ function RoomCodeCard({ code, gameTitle }: { code: string; gameTitle: string }) 
   );
 }
 
-/** A player's small profile, inside the menu: avatar, name, and the friendship buttons (Add friend…). */
-function PlayerPeek({ player, onBack }: { player: MenuPlayer; onBack: () => void }) {
+/** A player's small profile, inside the menu: avatar, name, the friendship buttons (Add friend…) and Report. */
+function PlayerPeek({
+  player,
+  onBack,
+  onReport,
+}: {
+  player: MenuPlayer;
+  onBack: () => void;
+  onReport: (target: ReportTarget) => void;
+}) {
   const userId = player.userId!;
   const profile = useQuery({
     queryKey: ['menu-peek', userId],
@@ -739,6 +765,14 @@ function PlayerPeek({ player, onBack }: { player: MenuPlayer; onBack: () => void
       ) : friendship.data ? (
         <FriendButtons userId={userId} name={handle} status={friendship.data} mode="profile" />
       ) : null}
+      {/* Reporting needs only the id, so it works even when the profile or the relationship could not be loaded. */}
+      <View style={styles.peekActions}>
+        <MenuButton
+          label="Report"
+          icon={FlagIcon}
+          onPress={() => onReport({ userId, name: handle, friendship: friendship.data ?? null })}
+        />
+      </View>
     </View>
   );
 }
@@ -876,6 +910,7 @@ const styles = StyleSheet.create({
   peek: { gap: 14 },
   peekBack: { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start' },
   peekHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  peekActions: { flexDirection: 'row' },
   empty: { paddingVertical: 24, alignItems: 'center', gap: 4 },
   emptyTitle: { fontSize: 16, lineHeight: 22, fontWeight: '700' },
 });

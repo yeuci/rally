@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { CheckIcon, CircleAlertIcon, HistoryIcon, LockIcon, StoreIcon } from 'lucide-react-native';
+import { CheckIcon, CircleAlertIcon, HistoryIcon, LockIcon, SparklesIcon, StoreIcon } from 'lucide-react-native';
 import { useState } from 'react';
 import { RefreshControl, ScrollView, View, type TextStyle } from 'react-native';
 import { BottomSheet } from '@/components/rally/bottom-sheet';
@@ -9,6 +9,7 @@ import { EmptyState, RetryButton } from '@/components/rally/empty-state';
 import { ErrorText } from '@/components/rally/form-field';
 import { ProfileAvatar } from '@/components/rally/profile-avatar';
 import { SectionHeader } from '@/components/rally/section-header';
+import { Segmented } from '@/components/rally/segmented';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { Separator } from '@/components/ui/separator';
@@ -20,17 +21,25 @@ import {
   coinsLabel,
   earnLines,
   formatCoins,
+  isPrestige,
   itemState,
   KIND_NAMES,
   lookOf,
+  newItemIds,
+  SHOP_SORTS,
   shopColumns,
+  shopCounts,
   shopErrorKind,
   shopErrorText,
+  shopFilters,
   shopSections,
   shopTileWidth,
   shortfall,
   type ItemState,
+  type ShopFilter,
   type ShopItem,
+  type ShopSection,
+  type ShopSort,
   type WalletSummary,
 } from '@/lib/coins-model';
 import { toggleHaptic } from '@/lib/haptics';
@@ -45,10 +54,12 @@ const GAP = 12;
 /**
  * The coin shop (`/shop`, from the drawer, the profile's balance pill and its Shop row): your balance with today's
  * progress (daily bonus, solo and match caps from `my_wallet`), then the cosmetics grouped by kind (name colours, avatar
- * frames, profile banners, badges), each tile drawn from the item's data with its price, or Owned / Equipped. A tile
- * opens the item sheet: a preview of you wearing it, then Buy (the confirmation; disabled with "You need N more
- * coins" when short), Equip or Unequip. "How to earn" lists the live rules (`coin_rules`). Purchases go through
- * `buy_item` (idempotent, checked under the wallet lock), equipping through `equip_item`.
+ * frames, profile banners, badges), each tile drawn from the item's data with its price, or Owned / Equipped. Above
+ * them, a filter (All, New while a batch is new, or one kind) and the order (Featured: the catalog's ladder; or by
+ * price either way); tiles of the latest batch say New, prestige items carry a gold sparkle. A tile opens the item
+ * sheet: a preview of you wearing it, then Buy (the confirmation; disabled with "You need N more coins" when short),
+ * Equip or Unequip. "How to earn" lists the live rules (`coin_rules`). Purchases go through `buy_item` (idempotent,
+ * checked under the wallet lock), equipping through `equip_item`.
  */
 export default function ShopScreen() {
   const { insets } = useLayout();
@@ -61,10 +72,17 @@ export default function ShopScreen() {
   const box = useBoxSize();
   const [openId, setOpenId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [filter, setFilter] = useState<ShopFilter>('all');
+  const [sort, setSort] = useState<ShopSort>('featured');
 
   const balance = wallet.data?.balance ?? 0;
   const data = shop.data;
-  const sections = data ? shopSections(data.items, data.owned, data.equipped, balance) : [];
+  const newIds = data ? newItemIds(data.items) : new Set<string>();
+  const filters = data ? shopFilters(data.items, data.owned, newIds) : [];
+  // A choice that has nothing left to show (the New batch aged out, a kind sold out) falls back to everything.
+  const shown = filters.some((f) => f.value === filter) ? filter : 'all';
+  const sections = data ? shopSections(data.items, data.owned, data.equipped, balance, { sort, filter: shown, newIds }) : [];
+  const counts = shopCounts(sections);
   const open = data?.items.find((i) => i.id === openId) ?? null;
   const contentW = box.size?.width ?? 0;
   const cols = shopColumns(contentW);
@@ -110,16 +128,41 @@ export default function ShopScreen() {
           ) : sections.length === 0 ? (
             <EmptyState icon={StoreIcon} title="The shop is empty" body="New items are on their way. Keep earning coins." />
           ) : (
-            sections.map((section) => (
-              <View key={section.kind} className="gap-3">
-                <SectionHeader title={section.title} detail={formatCoins(section.items.length)} className="px-0" />
-                <View className="flex-row flex-wrap" style={{ gap: GAP }}>
-                  {section.items.map(({ item, state }) => (
-                    <ItemTile key={item.id} item={item} state={state} width={tileW} onPress={() => setOpenId(item.id)} />
-                  ))}
+            <>
+              <View className="gap-3">
+                <Segmented
+                  scrollable
+                  options={filters}
+                  value={shown}
+                  onChange={setFilter}
+                  accessibilityLabel="Show"
+                  className="max-w-full"
+                />
+                <View className="flex-row items-center justify-between gap-3">
+                  <Text className="text-muted-foreground shrink text-[13px] font-medium" numberOfLines={1} style={TABULAR}>
+                    {countsLabel(counts)}
+                  </Text>
+                  <Segmented size="sm" options={SHOP_SORTS} value={sort} onChange={setSort} accessibilityLabel="Order" />
                 </View>
               </View>
-            ))
+              {sections.map((section) => (
+                <View key={section.kind} className="gap-3">
+                  <SectionHeader title={section.title} detail={sectionDetail(section)} className="px-0" />
+                  <View className="flex-row flex-wrap" style={{ gap: GAP }}>
+                    {section.items.map(({ item, state }) => (
+                      <ItemTile
+                        key={item.id}
+                        item={item}
+                        state={state}
+                        isNew={newIds.has(item.id)}
+                        width={tileW}
+                        onPress={() => setOpenId(item.id)}
+                      />
+                    ))}
+                  </View>
+                </View>
+              ))}
+            </>
           )}
         </View>
 
@@ -138,6 +181,18 @@ export default function ShopScreen() {
       ) : null}
     </>
   );
+}
+
+/** "41 items · 5 owned" (what the filter shows). */
+function countsLabel({ items, owned }: { items: number; owned: number }): string {
+  const all = `${formatCoins(items)} ${items === 1 ? 'item' : 'items'}`;
+  return owned > 0 ? `${all} · ${formatCoins(owned)} owned` : all;
+}
+
+/** A section's count: "11", or "3 of 11 owned". */
+function sectionDetail(section: ShopSection): string {
+  const { items, owned } = shopCounts([section]);
+  return owned > 0 ? `${formatCoins(owned)} of ${formatCoins(items)} owned` : formatCoins(items);
 }
 
 /** Balance, the history link, and today's progress toward the daily bonus and caps. */
@@ -190,20 +245,47 @@ function Today({ label, value, done }: { label: string; value: string | undefine
   );
 }
 
-/** One item: its drawing, its name, then the price (dimmed with a lock when short) or Owned / Equipped. */
-function ItemTile({ item, state, width, onPress }: { item: ShopItem; state: ItemState; width: number; onPress: () => void }) {
+/**
+ * One item: its drawing (with a New tag for the latest batch and a gold sparkle on prestige items), its name, then
+ * the price (dimmed with a lock when short) or Owned / Equipped.
+ */
+function ItemTile({
+  item,
+  state,
+  isNew,
+  width,
+  onPress,
+}: {
+  item: ShopItem;
+  state: ItemState;
+  isNew: boolean;
+  width: number;
+  onPress: () => void;
+}) {
   const status = state === 'equipped' ? 'Equipped' : state === 'owned' ? 'Owned' : coinsLabel(item.price);
+  const prestige = isPrestige(item);
+  const tags = [isNew ? 'New' : null, prestige ? 'Prestige' : null].filter(Boolean).join(', ');
   return (
     <TapPressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${item.name}, ${KIND_NAMES[item.kind]}, ${status}`}
+      accessibilityLabel={`${item.name}, ${KIND_NAMES[item.kind]}${tags ? `, ${tags}` : ''}, ${status}`}
       accessibilityHint="Opens the item"
       className={cn('bg-card border-border gap-2.5 rounded-2xl border p-2.5 active:opacity-70', state === 'equipped' && 'border-gold-line')}
       style={{ width }}
     >
       <View className="bg-subtle h-[84px] items-center justify-center rounded-xl">
         <CosmeticPreview item={item} size={60} />
+        {isNew ? (
+          <View className="bg-primary absolute left-1.5 top-1.5 rounded-full px-1.5 py-0.5">
+            <Text className="text-primary-foreground text-[10px] font-bold uppercase leading-3 tracking-wide">New</Text>
+          </View>
+        ) : null}
+        {prestige ? (
+          <View className="bg-gold-soft border-gold-line absolute right-1.5 top-1.5 size-6 items-center justify-center rounded-full border">
+            <Icon as={SparklesIcon} className="text-gold size-3.5" />
+          </View>
+        ) : null}
       </View>
       <View className="gap-0.5 px-1">
         <Text className="text-[15px] font-semibold leading-5" numberOfLines={1}>
