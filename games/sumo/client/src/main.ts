@@ -4,9 +4,11 @@ import {
   applySafeAreaVars,
   createApp,
   createAudio,
+  createBootProgress,
   createFrameMetrics,
   createLifecycle,
   jsHeapMb,
+  matchmakingLabel,
   round,
   safeArea,
 } from '@rally/game-kit';
@@ -33,6 +35,8 @@ const ui = {
   paused: $('paused'),
   loading: $('loading'),
   loadingBar: $('loading-bar'),
+  loadingLabel: $('loading-label'),
+  loadingDetail: $('loading-detail'),
 };
 const params = new URLSearchParams(location.search);
 /** `?predict=0` renders your own puck interpolated like everyone else's (to compare). */
@@ -46,13 +50,22 @@ const ART = import.meta.env.DEV ? params.get('art') : null;
  */
 const LOWFX = import.meta.env.DEV && !ART && params.has('lowfx') && params.get('lowfx') !== '0';
 
-function loading(progress: number) {
-  ui.loadingBar.style.width = `${Math.round(progress * 100)}%`;
-  if (rally.isHosted) void rally.ui.loading(progress).catch(() => {});
-}
+/**
+ * Boot progress through the join, in the host's loading screen (labelled, so it stays up until `done()`: the player
+ * lands in a joined match) and in the page's own veil (standalone / dev), with the same words in both.
+ */
+const loader = createBootProgress({
+  host: rally,
+  veil: { root: ui.loading, bar: ui.loadingBar, label: ui.loadingLabel, detail: ui.loadingDetail },
+  stages: [
+    { id: 'start', label: 'Starting the game', weight: 1 },
+    { id: 'arena', label: 'Building the arena', weight: 2 },
+    { id: 'match', label: 'Finding players', weight: 3 },
+    { id: 'join', label: 'Joining the match', weight: 2 },
+  ],
+});
 
 const bootStart = performance.now();
-loading(0.05);
 
 // --- engine, scene, HUD, input -----------------------------------------------------------------------
 // The art capture renders at up to 3× device pixels (store screenshots); the game itself keeps the cap of 2.
@@ -62,13 +75,14 @@ const { app, onResize } = createApp({
   ...(LOWFX ? { maxPixelRatio: 1, antialias: false } : {}),
 });
 if (LOWFX) applyLowFx(app);
+loader.stage('arena');
 const scene = createSumoScene(app, (fn) => onResize(fn), LOWFX ? { shadows: false, effects: false } : {});
 const hud = createHud();
 const controls = createControls(ui.canvas, ui.stick);
 const audio = createAudio();
 const metrics = createFrameMetrics(2000);
 app.on('frameend', () => metrics.tick());
-loading(0.5);
+loader.progress(0.5);
 
 // --- netcode state -------------------------------------------------------------------------------------
 let net: Net | null = null;
@@ -195,7 +209,8 @@ function onPatch(t: number) {
   predictor.rttMs = net.rttMs ?? 0;
   // The snapshot's content time on the local clock (when that tick's data is expected to arrive), not its arrival
   // time: a patch carries 1 or 2 ticks and arrives in bursts, which would otherwise show up as a correction.
-  if (mine?.alive) predictor.rebase({ x: mine.x, y: mine.y, vx: mine.vx, vy: mine.vy }, clock.server.toLocal(serverMs), t);
+  if (mine?.alive)
+    predictor.rebase({ x: mine.x, y: mine.y, vx: mine.vx, vy: mine.vy }, clock.server.toLocal(serverMs), t);
   else predictor.reset();
 }
 
@@ -305,12 +320,12 @@ function toWs(url: string) {
 
 async function boot() {
   app.start();
-  loading(0.8);
-  // First frame before ready(), so the host drops its overlay onto a rendered arena (bounded for hidden pages).
+  // First frame before ready(), so the arena is drawn under the host's screen (bounded for hidden pages).
   await new Promise<void>((resolve) => {
     app.once('frameend', () => resolve());
     setTimeout(resolve, 1000);
   });
+  loader.progress(1);
   let username = params.get('name') ?? 'player';
   if (rally.isHosted) {
     const ctx = await rally.ready();
@@ -320,8 +335,6 @@ async function boot() {
     applySafeAreaVars(safeArea());
   }
   readyMs = Math.round(performance.now() - bootStart);
-  loading(1);
-  ui.loading.hidden = true;
 
   if (exiting) return; // exit requested while loading: never take a seat
   hud.setMessage('Joining…');
@@ -333,9 +346,12 @@ async function boot() {
     }
     if (rally.isHosted) {
       // The host matchmakes (with the player's Supabase token) and hands over a seat; the socket is ours.
+      loader.stage('match', matchmakingLabel(rally.context));
       const { endpoint, seatReservation } = await rally.session.join();
+      loader.stage('join');
       return connect(endpoint, { seatReservation });
     }
+    loader.stage('match', 'Connecting to the server');
     const endpoint = toWs(params.get('colyseus') ?? `ws://${location.hostname || 'localhost'}:2567`);
     return connect(endpoint, {
       roomName: 'sumo',
@@ -348,6 +364,8 @@ async function boot() {
   } catch (err) {
     if (exiting) return;
     hud.setMessage("Couldn't join", err instanceof Error ? err.message : String(err));
+    // Our own error UI is up: the host shows the game now.
+    loader.done();
     throw err;
   }
   if (exiting) {
@@ -377,12 +395,14 @@ async function boot() {
   net.room.onLeave((code) => {
     if (!exiting) hud.setMessage('Disconnected', `The server closed the connection (${code}).`);
   });
+  // In the match: playable. The host drops its loading screen, the veil goes.
+  loader.done();
 }
 
 boot().catch((err) => {
   console.error(err);
   rally.reportError(err);
-  ui.loading.hidden = true;
+  loader.done();
 });
 
 // Dev-only probe for the Playwright e2e (stripped from production builds).

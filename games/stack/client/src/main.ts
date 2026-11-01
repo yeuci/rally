@@ -2,6 +2,7 @@ import {
   applySafeAreaVars,
   createApp,
   createAudio,
+  createBootProgress,
   createFrameMetrics,
   createInput,
   createLifecycle,
@@ -47,21 +48,29 @@ const ui = {
   paused: $('paused'),
   loading: $('loading'),
   loadingBar: $('loading-bar'),
+  loadingLabel: $('loading-label'),
+  loadingDetail: $('loading-detail'),
 };
 
-/** Own loading UI plus the host's overlay progress (`ui.loading` only exists inside the shell). */
-function loading(progress: number) {
-  ui.loadingBar.style.width = `${Math.round(progress * 100)}%`;
-  if (rally.isHosted) void rally.ui.loading(progress).catch(() => {});
-}
+/**
+ * Boot progress, in the host's loading screen (labelled, so it stays up until `done()`) and in the page's own veil
+ * (standalone / dev): the same words in both.
+ */
+const loader = createBootProgress({
+  host: rally,
+  veil: { root: ui.loading, bar: ui.loadingBar, label: ui.loadingLabel, detail: ui.loadingDetail },
+  stages: [
+    { id: 'start', label: 'Starting the game', weight: 2 },
+    { id: 'tower', label: 'Building the tower', weight: 3 },
+  ],
+});
 
 const bootStart = performance.now();
-loading(0.05);
 
 // --- engine + scene ------------------------------------------------------------------------------
 const { app } = createApp({ canvas: ui.canvas });
+loader.stage('tower');
 const scene = createStackScene(app);
-loading(0.5);
 
 // --- services --------------------------------------------------------------------------------------
 const save = createSave<Progress>(
@@ -72,7 +81,8 @@ const save = createSave<Progress>(
     debounceMs: 800,
     parse: (raw, d) => {
       const r = (raw ?? {}) as Partial<Progress>;
-      const num = (v: unknown, f: number) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : f);
+      const num = (v: unknown, f: number) =>
+        typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : f;
       return { best: num(r.best, d.best), played: num(r.played, d.played), version: 1 };
     },
     onError: (err) => console.warn('[stack] save failed', err),
@@ -188,7 +198,8 @@ async function gameOver() {
   setTimeout(() => {
     if (token === gameOverToken) ui.over.hidden = false;
   }, 450);
-  if (newBest) [0, 90, 180].forEach((ms, i) => audio.blip(523.25 * 2 ** ((i * 4) / 12), 140, { delayMs: 400 + ms, gain: 0.35 }));
+  if (newBest)
+    [0, 90, 180].forEach((ms, i) => audio.blip(523.25 * 2 ** ((i * 4) / 12), 140, { delayMs: 400 + ms, gain: 0.35 }));
 
   const earned = ACHIEVEMENTS.filter((a) => a.earned(sim));
   const [submit, unlocks] = await Promise.all([
@@ -206,7 +217,9 @@ async function gameOver() {
   const me = solo.findMe(top.entries);
   const boardBest = Math.max(me?.score ?? 0, submit.best ?? 0, best);
   if (submit.source === 'local' || top.source === 'local') {
-    ui.overBoard.textContent = rally.isHosted ? `Leaderboard unavailable · best ${boardBest}` : `Offline · best ${boardBest}`;
+    ui.overBoard.textContent = rally.isHosted
+      ? `Leaderboard unavailable · best ${boardBest}`
+      : `Offline · best ${boardBest}`;
   } else if (me) {
     ui.overBoard.textContent = `Leaderboard · best ${me.score} · #${me.rank} global`;
   } else {
@@ -278,13 +291,14 @@ async function boot() {
   const saved = save.load().catch(() => save.data);
   app.start();
   newGame();
-  loading(0.9);
+  loader.progress(0.6);
   // Show the first rendered frame before telling the host to drop its overlay (bounded: a page that boots hidden
   // gets no rAF, and the host would hit its load timeout).
   await new Promise<void>((resolve) => {
     app.once('frameend', () => resolve());
     setTimeout(resolve, 1000);
   });
+  loader.progress(1);
   if (rally.isHosted) {
     const ctx = await rally.ready();
     applySafeAreaVars(safeArea(ctx.device.safeArea));
@@ -292,8 +306,8 @@ async function boot() {
     applySafeAreaVars(safeArea());
   }
   readyMs = Math.round(performance.now() - bootStart);
-  ui.loading.hidden = true;
-  loading(1);
+  // Solo: playable now ("Tap to start"). The host drops its screen, the veil goes.
+  loader.done();
   await saved;
   // Not started yet: pick the tower hue from the real play count, as later games do.
   if (sim.phase === 'ready') scene.reset((save.data.played * 67 + 200) % 360);
@@ -302,7 +316,7 @@ async function boot() {
 boot().catch((err) => {
   console.error(err);
   rally.reportError(err);
-  ui.loading.hidden = true;
+  loader.done();
   if (sim.phase === 'ready') newGame();
 });
 
