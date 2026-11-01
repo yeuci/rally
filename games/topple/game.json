@@ -1,0 +1,59 @@
+{
+  "id": "topple",
+  "version": "0.1.0",
+  "title": "Topple",
+  "description": "Take turns stacking odd-shaped blocks on one wobbly tower. Drag, turn and flip your piece, then let go. Knock the tower over and you're out. Last one standing wins. Pass the phone around with friends or play against bots.",
+  "genres": ["party", "puzzle"],
+  "screenshots": [],
+  "engine": "playcanvas",
+  "entry": "index.html",
+  "orientation": "portrait",
+  "players": {
+    "min": 1,
+    "max": 1
+  },
+  "modes": ["solo"],
+  "sdk": "^0.1",
+  "ageRating": "4+",
+  "leaderboards": [
+    {
+      "id": "tower",
+      "sort": "desc",
+      "maxScorePerMinute": 40
+    }
+  ],
+  "achievements": [
+    {
+      "key": "first_win",
+      "title": "Last One Standing",
+      "hidden": false,
+      "description": "Win a match of Topple."
+    },
+    {
+      "key": "beat_five",
+      "title": "Against the Odds",
+      "hidden": false,
+      "description": "Win a match against five bots."
+    },
+    {
+      "key": "tower_15",
+      "title": "Skyline",
+      "hidden": false,
+      "description": "Get 15 pieces standing at once."
+    },
+    {
+      "key": "tower_30",
+      "title": "Cloud Scraper",
+      "hidden": false,
+      "description": "Get 30 pieces standing at once."
+    },
+    {
+      "key": "full_table",
+      "title": "Full Table",
+      "hidden": false,
+      "description": "Finish a pass-and-play match with four or more people."
+    }
+  ],
+  "capabilities": [],
+  "minAppVersion": "0.0.0"
+}
