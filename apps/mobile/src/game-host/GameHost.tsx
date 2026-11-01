@@ -247,7 +247,7 @@ export function GameHost(props: GameHostProps) {
   }, [controller]);
 
   // Orientation lock per manifest (remembering the shell's, see orientation.ts). On unmount the shell turns back (if
-  // the play route has not already) and follows the device again.
+  // the play route has not already), then its own rule applies again (phones portrait, tablets follow the device).
   useEffect(() => {
     const lock =
       orientation === 'landscape'

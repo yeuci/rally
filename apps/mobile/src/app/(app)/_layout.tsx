@@ -46,14 +46,15 @@ export default function AppLayout() {
       >
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="game/[id]/index" options={{ headerShown: false }} />
-        {/* Over the page, not instead of it: a full-screen modal takes the page underneath out of the window, so it
-            missed the rotation into a landscape game and came back laid out sideways. A transparent modal keeps it
-            attached (it rotates and lays out with the app); the play screen paints its own opaque background. */}
+        {/* A full-screen modal: iOS turns only the modal to the game's orientation, the page underneath leaves the
+            window and stays as it was. Leaving turns the screen back before the modal closes (game-host/orientation.ts).
+            A transparent modal kept the page attached, but iOS then kept the game in the page's orientation (drawn
+            sideways on a phone held in landscape). */}
         <Stack.Screen
           name="game/[id]/play"
           options={{
             headerShown: false,
-            presentation: 'transparentModal',
+            presentation: 'fullScreenModal',
             animation: 'fade',
             gestureEnabled: false,
             contentStyle: { backgroundColor: '#0A0A0A' },
