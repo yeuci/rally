@@ -85,3 +85,6 @@ jobs:
 
       - name: Gun Run (two players, real game server with dev rules)
         run: pnpm --filter @rally/game-gunrun test:e2e
+
+      - name: Northdale (two players, real game server with dev rules)
+        run: pnpm --filter @rally/game-northdale test:e2e

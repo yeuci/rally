@@ -81,6 +81,21 @@
         "$TURBO_DEFAULT$",
         "../scripts/**"
       ]
+    },
+    "@rally/game-northdale#typecheck": {
+      "dependsOn": [
+        "^build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "../scripts/**"
+      ]
+    },
+    "@rally/game-northdale#lint": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "../scripts/**"
+      ]
     }
   }
 }

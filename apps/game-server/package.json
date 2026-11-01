@@ -21,6 +21,7 @@
     "@colyseus/schema": "^5.0.42",
     "@colyseus/tools": "^0.18.11",
     "@rally/game-gunrun-server": "workspace:*",
+    "@rally/game-northdale-server": "workspace:*",
     "@rally/game-overrun-server": "workspace:*",
     "@rally/game-sumo-server": "workspace:*",
     "colyseus": "^0.18.10",

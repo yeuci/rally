@@ -6,5 +6,6 @@
  * - 2: M3 phase 2: server-written results and Sumo's `result` message (games/sumo `server.minVersion` 2), 60 s grace.
  * - 3: the `overrun` room (games/overrun `server.minVersion` 3).
  * - 4: the `gunrun` room (games/gunrun `server.minVersion` 4).
+ * - 5: the `northdale` room (games/northdale `server.minVersion` 5).
  */
-export const SERVER_VERSION = 4;
+export const SERVER_VERSION = 5;
