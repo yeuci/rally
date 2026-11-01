@@ -41,7 +41,6 @@ export async function renderIcons(app: Application, models: Models, material: St
     nearClip: 0.1,
     farClip: 20,
   });
-  camera.setPosition(0, -200, 10);
   root.addChild(camera);
   camera.setPosition(0, -200, 10);
   const light = new Entity('icon-light');

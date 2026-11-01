@@ -33,7 +33,7 @@ import {
   type StationStateView,
   type WorldView,
 } from '@rally/game-sushi-server';
-import { KIND_MODEL, kindSize } from './catalog.ts';
+import { KIND_MODEL } from './catalog.ts';
 import {
   SLOT_COLORS,
   createChef,
@@ -831,7 +831,5 @@ export function createSushiScene(
     },
   };
   let slide = 0;
-  void kindSize;
-  void fixtures;
   return scene;
 }

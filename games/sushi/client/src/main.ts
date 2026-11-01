@@ -490,6 +490,12 @@ function frame(dt: number) {
   const label = actionLabel(act, work);
   const workProgress = work && target < 100 ? (st.stations[target]?.progress ?? 0) / 100 : 0;
   hud.setAction(label.label, label.icon, mine && mine.act !== ChefAct.none ? workProgress : 0, !label.label);
+  // The knife's tick while our chef chops, a soft scrub while washing.
+  if (mine && (mine.act === ChefAct.chop || mine.act === ChefAct.wash) && now - lastWorkSound > 230) {
+    lastWorkSound = now;
+    if (mine.act === ChefAct.chop) sfx.chop();
+    else sfx.wash();
+  }
   scene.highlight(gameSettings.highlight || controls.button ? target : -1, bs);
 
   // Chefs.
@@ -604,19 +610,17 @@ function frame(dt: number) {
   controls.draw();
 }
 
+let lastWorkSound = 0;
 let chefsDrawn = new Set<string>();
 let custDrawn = new Set<string>();
 const custLast = new Map<string, { x: number; y: number; face: number }>();
 
-/** Our chef faces its stick, or what it works on. */
-function myFaceFor(p: { act: number; face: number }, _s: { x: number; y: number }, speed: number): number {
+/** Our chef faces its stick while moving, what it works on, else the station it would use. */
+function myFaceFor(p: { act: number; face: number }, at: { x: number; y: number }, speed: number): number {
   if (p.act !== ChefAct.none) return p.face;
-  if (speed > 0.3) return myFace;
-  if (target >= 0 && _s) {
-    const t = targetPoint(worldOf(net!.state), target);
-    if (t) return Math.atan2(t.y - _s.y, t.x - _s.x);
-  }
-  return myFace;
+  if (speed > 0.3 || target < 0 || !net) return myFace;
+  const t = targetPoint(worldOf(net.state), target);
+  return t ? Math.atan2(t.y - at.y, t.x - at.x) : myFace;
 }
 
 /** Progress rings and chips over the stations. */

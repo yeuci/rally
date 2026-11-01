@@ -5,7 +5,6 @@ import {
   CUSTOMER_STATES,
   DT,
   Kind,
-  SEATS,
   SushiGame,
   itemCode,
   matMask,
@@ -270,7 +269,6 @@ export function stageArt(shot: ArtShot, deps: { app: Application; scene: SushiSc
     onReconnect() {},
     onLeave() {},
   } as unknown as Room;
-  void SEATS;
   return {
     room,
     state: pose.state,

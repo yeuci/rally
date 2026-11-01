@@ -17,10 +17,7 @@ import {
 } from 'playcanvas';
 import {
   AREAS,
-  BACK_Y,
-  CHAIR_OFFSET,
   COUNTER_TOP,
-  ISLAND_Y,
   PLACEMENTS,
   SEATS,
   STATIONS,
@@ -292,7 +289,6 @@ export function buildLevel(app: Application, models: Models, vertexMat: Standard
     }
   }
   for (const t of TABLES) add(t.zone, 'Table', placementMatrix({ x: t.x, y: t.y }));
-  void CHAIR_OFFSET;
   // Crates on the counters (their ingredient is drawn on top by the scene, since it depends on the day).
   const crate = crateData(0.44, 0.2, 0.62);
   for (const s of STATIONS) {
@@ -388,8 +384,6 @@ export function buildLevel(app: Application, models: Models, vertexMat: Standard
   app.root.addChild(belt);
 
   const screenHome = screens.map((e) => e.getPosition().clone());
-  void BACK_Y;
-  void ISLAND_Y;
   return {
     zones,
     screens,

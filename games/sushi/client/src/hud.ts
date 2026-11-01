@@ -123,7 +123,7 @@ export function createHud(): Hud {
   let lastCrew = '';
   let lastCards = '';
   let lastTitle = '';
-  let taught = new Set<string>();
+  const taught = new Set<string>();
   let teachTimer: ReturnType<typeof setTimeout> | undefined;
   let voteFn: (i: number) => void = () => {};
 
@@ -258,11 +258,7 @@ export function createHud(): Hud {
       }
 
       if (override) return show(override.title, override.sub);
-      if (st.phase === 'morning') {
-        const lesson = Object.entries(LESSONS).find(([, l]) => l)?.[0];
-        void lesson;
-        return show(dayName(st.day), `Doors open in ${Math.ceil(st.timer)}`);
-      }
+      if (st.phase === 'morning') return show(dayName(st.day), `Doors open in ${Math.ceil(st.timer)}`);
       return show('', '');
     },
     setMessage(t, s = '') {
@@ -319,8 +315,6 @@ export function createHud(): Hud {
       voteFn = fn;
     },
   };
-  void taught;
-  taught = new Set();
   return hud;
 }
 
