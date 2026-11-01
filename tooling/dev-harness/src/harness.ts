@@ -294,6 +294,8 @@ function main(): void {
       if (ev.method === 'telemetry.report') {
         console.debug(TAG, 'telemetry', ev.params.name, ev.params.values);
         log(`telemetry ${ev.params.name}`, 'info', 'telemetry');
+      } else if (ev.method === 'menu.players') {
+        log(`menu.players: ${ev.params.players.map((p) => p.name).join(', ')}`, 'info');
       } else {
         console.error(TAG, 'game.error', ev.params.message, ev.params.stack ?? '');
         log(`game.error: ${ev.params.message}`, 'error');

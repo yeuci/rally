@@ -4,6 +4,9 @@ import {
   parseEnvelope,
   GameManifestSchema,
   RequestSchemas,
+  LaunchContextSchema,
+  HostEventSchemas,
+  GameEventSchemas,
   isLocalArtPath,
   normalizeLocalArtPath,
 } from '../src/index.ts';
@@ -37,6 +40,76 @@ test('ui.loading params: progress 0..1 and an optional short label', () => {
   assert.equal(params.safeParse({ progress: 1.5 }).success, false);
   assert.equal(params.safeParse({ progress: 0.5, label: '' }).success, false);
   assert.equal(params.safeParse({ progress: 0.5, label: 'x'.repeat(61) }).success, false);
+});
+
+test('menu.define: toggle / slider / choice settings and help entries, validated', () => {
+  const params = RequestSchemas['menu.define'].params;
+  const ok = params.parse({
+    settings: [
+      { type: 'toggle', key: 'aimAssist', label: 'Aim assist', default: true },
+      { type: 'slider', key: 'shake', label: 'Camera shake', min: 0, max: 1, step: 0.1, default: 0.5 },
+      {
+        type: 'choice',
+        key: 'hand',
+        label: 'Stick side',
+        options: [
+          { value: 'left', label: 'Left' },
+          { value: 'right', label: 'Right' },
+        ],
+        default: 'left',
+      },
+    ],
+  });
+  assert.equal(ok.settings.length, 3);
+  assert.deepEqual(ok.help, []);
+  const bad = (settings: unknown[]) => assert.equal(params.safeParse({ settings }).success, false);
+  bad([{ type: 'toggle', key: 'Bad Key', label: 'x', default: true }]);
+  bad([{ type: 'slider', key: 's', label: 'x', min: 0, max: 1, step: 0.1, default: 2 }]);
+  bad([
+    {
+      type: 'choice',
+      key: 'c',
+      label: 'x',
+      options: [
+        { value: 'a', label: 'A' },
+        { value: 'b', label: 'B' },
+      ],
+      default: 'z',
+    },
+  ]);
+  bad([
+    { type: 'toggle', key: 'a', label: 'A', default: true },
+    { type: 'toggle', key: 'a', label: 'B', default: true },
+  ]);
+  assert.ok(RequestSchemas['menu.open'].params.safeParse({}).success);
+});
+
+test('launch context: settings and the menu button are optional (older hosts), validated when present', () => {
+  const base = {
+    game: { id: 'g', version: '1.0.0' },
+    user: { id: 'u', username: 'a', avatarUrl: null },
+    intent: 'solo',
+    device: {
+      safeArea: { top: 0, right: 0, bottom: 0, left: 0 },
+      orientation: 'landscape',
+      pixelRatio: 3,
+      locale: 'en',
+    },
+  };
+  assert.ok(LaunchContextSchema.safeParse(base).success);
+  const full = {
+    ...base,
+    device: { ...base.device, menuButton: { x: 12, y: 12, width: 40, height: 40 } },
+    settings: { volume: { master: 1, music: 0.5, effects: 1 }, graphics: 'medium', haptics: true, game: { a: true } },
+  };
+  assert.ok(LaunchContextSchema.safeParse(full).success);
+  assert.equal(
+    LaunchContextSchema.safeParse({ ...full, settings: { ...full.settings, graphics: 'ultra' } }).success,
+    false,
+  );
+  assert.ok(HostEventSchemas.menu.safeParse({ open: true }).success);
+  assert.ok(HostEventSchemas.settingsChanged.safeParse(full.settings).success);
+  assert.ok(GameEventSchemas['menu.players'].safeParse({ players: [{ name: 'alice', you: true }] }).success);
 });
 
 test('manifest applies defaults and validates players', () => {
