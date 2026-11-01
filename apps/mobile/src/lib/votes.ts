@@ -47,16 +47,25 @@ export function useGameVotes(gameId: string | undefined) {
   });
 }
 
+/** One vote: the game it is for travels with the tap, never read from a component's state later. */
+export interface VoteInput {
+  gameId: string;
+  /** true = liked, false = not for me, null = take the vote back. */
+  liked: boolean | null;
+}
+
 /**
- * Vote (true / false) or take the vote back (null) on `gameId`: optimistic on the summary, the server's summary when it
- * answers, rolled back with a toast on failure. A vote also tells the prompt never to ask about this game again.
+ * Vote (true / false) or take the vote back (null) on a game: optimistic on its summary, the server's summary when it
+ * answers, rolled back with a toast on failure. A vote also tells the prompt never to ask about that game again.
+ * The game goes with each call (`mutate({ gameId, liked })`): the post-match prompt sent votes with an empty id when
+ * it was read from the hook's arguments.
  */
-export function useVoteGame(gameId: string) {
+export function useVoteGame() {
   const { userId } = useSession();
   const qc = useQueryClient();
-  const key = voteKeys.summary(userId, gameId);
   return useMutation({
-    mutationFn: async (liked: boolean | null): Promise<VoteSummary> => {
+    mutationFn: async ({ gameId, liked }: VoteInput): Promise<VoteSummary> => {
+      if (!gameId) throw new Error('NOT_FOUND: no game to vote on');
       const { data, error } = await supabase.rpc(
         'vote_game',
         liked === null ? { p_game_id: gameId } : { p_game_id: gameId, p_liked: liked },
@@ -64,27 +73,28 @@ export function useVoteGame(gameId: string) {
       if (error) throw error;
       return parseVoteSummary(data, gameId) ?? (await fetchVoteSummary(gameId));
     },
-    onMutate: async (liked) => {
+    onMutate: async ({ gameId, liked }) => {
+      const key = voteKeys.summary(userId, gameId);
       await qc.cancelQueries({ queryKey: key });
       const previous = qc.getQueryData<VoteSummary>(key);
       if (previous) qc.setQueryData<VoteSummary>(key, applyVote(previous, liked));
       if (userId && liked !== null) void votePromptStore.update(userId, (s) => afterVote(s, gameId));
       return { previous };
     },
-    onSuccess: (summary) => qc.setQueryData(key, summary),
-    onError: (err, _liked, ctx) => {
-      if (ctx?.previous) qc.setQueryData(key, ctx.previous);
+    onSuccess: (summary, { gameId }) => qc.setQueryData(voteKeys.summary(userId, gameId), summary),
+    onError: (err, { gameId }, ctx) => {
+      if (ctx?.previous) qc.setQueryData(voteKeys.summary(userId, gameId), ctx.previous);
       const kind = socialErrorKind(err);
       // The server's reason goes to the log (shake-to-report keeps it) and, in dev builds, onto the toast.
       const reason = err instanceof Error ? err.message : String((err as { message?: unknown })?.message ?? err);
-      console.warn(`[votes] vote_game failed for ${gameId}: ${reason}`);
+      console.warn(`[votes] vote_game failed for ${gameId || '(no game)'}: ${reason}`);
       const text =
         kind === 'rate-limited'
           ? 'Too many votes. Try again in a few minutes.'
           : kind === 'network'
             ? "You're offline. Your vote wasn't saved."
             : "Couldn't save your vote. Try again.";
-      showToast(__DEV__ && kind === 'other' ? `${text} (${reason.slice(0, 120)})` : text);
+      showToast(__DEV__ && kind !== 'rate-limited' && kind !== 'network' ? `${text} (${reason.slice(0, 120)})` : text);
     },
   });
 }

@@ -108,7 +108,7 @@ export function VotePrompt() {
   const gameOpen = isGameScreen(usePathname());
   const [gameId, setGameId] = useState<string | null>(null);
   const game = useGame(gameId ?? undefined);
-  const vote = useVoteGame(gameId ?? '');
+  const vote = useVoteGame();
 
   // The signal stays in the store until this decided about it (a game opened in between just delays the decision).
   useEffect(() => {
@@ -163,7 +163,7 @@ export function VotePrompt() {
     <VotePromptSheet
       game={gameId && !gameOpen ? { id: gameId, title: g?.title ?? '', art: g ? coverUriFor(g, 'tile') : null } : null}
       onVote={(liked) => {
-        vote.mutate(liked);
+        if (gameId) vote.mutate({ gameId, liked });
         setGameId(null);
         showToast(liked ? 'Thanks! Glad you liked it.' : 'Thanks for the feedback.');
       }}
