@@ -3,17 +3,10 @@
   "version": "0.1.0",
   "title": "Lumber Camp",
   "description": "Run a lumber camp for one busy shift. Haul planks from the sawmill to the counter, sell to the builders lining up, and spend your takings on helpers and upgrades before the whistle blows.",
-  "genres": [
-    "arcade",
-    "tycoon"
-  ],
+  "genres": ["arcade", "tycoon"],
   "icon": "art/icon.webp",
   "cover": "art/cover.webp",
-  "screenshots": [
-    "art/shot-1.webp",
-    "art/shot-2.webp",
-    "art/shot-3.webp"
-  ],
+  "screenshots": ["art/shot-1.webp", "art/shot-2.webp", "art/shot-3.webp"],
   "engine": "playcanvas",
   "entry": "index.html",
   "orientation": "portrait",
@@ -21,9 +14,7 @@
     "min": 1,
     "max": 1
   },
-  "modes": [
-    "solo"
-  ],
+  "modes": ["solo"],
   "sdk": "^0.1",
   "ageRating": "4+",
   "leaderboards": [
