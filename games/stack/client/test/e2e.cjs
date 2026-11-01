@@ -243,7 +243,10 @@ async function main() {
 
     // 7. The host's game menu (the harness draws the shell's): Escape opens it and pauses the tower; graphics Low and
     //    a volume change reach the game live; our own setting and the how-to-play are there; Resume continues.
-    // The harness panel keeps its keys to itself: take the focus off the button clicked last.
+    // The harness panel keeps its keys to itself: take the focus off the button clicked last. Collapse it too: at
+    // phone width it sits over the menu's footer.
+    await page.evaluate(() => document.activeElement && document.activeElement.blur());
+    await togglePanel();
     await page.evaluate(() => document.activeElement && document.activeElement.blur());
     await page.keyboard.press('Escape');
     const menu = '#rally-harness-menu >> [data-role="menu"]';
@@ -268,6 +271,7 @@ async function main() {
     assert.match(await page.textContent(menu), /Drop the block/);
     await page.click(`${menu} >> [data-role="menu-resume"]`);
     await page.waitForSelector(menu, { state: 'hidden', timeout: 5_000 });
+    await page.waitForFunction(() => !window.__stack.paused, null, { timeout: 5_000 }).catch(() => null);
     assert.equal(await stack(page, 'paused'), false, 'resumed with the menu closed');
     log = await panelLog(page);
     assert.match(log, /→ evt menu \{open: true\}/);
