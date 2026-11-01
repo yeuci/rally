@@ -14,7 +14,8 @@ import { rally } from '@rally/sdk';
 import { Bot } from './bot.ts';
 import { createLabels } from './labels.ts';
 import { applyLowFx } from './lowfx.ts';
-import { PALETTE, createSawlineScene } from './scene.ts';
+import { loadSawlineModels } from './models.ts';
+import { PALETTE, type SawlineScene, createSawlineScene } from './scene.ts';
 import {
   BAY_SPOTS,
   DEBARKER_Z,
@@ -103,9 +104,10 @@ loading(0.05);
 // --- engine + scene ------------------------------------------------------------------------------
 const { app } = createApp({ canvas: ui.canvas, ...(LOWFX ? { maxPixelRatio: 1, antialias: false } : {}) });
 if (LOWFX) applyLowFx(app);
-const scene = createSawlineScene(app, { shadows: !LOWFX });
-const labels = createLabels(ui.labels, scene);
-loading(0.5);
+// The scene needs the workers' models, so boot() builds it once they have loaded.
+let scene!: SawlineScene;
+let labels!: ReturnType<typeof createLabels>;
+loading(0.1);
 
 // --- services --------------------------------------------------------------------------------------
 const save = createSave<Progress>(
@@ -162,7 +164,7 @@ const lifecycle = createLifecycle(rally, app, {
     await save.flush();
   },
   onLowMemory: () => {
-    scene.trim();
+    scene?.trim();
     audio.close();
   },
 });
@@ -317,6 +319,7 @@ function sound(key: string, minGapMs: number, play: () => void) {
 
 function onEvent(e: SimEvent) {
   const sawY = TRUNK_RADIUS + 1.1;
+  scene.event(e);
   switch (e.type) {
     case 'blade':
       audio.blip(220, 60, { type: 'square', slideTo: 120, gain: 0.12 });
@@ -475,7 +478,7 @@ function collect() {
     best: save.data.best,
     played: save.data.played,
     paused: lifecycle.isPaused,
-    entities: scene.entityCount,
+    entities: scene?.entityCount ?? 0,
     dpr: round(gd.maxPixelRatio, 2),
     width: gd.width,
     height: gd.height,
@@ -488,6 +491,9 @@ const telemetryTimer = setInterval(() => rally.telemetry.report('sawline', colle
 // --- boot ------------------------------------------------------------------------------------------
 async function boot() {
   const saved = save.load().catch(() => save.data);
+  const models = await loadSawlineModels(app, (f) => loading(0.1 + f * 0.7));
+  scene = createSawlineScene(app, models, { shadows: !LOWFX });
+  labels = createLabels(ui.labels, scene);
   app.start();
   newShift();
   loading(0.9);
@@ -512,7 +518,7 @@ boot().catch((err) => {
   console.error(err);
   rally.reportError(err);
   ui.loading.hidden = true;
-  if (sim.phase === 'ready') newShift();
+  if (scene && sim.phase === 'ready') newShift();
 });
 
 // Dev-only probe for the Playwright e2e (stripped from production builds).

@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint . --max-warnings 0",
     "test": "node --experimental-strip-types --no-warnings=ExperimentalWarning --test test/*.test.ts",
-    "test:e2e": "node test/e2e.cjs"
+    "test:e2e": "node test/e2e.cjs",
+    "models": "node --experimental-strip-types --no-warnings=ExperimentalWarning ../scripts/models.ts"
   },
   "dependencies": {
     "@rally/game-kit": "workspace:*",
@@ -19,6 +20,7 @@
   },
   "devDependencies": {
     "@rally/dev-harness": "workspace:*",
+    "@rally/model-pipeline": "workspace:*",
     "@types/node": "^22.20.5",
     "typescript": "~6.0.3",
     "vite": "^8.3.5"

@@ -19,6 +19,7 @@ import {
   VertexFormat,
 } from 'playcanvas';
 import { roundedBox } from './meshes.ts';
+import type { Models } from './models.ts';
 import {
   BAY_SPOTS,
   DEBARKER_Z,
@@ -36,8 +37,10 @@ import {
   rng,
   type Item,
   type SawlineSim,
+  type SimEvent,
   type Truck,
 } from './sim.ts';
+import { type Look, WALK_STRIDE, type Worker, makeWorker, oneShot, play, resetWorker } from './workers.ts';
 
 const hex = (h: string) => {
   const n = parseInt(h.slice(1), 16);
@@ -80,6 +83,14 @@ export const PALETTE = {
   leaves: '#4fae4f',
   leaves2: '#68c25a',
   trunk: '#6b4428',
+  desk: '#4b5160',
+  button: '#ff3b30',
+  crate: '#c98b4f',
+  vest: '#ff7a1a',
+  vestLoader: '#c6e82c',
+  hardHat: '#ffd23f',
+  hardHatWhite: '#f4f4f2',
+  skins: ['#f1c7a1', '#c68642', '#e0ac69', '#8d5524', '#ffdbac', '#a8714a', '#d9a273'],
 } as const;
 
 const PILE_MAX = 700;
@@ -302,6 +313,108 @@ function makeTruck(parent: Entity): TruckView {
   return { root, load, yaw: -Math.PI / 2 };
 }
 
+/** Where a seated driver's root goes on the forklift (the SitDown clip ends sitting on a seat this high). */
+const SEAT: V3 = [0, 0.05, -0.2];
+
+/** A forklift with an open roof frame (so its driver shows from above); forward is +z, the forks lead. */
+function makeForklift(parent: Entity): { root: Entity; load: Entity } {
+  const root = new Entity('forklift');
+  parent.addChild(root);
+  part(root, 'box', PALETTE.forklift, [0, 0.27, 0], [0.62, 0.3, 0.86], { radius: 0.09 });
+  part(root, 'box', PALETTE.frame, [0, 0.5, -0.38], [0.6, 0.3, 0.2], { radius: 0.07 });
+  part(root, 'box', PALETTE.desk, [0, 0.44, -0.16], [0.32, 0.05, 0.28], { radius: 0.02 });
+  for (const [x, z] of [
+    [-0.29, 0.28],
+    [0.29, 0.28],
+    [-0.29, -0.3],
+    [0.29, -0.3],
+  ] as const) {
+    part(root, 'cylinder', PALETTE.tyre, [x, 0.13, z], [0.26, 0.12, 0.26], { rot: [0, 0, 90] });
+  }
+  for (const x of [-0.28, 0.28]) {
+    for (const z of [0.2, -0.36]) {
+      part(root, 'box', PALETTE.frame, [x, 0.86, z], [0.04, 0.84, 0.04], { radius: 0.015 });
+    }
+    part(root, 'box', PALETTE.frame, [x, 1.28, -0.08], [0.05, 0.05, 0.62], { radius: 0.02 });
+  }
+  part(root, 'box', PALETTE.frame, [0, 1.28, 0.2], [0.6, 0.05, 0.05], { radius: 0.02 });
+  part(root, 'box', PALETTE.frame, [0, 1.28, -0.36], [0.6, 0.05, 0.05], { radius: 0.02 });
+  // Mast and forks.
+  for (const x of [-0.16, 0.16]) {
+    part(root, 'box', PALETTE.steelDark, [x, 0.6, 0.47], [0.05, 1.05, 0.05], { radius: 0.02 });
+    part(root, 'box', PALETTE.steelDark, [x * 0.8, 0.07, 0.72], [0.06, 0.03, 0.5], { radius: 0.01, shadows: false });
+  }
+  const load = part(root, 'box', PALETTE.plank, [0, 0.16, 0.72], [0.4, 0.14, 0.46], { radius: 0.03 });
+  return { root, load };
+}
+
+interface V2 {
+  x: number;
+  z: number;
+}
+
+/**
+ * A loader's walk from the pile to their bay's truck: out to a lane just behind the trucks (so nobody walks through
+ * one), along it, and down the truck's left side to its bed. Forklifts drive the same route.
+ */
+function loaderPath(bay: number): V2[] {
+  const b = BAY_SPOTS[bay]!;
+  const laneZ = PILE.z - 1.1;
+  const x = b.x - 0.85;
+  return [
+    { x: PILE.x + 1.25, z: laneZ },
+    { x, z: laneZ },
+    { x, z: b.z + 0.35 },
+  ];
+}
+
+function pathLength(path: V2[]): number {
+  let len = 0;
+  for (let i = 1; i < path.length; i++) len += Math.hypot(path[i]!.x - path[i - 1]!.x, path[i]!.z - path[i - 1]!.z);
+  return len;
+}
+
+/** The point `s` along `path`, and the direction of its segment (unit, path order). */
+function along(path: V2[], s: number): { x: number; z: number; dx: number; dz: number } {
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1]!;
+    const b = path[i]!;
+    const len = Math.hypot(b.x - a.x, b.z - a.z);
+    if (s <= len || i === path.length - 1) {
+      const k = len > 0 ? Math.max(0, Math.min(1, s / len)) : 0;
+      return { x: a.x + (b.x - a.x) * k, z: a.z + (b.z - a.z) * k, dx: (b.x - a.x) / len, dz: (b.z - a.z) / len };
+    }
+    s -= len;
+  }
+  const p = path[0]!;
+  return { x: p.x, z: p.z, dx: 0, dz: 1 };
+}
+
+/** One per loading bay: walks planks from the pile to the truck, then drives a forklift once they are bought. */
+interface Loader {
+  w: Worker;
+  path: V2[];
+  len: number;
+  /** Distance along the path (0 at the pile, `len` beside the truck). */
+  s: number;
+  /** Heading for the truck (+1, loaded) or back to the pile (-1). */
+  dir: 1 | -1;
+  carrying: boolean;
+  picking: boolean;
+  /** The planks in their arms. */
+  load: Entity;
+  forklift: Entity;
+  forkLoad: Entity;
+  forkYaw: number;
+  riding: boolean;
+}
+
+const WALK_SPEED = 1.3;
+const FORKLIFT_SPEED = 2.6;
+const PUNCH_SPEED = 1.8;
+const PICKUP_SPEED = 1.7;
+const WORKER_TURN_RATE = 12;
+
 /** One plank's world transform per pile slot, in drop order: a sand-pile heap growing from the middle. */
 function pileTransforms(): Float32Array {
   const out = new Float32Array(PILE_MAX * 16);
@@ -369,11 +482,13 @@ export interface SawlineScene {
   project(x: number, y: number, z: number, out: { x: number; y: number }): void;
   setOverview(on: boolean): void;
   trim(): void;
+  /** A sim event the workers react to (the sawyer hits the button on a manual cut). */
+  event(e: SimEvent): void;
   readonly entityCount: number;
 }
 
-/** `shadows: false` for the dev-only low-render mode (see lowfx.ts). */
-export function createSawlineScene(app: Application, opts: { shadows?: boolean } = {}): SawlineScene {
+/** `models`: the workers (see models.ts). `shadows: false` for the dev-only low-render mode (see lowfx.ts). */
+export function createSawlineScene(app: Application, models: Models, opts: { shadows?: boolean } = {}): SawlineScene {
   device = app.graphicsDevice;
   app.scene.ambientLight = new Color(0.48, 0.5, 0.58);
 
@@ -558,16 +673,151 @@ export function createSawlineScene(app: Application, opts: { shadows?: boolean }
   const trucksRoot = new Entity('trucks');
   world.addChild(trucksRoot);
   const truckViews = new Map<number, TruckView>();
-  const forklifts = BAY_SPOTS.map(() => {
-    const f = new Entity('forklift');
-    world.addChild(f);
-    part(f, 'box', PALETTE.forklift, [0, 0.32, 0], [0.5, 0.36, 0.7], { radius: 0.1 });
-    part(f, 'box', PALETTE.frame, [0, 0.7, -0.1], [0.42, 0.4, 0.4], { radius: 0.06 });
-    part(f, 'box', PALETTE.steelDark, [0, 0.5, 0.42], [0.06, 0.8, 0.06], { radius: 0.02 });
-    part(f, 'box', PALETTE.plank, [0, 0.3, 0.55], [0.4, 0.1, 0.4], { radius: 0.03, name: 'fork-load' });
-    f.enabled = false;
-    return f;
+
+  // --- the crew ------------------------------------------------------------------------------------------
+  // Two operators at desks beside the debarker and the saw, and a loader per bay who carries planks from the pile to
+  // the truck and later drives a forklift. The debarker sits down on a crate once the ring runs itself; the sawyer keeps
+  // standing (taps still make perfect cuts with the auto saw) and hits the button on every manual cut.
+  const crew = new Entity('crew');
+  world.addChild(crew);
+  const OP_X = LINE_X + 1.85;
+  const CRATE_H = 0.34;
+  const stations = [
+    {
+      z: DEBARKER_Z + 1.0,
+      look: { body: 'worker_m', vest: PALETTE.vest, hat: PALETTE.hardHat, skin: PALETTE.skins[1] },
+    },
+    { z: SAW_Z + 1.0, look: { body: 'worker_f', vest: PALETTE.vest, hat: PALETTE.hardHat, skin: PALETTE.skins[4] } },
+  ] as const;
+  const [debarkOp, sawyer] = stations.map(({ z, look }, i) => {
+    part(crew, 'box', PALETTE.desk, [OP_X - 0.48, 0.33, z], [0.3, 0.66, 0.5], { radius: 0.06 });
+    part(crew, 'box', PALETTE.steelDark, [OP_X - 0.46, 0.68, z], [0.36, 0.05, 0.54], { radius: 0.02 });
+    part(crew, 'cylinder', PALETTE.button, [OP_X - 0.44, 0.72, z + 0.12], [0.13, 0.05, 0.13], { shadows: false });
+    if (i === 0)
+      part(crew, 'box', PALETTE.crate, [OP_X + 0.3, CRATE_H / 2, z], [0.36, CRATE_H, 0.36], { radius: 0.03 });
+    const w = makeWorker(app, models, crew, look, i ? 'sawyer' : 'debarker');
+    w.root.setLocalPosition(OP_X, 0, z);
+    w.root.setLocalEulerAngles(0, -90, 0);
+    return w;
+  }) as [Worker, Worker];
+
+  const LOADER_LOOKS: Look[] = [
+    { body: 'worker_m', vest: PALETTE.vestLoader, hat: PALETTE.hardHat, skin: PALETTE.skins[3] },
+    { body: 'worker_f', vest: PALETTE.vestLoader, hat: PALETTE.hardHatWhite, skin: PALETTE.skins[0] },
+    { body: 'worker_m', vest: PALETTE.vestLoader, hat: PALETTE.hardHatWhite, skin: PALETTE.skins[5] },
+  ];
+  const loaders: Loader[] = BAY_SPOTS.map((_, i) => {
+    const w = makeWorker(app, models, crew, LOADER_LOOKS[i]!, `loader-${i}`);
+    const load = new Entity('arms-load');
+    w.root.addChild(load);
+    for (let k = 0; k < 3; k++) {
+      part(
+        load,
+        'box',
+        k % 2 ? PALETTE.plank2 : PALETTE.plank,
+        [Math.sin(k * 1.7) * 0.02, 0.58 + k * 0.065, 0.27],
+        [0.62, 0.06, 0.2],
+        { radius: 0.02 },
+      );
+    }
+    load.enabled = false;
+    const fork = makeForklift(world);
+    fork.root.enabled = false;
+    const path = loaderPath(i);
+    const len = pathLength(path);
+    return {
+      w,
+      path,
+      len,
+      s: len,
+      dir: 1,
+      carrying: false,
+      picking: false,
+      load,
+      forklift: fork.root,
+      forkLoad: fork.load,
+      forkYaw: 0,
+      riding: false,
+    };
   });
+
+  function updateLoader(l: Loader, i: number, sim: SawlineSim, dt: number) {
+    const on = i < sim.bays;
+    const hasForklift = sim.upgrades.has('forklift');
+    l.forklift.enabled = on && hasForklift;
+    if (!l.riding) l.w.root.enabled = on;
+    if (!on) return;
+    if (hasForklift && !l.riding) {
+      // Onto the forklift: the driver rides it from now on.
+      l.riding = true;
+      l.carrying = l.picking = false;
+      l.load.enabled = false;
+      l.w.root.reparent(l.forklift);
+      l.w.root.setLocalPosition(...SEAT);
+      l.w.root.setLocalEulerAngles(0, 0, 0);
+      l.w.root.enabled = true;
+      play(l.w, 'Sit', time, true);
+    }
+    const truck = sim.trucks.find(
+      (tk) => tk.state === 'bay' && tk.slot === i && Math.abs(tk.z - BAY_SPOTS[i]!.z) < 0.01,
+    );
+    const playing = sim.phase === 'playing';
+    const busy = playing && truck !== undefined && sim.pile > 0;
+    let moved = 0;
+    if (dt > 0 && playing) {
+      const speed = l.riding ? FORKLIFT_SPEED : WALK_SPEED;
+      if (l.picking) {
+        if (time >= l.w.busyUntil) {
+          l.picking = false;
+          l.carrying = true;
+          l.dir = 1;
+        }
+      } else if (busy || l.s < l.len) {
+        // Busy: back and forth. Otherwise: back to the bay to wait for the next truck.
+        const dir = busy ? l.dir : 1;
+        const s = Math.max(0, Math.min(l.len, l.s + dir * speed * dt));
+        moved = s - l.s;
+        l.s = s;
+        if (s >= l.len) {
+          l.carrying = false;
+          if (busy) l.dir = -1;
+        } else if (s <= 0) {
+          l.dir = 1;
+          if (!l.riding) {
+            l.picking = true;
+            oneShot(l.w, models, 'PickUp', time, PICKUP_SPEED);
+          }
+        }
+      }
+    }
+    const p = along(l.path, l.s);
+    const k = dt > 0 ? 1 - Math.exp(-dt * WORKER_TURN_RATE) : 1;
+    if (l.riding) {
+      // Forks first towards the truck, reversing back to the pile.
+      l.forklift.setLocalPosition(p.x, 0, p.z);
+      l.forkYaw += angleTo(l.forkYaw, Math.atan2(p.dx, p.dz)) * k;
+      l.forklift.setLocalEulerAngles(0, (l.forkYaw * 180) / Math.PI, 0);
+      l.forkLoad.enabled = busy && l.dir > 0;
+      play(l.w, 'Sit', time);
+      return;
+    }
+    l.w.root.setLocalPosition(p.x, 0, p.z);
+    const want =
+      moved !== 0
+        ? Math.atan2(p.dx * Math.sign(moved), p.dz * Math.sign(moved))
+        : l.picking
+          ? Math.atan2(PILE.x - p.x, PILE.z - p.z)
+          : l.s >= l.len
+            ? Math.PI / 2
+            : null;
+    if (want !== null) l.w.yaw += angleTo(l.w.yaw, want) * k;
+    l.w.root.setLocalEulerAngles(0, (l.w.yaw * 180) / Math.PI, 0);
+    l.load.enabled = l.carrying;
+    const state =
+      sim.phase === 'over' ? 'Victory' : moved !== 0 ? (l.carrying ? 'Carry' : 'Walk') : l.carrying ? 'Hold' : 'Idle';
+    play(l.w, state, time);
+    if (moved !== 0 && time >= l.w.busyUntil) l.w.model.anim!.speed = WALK_SPEED / WALK_STRIDE;
+  }
 
   const chips: Chip[] = [];
   const chipPool: Entity[] = [];
@@ -589,7 +839,7 @@ export function createSawlineScene(app: Application, opts: { shadows?: boolean }
 
   const scene: SawlineScene = {
     get entityCount() {
-      return itemViews.size * 40 + truckViews.size * 14 + chips.length + 600;
+      return itemViews.size * 40 + truckViews.size * 14 + chips.length + 700;
     },
     reset(sim) {
       for (const v of itemViews.values()) v.root.destroy();
@@ -600,6 +850,19 @@ export function createSawlineScene(app: Application, opts: { shadows?: boolean }
       chipPool.push(...chips.map((c) => c.e));
       chips.length = 0;
       overview = false;
+      resetWorker(debarkOp);
+      resetWorker(sawyer);
+      for (const l of loaders) {
+        if (l.riding) {
+          l.w.root.reparent(crew);
+          l.riding = false;
+        }
+        l.s = l.len;
+        l.dir = 1;
+        l.carrying = l.picking = false;
+        l.w.yaw = Math.PI / 2;
+        resetWorker(l.w);
+      }
       scene.sync(sim, 0);
     },
     sync(sim, dt) {
@@ -685,26 +948,11 @@ export function createSawlineScene(app: Application, opts: { shadows?: boolean }
         }
       }
 
-      // Forklifts shuttle between the pile and each loading truck.
-      const hasForklift = sim.upgrades.has('forklift');
-      forklifts.forEach((f, i) => {
-        const truck = sim.trucks.find(
-          (tk) => tk.state === 'bay' && tk.slot === i && Math.abs(tk.z - BAY_SPOTS[i]!.z) < 0.01,
-        );
-        f.enabled = hasForklift && i < sim.bays;
-        if (!f.enabled) return;
-        const bay = BAY_SPOTS[i]!;
-        const busy = truck !== undefined && sim.pile > 0;
-        const phase = busy ? (time * 0.9 + i * 0.37) % 1 : 0;
-        const k = phase < 0.5 ? phase * 2 : 2 - phase * 2;
-        const fromX = PILE.x + 1.2;
-        const fromZ = PILE.z + 0.2 + i * 0.25;
-        const toX = bay.x - 0.85;
-        const toZ = bay.z - 0.6;
-        f.setLocalPosition(fromX + (toX - fromX) * k, 0, fromZ + (toZ - fromZ) * k);
-        f.setLocalEulerAngles(0, phase < 0.5 ? 90 : -90, 0);
-        f.findByName('fork-load')!.enabled = busy && phase < 0.5;
-      });
+      // The crew.
+      const over = sim.phase === 'over';
+      play(debarkOp, over ? 'Victory' : sim.autoDebark ? 'Sit' : sim.ringRunning ? 'Press' : 'Idle', time);
+      play(sawyer, over ? 'Victory' : 'Idle', time);
+      loaders.forEach((l, i) => updateLoader(l, i, sim, dt));
 
       // Chips.
       for (let i = chips.length - 1; i >= 0; i--) {
@@ -760,6 +1008,12 @@ export function createSawlineScene(app: Application, opts: { shadows?: boolean }
     },
     setOverview(on) {
       overview = on;
+    },
+    event(e) {
+      // A manual cut: the sawyer slams the button (a little jump every 5th perfect in a row).
+      if (e.type !== 'cut' || e.auto) return;
+      if (e.quality === 'perfect' && e.combo > 0 && e.combo % 5 === 0) oneShot(sawyer, models, 'Jump', time, 1.4);
+      else oneShot(sawyer, models, 'Punch', time, PUNCH_SPEED);
     },
     trim() {
       if (lowFx) return;
