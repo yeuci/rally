@@ -13,6 +13,7 @@ import { memberSince, playsLabel, timeAgo } from '@/lib/format';
 import { toggleHaptic } from '@/lib/haptics';
 import { coverUriFor } from '@/lib/game-art';
 import { avatarRowCapacity, FRIEND_CELL_WIDTH, ROW_GAP } from '@/lib/layout';
+import { levelA11y, type LevelProgress } from '@/lib/levels-model';
 import type { Profile } from '@/lib/profile';
 import { formatScore, type PublicStats } from '@/lib/progress-format';
 import type { FriendSummary, PlayedGame } from '@/lib/social';
@@ -36,19 +37,25 @@ const TABULAR: TextStyle = { fontVariant: ['tabular-nums'] };
  *
  * The player's equipped cosmetics (coins shop) show here for everyone who may see them: the banner as a gradient band
  * behind the top half of the avatar (it extends into the screen's top padding, so the layout does not move when it
- * arrives), the frame on the avatar, the name colour and badge on the display name.
+ * arrives), the frame on the avatar, the name colour and badge on the display name. With `progress` (the account
+ * level, when the viewer may see it) the avatar's ring shows the XP into the level with a level badge.
  */
 export function ProfileHeader({
   profile: p,
   badge,
+  progress,
   children,
 }: {
   profile: Profile | null | undefined;
   badge?: string | null;
+  /** The player's account level: a progress ring with a level badge on the avatar, and "Level 5" by the join date. */
+  progress?: LevelProgress | null;
   children?: ReactNode;
 }) {
   const look = useCosmetics(p?.id);
   const outer = 96 + (3 + 4) * 2;
+  const since = p ? memberSince(p.created_at) : '';
+  const meta = progress ? [`Level ${progress.level}`, since].filter(Boolean).join(' · ') : since;
   return (
     <View className="items-center gap-4">
       {look?.banner ? (
@@ -61,12 +68,12 @@ export function ProfileHeader({
           delayLongPress={350}
           haptic={false}
           accessibilityRole="button"
-          accessibilityLabel={`${p.display_name || p.username}, @${p.username}`}
+          accessibilityLabel={`${p.display_name || p.username}, @${p.username}${progress ? `, ${levelA11y(progress)}` : ''}`}
           accessibilityHint="Long press to copy the username"
           accessibilityActions={COPY_ACTIONS}
           onAccessibilityAction={(e) => e.nativeEvent.actionName === 'longpress' && void copyHandle(p.username)}
         >
-          <ProfileAvatar profile={p} size="xl" ring badge={badge} />
+          <ProfileAvatar profile={p} size="xl" ring badge={badge} progress={progress} />
         </TapPressable>
       ) : (
         <ProfileAvatarSkeleton size="xl" ring />
@@ -83,7 +90,7 @@ export function ProfileHeader({
           />
           <Text className="text-muted-foreground text-[15px] font-medium leading-6">@{p.username}</Text>
           {/* Quieter than the handle: smaller, dimmed, a hair apart. Same 18 pt box as its skeleton line. */}
-          <Text className="text-muted-foreground mt-0.5 text-xs leading-[18px] opacity-75">{memberSince(p.created_at)}</Text>
+          <Text className="text-muted-foreground mt-0.5 text-xs leading-[18px] opacity-75">{meta}</Text>
         </View>
       ) : (
         <View className="items-center">

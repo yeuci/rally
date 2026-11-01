@@ -103,6 +103,8 @@ export interface GunRunScene {
   update(dt: number): void;
   /** Camera distance multiplier (store art: closer for the icon). Default 1. */
   setZoom(k: number): void;
+  /** The game menu: shadows and bursts / smoke / shake (graphics quality, live) and the "Screen shake" setting. */
+  setQuality(q: { shadows: boolean; effects: boolean; shake: boolean }): void;
   /** Drop pooled effects (lowMemory). */
   trim(): void;
   readonly drawnPlayers: number;
@@ -169,6 +171,9 @@ export function createGunRunScene(
   { shadows = true, effects = true }: SceneOptions = {},
 ): GunRunScene {
   const device = app.graphicsDevice;
+  /** Bursts, smoke, scorches and shake (the game menu's graphics, live), and the "Screen shake" setting. */
+  let fx = effects;
+  let shakeOn = true;
   app.scene.ambientLight = new Color(0.52, 0.53, 0.58);
   // One directional light: clustered lighting buys nothing here and costs every fragment (a lot on weak GPUs).
   app.scene.clusteredLightingEnabled = false;
@@ -323,12 +328,13 @@ export function createGunRunScene(
   const fire = pool(MAX_BOOMS * 5, () => effectEntity('sphere', glow(new Color(1, 0.5, 0.12))));
   const shocks = pool(MAX_BOOMS, () => effectEntity('cylinder', glow(new Color(1, 0.75, 0.4))));
   const smokeBase = glow(new Color(0.42, 0.4, 0.38), { additive: false, opacity: 0.7 });
-  const smoke = effects ? pool(MAX_BOOMS * 3, () => effectEntity('sphere', smokeBase)) : [];
-  const bursts = effects ? pool(MAX_BURSTS, () => effectEntity('box', material(new Color(1, 1, 1)))) : [];
+  // Allocated even when effects start off: the game menu can turn them on mid-match.
+  const smoke = pool(MAX_BOOMS * 3, () => effectEntity('sphere', smokeBase));
+  const bursts = pool(MAX_BURSTS, () => effectEntity('box', material(new Color(1, 1, 1))));
   const scorchMat = glow(new Color(0, 0, 0), { additive: false, opacity: 0.35 });
   scorchMat.emissive = new Color(0.05, 0.04, 0.03);
   scorchMat.update();
-  const scorches = effects ? pool(MAX_SCORCH, () => effectEntity('cylinder', scorchMat)) : [];
+  const scorches = pool(MAX_SCORCH, () => effectEntity('cylinder', scorchMat));
   const take = (list: Effect[]) => {
     let best = list[0]!;
     for (const f of list) {
@@ -506,7 +512,7 @@ export function createGunRunScene(
       f.e.setLocalScale(0.05, 0.05, 1.1);
     },
     hit(x, y, slot) {
-      if (!effects) return;
+      if (!fx) return;
       const c = rgb(PALETTE[slot % PALETTE.length] ?? '#ffffff');
       for (let i = 0; i < 5; i++) {
         const b = take(bursts);
@@ -541,7 +547,7 @@ export function createGunRunScene(
       start(s, 0.25);
       s.size = radius * 2;
       s.e.setPosition(x, 0.06, y);
-      if (!effects) return;
+      if (!fx) return;
       for (let i = 0; i < 3; i++) {
         const p = take(smoke);
         start(p, 1.6);
@@ -558,7 +564,7 @@ export function createGunRunScene(
       sc.e.setLocalScale(sc.size, 0.004, sc.size);
     },
     shake(amount) {
-      if (!effects) return;
+      if (!fx || !shakeOn) return;
       shakeAmp = Math.min(0.7, Math.max(shakeAmp, amount));
     },
     labelAnchor(id, out) {
@@ -684,6 +690,12 @@ export function createGunRunScene(
           f.e.enabled = false;
         }
       }
+    },
+    setQuality(q) {
+      sun.light!.castShadows = q.shadows;
+      fx = q.effects;
+      shakeOn = q.shake;
+      if (!fx || !shakeOn) shakeAmp = 0;
     },
   };
 }

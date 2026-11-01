@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { HostBridge } from '../src/game-host/bridge';
-import { createHostHandlers, PROGRESS_LIMITS_PER_MINUTE, SESSION_LIMITS_PER_MINUTE, type HostHandlerDeps } from '../src/game-host/handlers';
+import {
+  createHostHandlers,
+  MENU_DEFINES_PER_MINUTE,
+  PROGRESS_LIMITS_PER_MINUTE,
+  SESSION_LIMITS_PER_MINUTE,
+  type HostHandlerDeps,
+} from '../src/game-host/handlers';
 import { isPrivateNetworkHost, mayAttachToken } from '../src/game-host/matchmake';
 import {
   createMemoryProgressStore,
@@ -19,7 +25,7 @@ import { BUNDLE, NONCE, Outbox, clock, launchContext, req } from './helpers';
 
 function setup(overrides: Partial<HostHandlerDeps> = {}) {
   const out = new Outbox();
-  const calls = { ready: 0, exit: [] as string[], loading: [] as number[] };
+  const calls = { ready: 0, exit: [] as string[], loading: [] as number[], labels: [] as (string | undefined)[] };
   const handlers = createHostHandlers({
     getLaunchContext: () => launchContext,
     saves: createMemorySaveStore(),
@@ -28,7 +34,10 @@ function setup(overrides: Partial<HostHandlerDeps> = {}) {
     getPlaySessionId: async () => 'session-1',
     matchmaking: null,
     onReady: () => (calls.ready += 1),
-    onLoading: (p) => calls.loading.push(p),
+    onLoading: (p, label) => {
+      calls.loading.push(p);
+      calls.labels.push(label);
+    },
     onExit: (r) => calls.exit.push(r),
     ...overrides,
   });
@@ -65,11 +74,19 @@ test('session.join: NOT_READY before ready, NOT_SUPPORTED without a server, matc
     return new Response(JSON.stringify({ sessionId: 's1', room: { roomId: 'r1' } }), { status: 200 });
   }) as typeof fetch;
   const multi = setup({
-    matchmaking: { httpUrl: 'https://gs.example.com', wsUrl: 'wss://gs.example.com', roomName: 'arena', getAccessToken: async () => 'jwt' },
+    matchmaking: {
+      httpUrl: 'https://gs.example.com',
+      wsUrl: 'wss://gs.example.com',
+      roomName: 'arena',
+      getAccessToken: async () => 'jwt',
+    },
   });
   await multi.call('ready', { sdkVersion: '1' });
   const res = await multi.call('session.join');
-  assert.deepEqual(res.params, { endpoint: 'wss://gs.example.com', seatReservation: { sessionId: 's1', room: { roomId: 'r1' } } });
+  assert.deepEqual(res.params, {
+    endpoint: 'wss://gs.example.com',
+    seatReservation: { sessionId: 's1', room: { roomId: 'r1' } },
+  });
   assert.deepEqual(seen, { url: 'https://gs.example.com/matchmake/joinOrCreate/arena', auth: 'Bearer jwt' });
 });
 
@@ -84,7 +101,13 @@ test('session.join never sends the JWT over plain http, except to a private host
     tokenReads += 1;
     return 'jwt';
   };
-  const target = (httpUrl: string, allowPrivateHttp?: boolean) => ({ httpUrl, wsUrl: 'ws://x', roomName: 'arena', getAccessToken, allowPrivateHttp });
+  const target = (httpUrl: string, allowPrivateHttp?: boolean) => ({
+    httpUrl,
+    wsUrl: 'ws://x',
+    roomName: 'arena',
+    getAccessToken,
+    allowPrivateHttp,
+  });
 
   const prod = setup({ matchmaking: target('http://10.0.0.201:2567') });
   await prod.call('ready', { sdkVersion: '1' });
@@ -111,10 +134,29 @@ test('mayAttachToken / isPrivateNetworkHost', () => {
   assert.equal(mayAttachToken('wss://gs.example.com:443/x', false), true);
   assert.equal(mayAttachToken('http://gs.example.com', true), false);
   assert.equal(mayAttachToken('http://localhost:2567', false), false);
-  for (const ok of ['http://localhost:2567', 'http://127.0.0.1:2567', 'http://10.0.2.2:2567', 'http://192.168.1.20', 'http://172.16.0.1', 'http://172.31.255.255:2567', 'http://[::1]:2567']) {
+  for (const ok of [
+    'http://localhost:2567',
+    'http://127.0.0.1:2567',
+    'http://10.0.2.2:2567',
+    'http://192.168.1.20',
+    'http://172.16.0.1',
+    'http://172.31.255.255:2567',
+    'http://[::1]:2567',
+  ]) {
     assert.equal(mayAttachToken(ok, true), true, ok);
   }
-  for (const bad of ['http://172.32.0.1', 'http://192.169.0.1', 'http://11.0.0.1', 'http://10.0.0.256', 'http://10.0.0.1.evil.com', 'http://user@10.0.0.1', 'https://user:pw@gs.example.com', 'ftp://10.0.0.1', '10.0.0.1:2567', '']) {
+  for (const bad of [
+    'http://172.32.0.1',
+    'http://192.169.0.1',
+    'http://11.0.0.1',
+    'http://10.0.0.256',
+    'http://10.0.0.1.evil.com',
+    'http://user@10.0.0.1',
+    'https://user:pw@gs.example.com',
+    'ftp://10.0.0.1',
+    '10.0.0.1:2567',
+    '',
+  ]) {
     assert.equal(mayAttachToken(bad, true), false, bad);
   }
   assert.equal(isPrivateNetworkHost('LOCALHOST'), true);
@@ -125,7 +167,10 @@ test('session.join is single-flight and limited per minute', async () => {
   const c = clock();
   const pending: ((r: Response) => void)[] = [];
   globalThis.fetch = (() => new Promise<Response>((r) => pending.push(r))) as typeof fetch;
-  const { call } = setup({ now: c.now, matchmaking: { httpUrl: 'https://gs.example.com', wsUrl: 'wss://gs.example.com', roomName: 'arena' } });
+  const { call } = setup({
+    now: c.now,
+    matchmaking: { httpUrl: 'https://gs.example.com', wsUrl: 'wss://gs.example.com', roomName: 'arena' },
+  });
   await call('ready', { sdkVersion: '1' });
 
   const inFlight = call('session.join');
@@ -148,7 +193,8 @@ test('session.join is single-flight and limited per minute', async () => {
 test('save.get is rate limited', async () => {
   const c = clock();
   const { call } = setup({ now: c.now });
-  for (let i = 0; i < SESSION_LIMITS_PER_MINUTE.saveGet; i++) assert.equal((await call('save.get', { slot: 'a' })).error, undefined);
+  for (let i = 0; i < SESSION_LIMITS_PER_MINUTE.saveGet; i++)
+    assert.equal((await call('save.get', { slot: 'a' })).error, undefined);
   assert.equal((await call('save.get', { slot: 'a' })).error?.code, 'RATE_LIMITED');
 });
 
@@ -190,6 +236,83 @@ test('capability methods stay NOT_SUPPORTED; ui.loading, party.get, exit keep M0
   assert.deepEqual(calls.exit, ['done']);
 });
 
+test('ui.loading passes the trimmed label on; an empty or overlong label is refused (and changes nothing)', async () => {
+  const { call, calls } = setup();
+  assert.equal((await call('ui.loading', { progress: 0.25, label: '  Downloading characters ' })).params, null);
+  assert.equal((await call('ui.loading', { progress: 0.3 })).params, null);
+  assert.equal((await call('ui.loading', { progress: 0.4, label: '' })).error?.code, 'INVALID_PARAMS');
+  assert.equal((await call('ui.loading', { progress: 0.4, label: 'x'.repeat(61) })).error?.code, 'INVALID_PARAMS');
+  assert.deepEqual(calls.loading, [0.25, 0.3]);
+  assert.deepEqual(calls.labels, ['Downloading characters', undefined]);
+});
+
+test('game menu methods: NOT_SUPPORTED on a host without the menu; menu.define validated, answered with values', async () => {
+  const bare = setup();
+  assert.equal((await bare.call('menu.define', { settings: [], help: [] })).error?.code, 'NOT_SUPPORTED');
+  assert.equal((await bare.call('menu.open', {})).error?.code, 'NOT_SUPPORTED');
+  assert.equal((await bare.call('haptics', { kind: 'light' })).error?.code, 'NOT_SUPPORTED');
+
+  const defined: unknown[] = [];
+  let opened = 0;
+  const { call } = setup({
+    onMenuDefine: (def) => {
+      defined.push(def);
+      return { aimAssist: false };
+    },
+    onMenuOpen: () => (opened += 1),
+  });
+  const ok = await call('menu.define', {
+    settings: [{ type: 'toggle', key: 'aimAssist', label: 'Aim assist', default: true }],
+    help: [{ title: 'Move', text: 'Drag the left half.' }],
+  });
+  assert.deepEqual(ok.params, { values: { aimAssist: false } });
+  assert.equal(
+    (await call('menu.define', { settings: [{ type: 'toggle', key: 'Bad Key', label: 'x', default: true }] })).error
+      ?.code,
+    'INVALID_PARAMS',
+  );
+  const dup = { type: 'toggle', key: 'a', label: 'A', default: true };
+  assert.equal((await call('menu.define', { settings: [dup, dup] })).error?.code, 'INVALID_PARAMS');
+  assert.deepEqual(
+    (await call('menu.define', {})).params,
+    { values: { aimAssist: false } },
+    'settings and help default to []',
+  );
+  assert.deepEqual(defined.at(-1), { settings: [], help: [] });
+  assert.equal((await call('menu.open', {})).params, null);
+  assert.equal(opened, 1);
+});
+
+test('menu.define is rate limited (a game cannot loop it)', async () => {
+  const c = clock();
+  const { call } = setup({ now: c.now, onMenuDefine: () => ({}) });
+  for (let i = 0; i < MENU_DEFINES_PER_MINUTE; i++) assert.equal((await call('menu.define', {})).error, undefined);
+  assert.equal((await call('menu.define', {})).error?.code, 'RATE_LIMITED');
+});
+
+test('haptics: played while the player has them on, dropped (no error) while off', async () => {
+  let on = true;
+  const played: string[] = [];
+  const { call } = setup({ haptics: { enabled: () => on, play: (k) => played.push(k) } });
+  assert.equal((await call('haptics', { kind: 'success' })).params, null);
+  on = false;
+  assert.equal((await call('haptics', { kind: 'heavy' })).params, null);
+  assert.deepEqual(played, ['success']);
+  assert.equal((await call('haptics', { kind: 'boom' })).error?.code, 'INVALID_PARAMS');
+});
+
+test('ready waits for the saved settings before answering', async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const { call, calls } = setup({ beforeReady: () => gate });
+  const answer = call('ready', { sdkVersion: '1' });
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(calls.ready, 0);
+  release();
+  assert.deepEqual((await answer).params, launchContext);
+  assert.equal(calls.ready, 1);
+});
+
 test('TokenBucket refills continuously up to capacity', () => {
   const c = clock();
   const b = new TokenBucket(2, 1000, c.now);
@@ -209,7 +332,10 @@ test('mapSaveError maps save_put errors to bridge codes', () => {
   assert.equal(mapSaveError({ message: 'INVALID: data must be JSON', code: '23514' }).code, 'INVALID_PARAMS');
   assert.equal(mapSaveError({ message: 'UNAUTHENTICATED', code: '42501' }).code, 'INTERNAL');
   assert.equal(mapSaveError({ message: 'RATE_LIMITED: save_put', code: 'P0001' }).code, 'RATE_LIMITED');
-  assert.equal(mapSaveError({ message: 'INVALID: at most 8 save slots per game', code: '22023' }).code, 'INVALID_PARAMS');
+  assert.equal(
+    mapSaveError({ message: 'INVALID: at most 8 save slots per game', code: '22023' }).code,
+    'INVALID_PARAMS',
+  );
 });
 
 test('resetHandshake lets a reloaded page call ready() again', async () => {
@@ -231,8 +357,17 @@ test('resetHandshake lets a reloaded page call ready() again', async () => {
 });
 
 /** Records what the handlers pass to the store; answers like the RPCs would. */
-function recordingStore(submit: (boardId: string, score: number) => { accepted: boolean; best: number | null } = (_b, score) => ({ accepted: true, best: score })) {
-  const seen = { submit: [] as [string, number, string | null][], top: [] as [string, string, number][], unlock: [] as [string, string | null][] };
+function recordingStore(
+  submit: (boardId: string, score: number) => { accepted: boolean; best: number | null } = (_b, score) => ({
+    accepted: true,
+    best: score,
+  }),
+) {
+  const seen = {
+    submit: [] as [string, number, string | null][],
+    top: [] as [string, string, number][],
+    unlock: [] as [string, string | null][],
+  };
   const store: ProgressStore = {
     async submitScore(boardId, score, sessionId) {
       seen.submit.push([boardId, score, sessionId]);
@@ -260,7 +395,10 @@ test('leaderboard.submit passes the play session id, awaiting a start still in f
   assert.equal(seen.submit.length, 0, 'waits for the session');
   resolveSession('sess-42');
   assert.deepEqual((await pending).params, { accepted: true, best: 25 });
-  assert.deepEqual((await call('leaderboard.submit', { boardId: 'high', score: 3 })).params, { accepted: false, best: 10 });
+  assert.deepEqual((await call('leaderboard.submit', { boardId: 'high', score: 3 })).params, {
+    accepted: false,
+    best: 10,
+  });
   assert.deepEqual(seen.submit, [
     ['high', 25, 'sess-42'],
     ['high', 3, 'sess-42'],
@@ -280,7 +418,10 @@ test('leaderboard.submit and achievement.unlock are NOT_SUPPORTED for multiplaye
 
   const solo = setup({ progress: store });
   assert.equal((await solo.call('leaderboard.submit', { boardId: '', score: 1 })).error?.code, 'INVALID_PARAMS');
-  assert.equal((await solo.call('leaderboard.submit', { boardId: 'b'.repeat(200), score: 1 })).error?.code, 'INVALID_PARAMS');
+  assert.equal(
+    (await solo.call('leaderboard.submit', { boardId: 'b'.repeat(200), score: 1 })).error?.code,
+    'INVALID_PARAMS',
+  );
   assert.equal((await solo.call('leaderboard.submit', { boardId: 'high', score: 'x' })).error?.code, 'INVALID_PARAMS');
   assert.equal((await solo.call('achievement.unlock', { key: '' })).error?.code, 'INVALID_PARAMS');
 });
@@ -309,9 +450,11 @@ test('progress methods are rate limited per method (submit 30, top 60, unlock 60
   }
   assert.equal((await call('leaderboard.submit', { boardId: 'b', score: 99 })).error?.code, 'RATE_LIMITED');
   // Separate buckets: reads and unlocks are unaffected by the exhausted submit bucket.
-  for (let i = 0; i < PROGRESS_LIMITS_PER_MINUTE.top; i++) assert.equal((await call('leaderboard.top', { boardId: 'b' })).error, undefined);
+  for (let i = 0; i < PROGRESS_LIMITS_PER_MINUTE.top; i++)
+    assert.equal((await call('leaderboard.top', { boardId: 'b' })).error, undefined);
   assert.equal((await call('leaderboard.top', { boardId: 'b' })).error?.code, 'RATE_LIMITED');
-  for (let i = 0; i < PROGRESS_LIMITS_PER_MINUTE.unlock; i++) assert.equal((await call('achievement.unlock', { key: `k${i}` })).error, undefined);
+  for (let i = 0; i < PROGRESS_LIMITS_PER_MINUTE.unlock; i++)
+    assert.equal((await call('achievement.unlock', { key: `k${i}` })).error, undefined);
   assert.equal((await call('achievement.unlock', { key: 'k' })).error?.code, 'RATE_LIMITED');
   c.advance(2_000); // submit refills one token every 2 s
   assert.equal((await call('leaderboard.submit', { boardId: 'b', score: 100 })).error, undefined);
@@ -339,9 +482,18 @@ test('store errors reach the game with their bridge code', async () => {
 });
 
 test('RPC result mapping: submit (accepted=false keeps best, null best), top rows, unlock', () => {
-  assert.deepEqual(mapSubmitResult({ accepted: true, best: 120, rank: 3, reason: null }), { accepted: true, best: 120 });
-  assert.deepEqual(mapSubmitResult({ accepted: false, best: 150, rank: 2, reason: 'not_best' }), { accepted: false, best: 150 });
-  assert.deepEqual(mapSubmitResult({ accepted: false, best: null, rank: null, reason: 'bounds' }), { accepted: false, best: null });
+  assert.deepEqual(mapSubmitResult({ accepted: true, best: 120, rank: 3, reason: null }), {
+    accepted: true,
+    best: 120,
+  });
+  assert.deepEqual(mapSubmitResult({ accepted: false, best: 150, rank: 2, reason: 'not_best' }), {
+    accepted: false,
+    best: 150,
+  });
+  assert.deepEqual(mapSubmitResult({ accepted: false, best: null, rank: null, reason: 'bounds' }), {
+    accepted: false,
+    best: null,
+  });
   assert.deepEqual(mapSubmitResult({ accepted: false, reason: 'rate_limited' }), { accepted: false, best: null });
   assert.deepEqual(mapSubmitResult(null), { accepted: false, best: null });
   assert.deepEqual(mapSubmitResult({ accepted: true, best: '42.5' }), { accepted: true, best: 42.5 });
@@ -370,7 +522,10 @@ test('mapProgressError: RATE_LIMITED, INVALID → INVALID_PARAMS, ANONYMOUS_FORB
   const anon = mapProgressError({ message: 'ANONYMOUS_FORBIDDEN: link an account first', code: '42501' });
   assert.equal(anon.code, 'NOT_SUPPORTED');
   assert.equal(anon.message, 'ANONYMOUS_FORBIDDEN: link an account first');
-  assert.equal(mapProgressError({ message: 'INVALID: score must be a finite number >= 0', code: '22023' }).code, 'INVALID_PARAMS');
+  assert.equal(
+    mapProgressError({ message: 'INVALID: score must be a finite number >= 0', code: '22023' }).code,
+    'INVALID_PARAMS',
+  );
   assert.equal(mapProgressError({ message: 'NOT_FOUND: no play session', code: 'P0002' }).code, 'INTERNAL');
   assert.equal(mapProgressError({ message: 'UNAUTHENTICATED', code: '42501' }).code, 'INTERNAL');
 });
@@ -380,7 +535,9 @@ test('memory progress store (Developer launcher) keeps the best score and unlock
   assert.deepEqual(await store.top('b', 'global', 10), { entries: [] });
   assert.deepEqual(await store.submitScore('b', 10, null), { accepted: true, best: 10 });
   assert.deepEqual(await store.submitScore('b', 5, null), { accepted: false, best: 10 });
-  assert.deepEqual(await store.top('b', 'global', 10), { entries: [{ rank: 1, userId: 'dev-user', username: 'dev-user', score: 10 }] });
+  assert.deepEqual(await store.top('b', 'global', 10), {
+    entries: [{ rank: 1, userId: 'dev-user', username: 'dev-user', score: 10 }],
+  });
   assert.deepEqual(await store.unlockAchievement('k', null), { unlocked: true, alreadyHad: false });
   assert.deepEqual(await store.unlockAchievement('k', null), { unlocked: true, alreadyHad: true });
 });
@@ -412,8 +569,14 @@ test('achievement.unlock waits for the play session start and passes its id; wit
 });
 
 test('recordPlayRefusal: the refusals record_play answers by design', () => {
-  assert.equal(recordPlayRefusal('CONFLICT: a play session is open for this game, end it with end_play_session'), 'conflict');
-  assert.equal(recordPlayRefusal('RATE_LIMITED: too many plays recorded for this game, try again later'), 'rate-limited');
+  assert.equal(
+    recordPlayRefusal('CONFLICT: a play session is open for this game, end it with end_play_session'),
+    'conflict',
+  );
+  assert.equal(
+    recordPlayRefusal('RATE_LIMITED: too many plays recorded for this game, try again later'),
+    'rate-limited',
+  );
   assert.equal(recordPlayRefusal('NOT_FOUND: game'), 'not-found');
   assert.equal(recordPlayRefusal('Network request failed'), null);
   assert.equal(recordPlayRefusal('the CONFLICT word later'), null);

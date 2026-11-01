@@ -35,3 +35,13 @@ export function selectionHaptic(): void {
   if (!prefs.get().haptics) return;
   void Haptics.selectionAsync().catch(() => {});
 }
+
+/** Something earned (a level-up, a claimed daily challenge): the system "success" notification. */
+export function successHaptic(): void {
+  if (!prefs.get().haptics) return;
+  const done =
+    Platform.OS === 'android'
+      ? Haptics.performAndroidHapticsAsync(Haptics.AndroidHaptics.Confirm)
+      : Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  void done.catch(() => {});
+}

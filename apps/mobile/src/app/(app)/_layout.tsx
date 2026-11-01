@@ -7,6 +7,7 @@ import { CoinToastHost } from '@/components/rally/coins';
 import { FriendRequestPrompt } from '@/components/rally/friend-request-sheet';
 import { RejoinPrompt } from '@/components/rally/rejoin-sheet';
 import { ToastHost } from '@/components/rally/toast';
+import { VotePrompt } from '@/components/rally/vote-prompt';
 import { useSession } from '@/lib/auth/session';
 import { recoverPlaySession } from '@/lib/launch';
 import { usePresenceHeartbeat } from '@/lib/presence';
@@ -61,6 +62,7 @@ export default function AppLayout() {
         <Stack.Screen name="game/[id]/rooms" options={{ title: 'Rooms' }} />
         <Stack.Screen name="shop" options={{ title: 'Shop' }} />
         <Stack.Screen name="coins" options={{ title: 'Coin history' }} />
+        <Stack.Screen name="bug-reports" options={{ title: 'Bug reports' }} />
       </Stack>
       {/* Over the stack: the toast ("That match has ended") and the rejoin sheet (a match left within its grace,
           m3-phase2 §4; a modal, so it also covers the drawer). Not over a running game: the play route is a native
@@ -71,6 +73,8 @@ export default function AppLayout() {
       <RejoinPrompt />
       {/* "sloth wants to be your friend" while no game is open (the play route's own host covers the game). */}
       <FriendRequestPrompt placement="shell" />
+      {/* "Did you enjoy Sumo?" after a match, once the game screen has closed (lib/votes-model.ts has the rules). */}
+      <VotePrompt />
     </AppDrawer>
   );
 }

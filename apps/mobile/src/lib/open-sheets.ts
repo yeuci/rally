@@ -25,6 +25,9 @@ function subscribe(l: () => void) {
 
 const anyOpen = () => open.size > 0;
 
+/** Non-hook read, for code that decides once whether to present a sheet (the vote prompt, shake to report). */
+export const isAnySheetOpen = anyOpen;
+
 /** True while another (registered) sheet is open. */
 export function useOtherSheetOpen(): boolean {
   return useSyncExternalStore(subscribe, anyOpen, anyOpen);

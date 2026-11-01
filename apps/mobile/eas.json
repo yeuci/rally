@@ -15,7 +15,7 @@
     "preview": {
       "distribution": "internal",
       "channel": "preview",
-      "env": { "EXPO_PUBLIC_COLYSEUS_URL": "https://game.<your-domain>" },
+      "env": { "EXPO_PUBLIC_COLYSEUS_URL": "https://game.<your-domain>", "EXPO_PUBLIC_BUG_REPORTS": "1" },
       "android": { "buildType": "apk" }
     },
     "production": {

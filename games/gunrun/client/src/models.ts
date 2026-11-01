@@ -1,4 +1,12 @@
-import { clipsOf, containerTexture, loadModels, pinnedMesh, readMeshData, type MeshData } from '@rally/game-kit';
+import {
+  clipsOf,
+  containerTexture,
+  loadModels,
+  pinnedMesh,
+  readMeshData,
+  type DownloadProgress,
+  type MeshData,
+} from '@rally/game-kit';
 import type { AnimTrack, Application, ContainerResource, Mesh, Texture } from 'playcanvas';
 import type { WeaponId } from '@rally/game-gunrun-server';
 import { MODELS } from './models/meta.gen.ts';
@@ -45,8 +53,11 @@ export interface Models {
   fence: Texture;
 }
 
-/** Load everything (in parallel); `progress` gets 0…1. */
-export async function loadGunRunModels(app: Application, progress: (f: number) => void = () => {}): Promise<Models> {
+/** Load everything (in parallel); `progress` gets 0…1 and the download bytes so far. */
+export async function loadGunRunModels(
+  app: Application,
+  progress: (f: number, bytes: DownloadProgress) => void = () => {},
+): Promise<Models> {
   const names = [...MODELS.characters, 'clips', 'guns', 'props'];
   const res = await loadModels(app, FILES, names, progress);
   const guns = {} as Record<WeaponId, Gun>;

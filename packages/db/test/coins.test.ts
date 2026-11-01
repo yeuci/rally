@@ -180,6 +180,8 @@ async function setupGames(db: PGlite) {
     insert into public.achievements (game_id, key, title, coins) values
       ('sumo', 'first_win', 'First win', null), ('sumo', 'yokozuna', 'Yokozuna', 100),
       ('stack', 'tower', 'Tower', null), ('stack', 'skyline', 'Skyline', 40);
+    -- Level-up coins (20261101000100_progress.sql) are pinned by progress.test.ts; here they would add 'level' rows.
+    update public.progress_rules set value = 0 where key = 'level_coins_max';
   `);
 }
 
@@ -196,9 +198,10 @@ async function stubSend(db: PGlite, opts: { fail?: boolean } = {}) {
     end $$;
   `);
 }
+/** The `coins` events sent since the last call (the `progress` events of XP and challenges: progress.test.ts). */
 async function takeSent(db: PGlite) {
   const r = await db.query<{ payload: Record<string, unknown>; event: string; topic: string; private: boolean }>(
-    `select payload, event, topic, private from pg_temp.sent order by n`,
+    `select payload, event, topic, private from pg_temp.sent where event = 'coins' order by n`,
   );
   await db.exec(`truncate pg_temp.sent`);
   return r.rows;

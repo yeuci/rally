@@ -4,6 +4,7 @@ import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
+import { BugReportHost } from '@/components/rally/bug-report-sheet';
 import { CoinToastHost } from '@/components/rally/coins';
 import { FriendRequestPrompt } from '@/components/rally/friend-request-sheet';
 import { RoomCodePill } from '@/components/rally/room-code-pill';
@@ -12,10 +13,12 @@ import { config, toWsUrl } from '@/config';
 import { HostError } from '@/game-host/bridge';
 import { GameHost, type GameHostResult } from '@/game-host/GameHost';
 import { MATCH_ENDED_EXIT, type MatchmakingTarget } from '@/game-host/handlers';
+import { pageBytesOf } from '@/game-host/loading-copy';
 import { createRejoinJournal } from '@/game-host/rejoin-journal';
 import { createSupabaseProgressStore } from '@/game-host/supabase-progress';
 import { createSupabaseSaveStore } from '@/game-host/supabase-saves';
 import { useSession } from '@/lib/auth/session';
+import { coverUriFor } from '@/lib/game-art';
 import { progressKeys } from '@/lib/game-progress';
 import { intentFor, parseFriendJoinTarget, parseJoinTarget, type FriendJoinTarget } from '@/lib/join-target';
 import {
@@ -29,6 +32,7 @@ import { setInGame, setOnline } from '@/lib/presence';
 import { useProfile, resolveAvatarUrl } from '@/lib/profile';
 import { supabase } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
+import { notePlayed } from '@/lib/votes';
 
 /**
  * Full-screen play route. Only renders the host once the version is resolved, the app version is new enough and
@@ -59,7 +63,10 @@ type PlayParams = { id: string; join?: string; name?: string; room?: string; cod
 async function resolveFriend(friendId: string): Promise<FriendJoinTarget> {
   const { data, error } = await withAnonymousRetry(() => supabase.rpc('friend_join_target', { p_friend_id: friendId }));
   if (error) {
-    throw new HostError('MATCHMAKE_FAILED', /^NOT_FOUND\b/.test(error.message) ? "your friend's match cannot be joined" : error.message);
+    throw new HostError(
+      'MATCHMAKE_FAILED',
+      /^NOT_FOUND\b/.test(error.message) ? "your friend's match cannot be joined" : error.message,
+    );
   }
   const target = parseFriendJoinTarget(data);
   if (!target) throw new HostError('MATCHMAKE_FAILED', 'unexpected friend_join_target answer');
@@ -81,7 +88,10 @@ export default function PlayScreen() {
   // The private room's join code, once a join learns it (shown with Share over the game).
   const [roomCode, setRoomCode] = useState<string | null>(null);
 
-  const target = useMemo(() => parseJoinTarget({ join, name, room: roomParam, code, friend }), [join, name, roomParam, code, friend]);
+  const target = useMemo(
+    () => parseJoinTarget({ join, name, room: roomParam, code, friend }),
+    [join, name, roomParam, code, friend],
+  );
   const rejoin = useMemo(() => (userId ? createRejoinJournal(AsyncStorage, userId) : null), [userId]);
   // `resume`: the record is read once, before the game loads (nothing to resume → no launch at all).
   const resumeRecord = useQuery({
@@ -136,6 +146,8 @@ export default function PlayScreen() {
   const onExit = useCallback(
     (result: GameHostResult) => {
       setOnline();
+      // "Did you enjoy <Game>?" once the game screen has closed, if a match happened (components/rally/vote-prompt.tsx).
+      notePlayed(id, result);
       if (id) {
         // Multiplayer: the room wrote stats, boards and unlocks (no play session to wait for).
         if (multiplayer) invalidateAfterPlay(qc, userId, id);
@@ -184,8 +196,24 @@ export default function PlayScreen() {
         bundleUrl={p.entryUrl}
         entrySha256={p.entrySha256}
         game={{ id: p.game.id, version: p.version }}
+        // The loading screen: the game's name, its art blurred behind the bar, and the page's download size.
+        title={p.game.title}
+        artUri={coverUriFor(p.game, 'feature')}
+        iconUri={p.game.icon_url}
+        pageBytes={pageBytesOf(p.manifest)}
+        // The game menu: the private room's code (People → Copy / Share) and what the game may use (haptics).
+        roomCode={roomCode}
+        capabilities={p.manifest.capabilities}
         user={{ id: me.id, username: me.username, avatarUrl: resolveAvatarUrl(me.avatar_url) }}
-        intent={!p.room ? 'solo' : record ? intentFor(record.join) : target.join === 'resume' ? 'quick' : intentFor(target.join)}
+        intent={
+          !p.room
+            ? 'solo'
+            : record
+              ? intentFor(record.join)
+              : target.join === 'resume'
+                ? 'quick'
+                : intentFor(target.join)
+        }
         resume={record ? { reconnectionToken: record.token } : undefined}
         orientation={p.orientation}
         saves={saves}
@@ -206,6 +234,8 @@ export default function PlayScreen() {
       {/* Coins awarded by the match (or a solo run) show over the game too, like the friend-request banner. */}
       <CoinToastHost />
       <FriendRequestPrompt placement="game" />
+      {/* Shake to report a bug over the game (playtest builds); the shell's host is under this modal on iOS. */}
+      <BugReportHost placement="game" />
     </View>
   );
 }

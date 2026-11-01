@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { GameManifestSchema } from '@rally/protocol';
+import { GameManifestSchema, isLocalArtPath, normalizeLocalArtPath } from '@rally/protocol';
 import type { HtmlTagDescriptor, InlineConfig, Logger, Plugin } from 'vite';
 import type { HarnessConfig, HarnessLaunchOptions } from './config.ts';
 
@@ -23,6 +23,14 @@ const PKG_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const SRC_DIR = path.join(PKG_ROOT, 'src');
 const DIST_FILE = path.join(PKG_ROOT, 'dist', 'harness.iife.js');
 const BUILD_HINT = 'run `pnpm --filter @rally/dev-harness build` first';
+/** Where the plugin serves the game's local artwork (game.json icon / cover / screenshots) for the loading screen. */
+export const ART_ROUTE = '/__rally-harness/art/';
+const ART_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+};
 
 /** Vite config that bundles src/harness.ts into one IIFE. Used by the package build and by the plugin's fallback. */
 export function harnessBuildConfig(overrides: { write?: boolean } = {}): InlineConfig {
@@ -89,7 +97,7 @@ export function rallyDevHarness(options: RallyDevHarnessOptions = {}): Plugin {
       root = config.root;
       logger = config.logger;
     },
-    async configureServer() {
+    async configureServer(server) {
       // Warm the bundle at startup so the first page load is not delayed, and fail loudly if it cannot build.
       await harnessCode();
       const cfg = readConfig(root, options, logger);
@@ -97,6 +105,23 @@ export function rallyDevHarness(options: RallyDevHarnessOptions = {}): Plugin {
         `  rally dev harness: fake host for ${cfg.game.id}@${cfg.game.version}, room ${cfg.room ?? '(none)'}, ` +
           `${cfg.leaderboards.length} leaderboard(s), ${cfg.achievements.length} achievement(s), colyseus ${cfg.colyseusUrl}  (?nohost for standalone)`,
       );
+      // The loading screen's art: only the files game.json names (icon, cover, screenshots), from the game folder.
+      server.middlewares.use((req, res, next) => {
+        const url = req.url?.split('?')[0] ?? '';
+        if (!url.startsWith(ART_ROUTE)) return next();
+        const rel = decodeURIComponent(url.slice(ART_ROUTE.length));
+        const gameDir = path.resolve(root, options.gameDir ?? '..');
+        const file = path.resolve(gameDir, rel);
+        const type = ART_TYPES[path.extname(file).toLowerCase()];
+        if (!localArt(gameDir).includes(rel) || !file.startsWith(gameDir + path.sep) || !type || !existsSync(file)) {
+          res.statusCode = 404;
+          res.end();
+          return;
+        }
+        res.setHeader('content-type', type);
+        res.setHeader('cache-control', 'no-cache');
+        res.end(readFileSync(file));
+      });
     },
     transformIndexHtml: {
       order: 'pre',
@@ -155,7 +180,33 @@ function readConfig(root: string, options: RallyDevHarnessOptions, logger: Logge
     colyseusUrl: options.colyseusUrl ?? 'http://localhost:2567',
     launch: options.launch ?? {},
     panel: options.panel ?? true,
+    loading: {
+      title: parsed.success ? parsed.data.title : String(raw.title ?? raw.id ?? path.basename(gameDir)),
+      art: loadingArt(parsed.success ? (parsed.data.cover ?? parsed.data.screenshots[0]) : undefined),
+    },
   };
+}
+
+/** The loading screen's background, like the shell's: the cover, else the first screenshot; local files via the plugin. */
+function loadingArt(ref: string | undefined): string | null {
+  if (!ref) return null;
+  return isLocalArtPath(ref)
+    ? ART_ROUTE + normalizeLocalArtPath(ref).split('/').map(encodeURIComponent).join('/')
+    : ref;
+}
+
+/** The local art paths game.json names (normalised), the only files the art route serves. */
+function localArt(gameDir: string): string[] {
+  try {
+    const parsed = GameManifestSchema.safeParse(JSON.parse(readFileSync(path.join(gameDir, 'game.json'), 'utf8')));
+    if (!parsed.success) return [];
+    const { icon, cover, screenshots } = parsed.data;
+    return [icon, cover, ...screenshots]
+      .filter((v): v is string => !!v && isLocalArtPath(v))
+      .map(normalizeLocalArtPath);
+  } catch {
+    return [];
+  }
 }
 
 async function buildInMemory(): Promise<string> {

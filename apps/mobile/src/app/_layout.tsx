@@ -9,15 +9,21 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { useUniwind } from 'uniwind';
+import { BugReportHost } from '@/components/rally/bug-report-sheet';
 import { IntroOverlay, introPending } from '@/components/rally/intro-overlay';
+import { OfflineBanner } from '@/components/rally/offline-banner';
 import { config } from '@/config';
 import { useSession } from '@/lib/auth/session';
+import { installConsoleCapture, logBuffer } from '@/lib/log-buffer';
 // Loaded at startup on purpose: reading the stored preferences applies the chosen appearance (Settings) early.
 import '@/lib/prefs';
 import { queryClient } from '@/lib/query-client';
 import { NAV_THEME } from '@/lib/theme';
 
 export { ErrorBoundary } from 'expo-router';
+
+// Playtest builds keep the last ~200 warnings, errors and game host lines for bug reports (lib/log-buffer.ts).
+if (config.bugReports) installConsoleCapture(console, logBuffer);
 
 void SplashScreen.preventAutoHideAsync().catch(() => {});
 // Hide the native splash instantly (Android fades it over 400 ms by default): the intro overlay underneath is
@@ -66,6 +72,10 @@ export default function RootLayout() {
           </Stack.Protected>
         </Stack>
         <PortalHost />
+        {/* "You're offline" under the status bar on every screen but a running game. */}
+        <OfflineBanner />
+        {/* Shake to report a bug (playtest builds); the play route mounts the in-game host. */}
+        <BugReportHost placement="shell" />
         {intro && <IntroOverlay />}
       </ThemeProvider>
     </QueryClientProvider>

@@ -560,3 +560,103 @@ export function presenceLine(p: PublicPresence | null | undefined): string | nul
   if (p.status === 'in_game') return `Playing ${p.gameTitle || 'a game'}`;
   return 'Online';
 }
+
+// --- recently played with (20261101000200_social_discovery.sql) ----------------------------------------------------
+
+/** Someone you shared a counted multiplayer match with in the last 14 days (`recently_played_with`). */
+export interface RecentPlayer {
+  userId: string;
+  username: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+  /** The game of the latest shared match. */
+  gameId: string;
+  gameTitle: string | null;
+  /** When that match ended (ISO). */
+  playedAt: string;
+  /** Shared matches in the window. */
+  matches: number;
+  friendship: Friendship;
+}
+
+/** `recently_played_with` rows → people, most recent first (the server's order, re-applied defensively). */
+export function toRecentPlayers(
+  rows:
+    | readonly {
+        user_id: string;
+        username: string;
+        display_name: string | null;
+        avatar_url: string | null;
+        game_id: string;
+        game_title: string | null;
+        played_at: string;
+        matches: number | string | null;
+        friendship: string | null;
+      }[]
+    | null,
+): RecentPlayer[] {
+  return (rows ?? [])
+    .filter((r) => !!r.user_id && !!r.username)
+    .map((r) => {
+      const n = Number(r.matches);
+      return {
+        userId: r.user_id,
+        username: r.username,
+        displayName: r.display_name || null,
+        avatarUrl: r.avatar_url || null,
+        gameId: r.game_id,
+        gameTitle: r.game_title || null,
+        playedAt: r.played_at,
+        matches: Number.isFinite(n) && n > 0 ? Math.floor(n) : 1,
+        friendship: parseFriendship(r.friendship),
+      };
+    })
+    .filter((p) => p.friendship !== 'blocked' && p.friendship !== 'self')
+    .sort((a, b) => (Date.parse(b.playedAt) || 0) - (Date.parse(a.playedAt) || 0));
+}
+
+/**
+ * The row's second line: "Sumo · 2 h ago", "Sumo · 2 h ago · 3 matches" (the game and when first, so a narrow row cuts
+ * the count, not the time). `ago` is lib/format `timeAgo`.
+ */
+export function recentPlayerDetail(p: Pick<RecentPlayer, 'gameTitle' | 'matches' | 'playedAt'>, ago: (iso: string) => string): string {
+  return [p.gameTitle || 'A match', ago(p.playedAt) || null, p.matches > 1 ? `${p.matches} matches` : null]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+// --- friends playing now (dashboard row, game page) --------------------------------------------------------------
+
+/** A friend in a game right now, with what the row needs to draw them and their game. */
+export interface FriendPlaying<F, G> {
+  friend: F;
+  presence: FriendPresence & { status: 'in_game'; gameId: string };
+  /** The game's catalog card (tile art), when the catalog has it. */
+  game: G | null;
+}
+
+/**
+ * Friends who are in a game now (`friends_presence` says `in_game`: the server's mirror confirmed the seat), joinable
+ * rooms first, then by name; with `gameId`, only that game's players (the game page). Friends missing from the list
+ * (just unfriended, not loaded yet) are left out.
+ */
+export function friendsPlayingNow<F extends { userId: string; username: string; displayName: string | null }, G extends { id: string }>(
+  friends: readonly F[] | undefined,
+  presence: ReadonlyMap<string, FriendPresence> | undefined,
+  games?: readonly G[],
+  gameId?: string,
+): FriendPlaying<F, G>[] {
+  if (!friends || !presence) return [];
+  const catalog = new Map(games?.map((g) => [g.id, g]));
+  const out: FriendPlaying<F, G>[] = [];
+  for (const friend of friends) {
+    const p = presence.get(friend.userId);
+    if (!p || p.status !== 'in_game' || !p.gameId) continue;
+    if (gameId !== undefined && p.gameId !== gameId) continue;
+    out.push({ friend, presence: { ...p, status: 'in_game', gameId: p.gameId }, game: catalog.get(p.gameId) ?? null });
+  }
+  const name = (f: F) => (f.displayName || f.username).toLowerCase();
+  return out.sort(
+    (a, b) => Number(b.presence.joinable) - Number(a.presence.joinable) || name(a.friend).localeCompare(name(b.friend)),
+  );
+}
