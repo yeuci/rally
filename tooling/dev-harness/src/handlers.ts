@@ -289,7 +289,8 @@ export interface HarnessHandlerDeps {
   progress: ProgressStore;
   user: HarnessUser;
   onReady: (ctx: LaunchContext) => void;
-  onLoading: (progress: number) => void;
+  /** `ui.loading`: progress 0…1 and, from games that send them, a short label (the hold contract, src/loading.ts). */
+  onLoading: (progress: number, label?: string) => void;
   onExit: (reason: string) => void;
   /** `kind`: the target this join used (after a resume, later joins report `room`). */
   onJoined: (info: { roomId: unknown; sessionId: unknown; kind: JoinTarget['kind'] }) => void;
@@ -529,8 +530,8 @@ export function createHarnessHandlers(deps: HarnessHandlerDeps): RequestHandlers
       return result;
     },
 
-    'ui.loading': ({ progress }) => {
-      deps.onLoading(progress);
+    'ui.loading': ({ progress, label }) => {
+      deps.onLoading(progress, label);
       return null;
     },
 

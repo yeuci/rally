@@ -25,6 +25,7 @@ import {
   parseJoinTarget,
 } from './handlers.ts';
 import { HostBridge } from './host-bridge.ts';
+import { LoadingHold } from './loading.ts';
 import { listRooms, toHttpUrl } from './matchmake.ts';
 import { Panel, type LogLevel } from './panel.ts';
 import { localProgressStore } from './progress.ts';
@@ -197,6 +198,20 @@ function main(): void {
 
   const startedAt = performance.now();
   let readyAt: number | null = null;
+
+  // The shell's loading screen and its hold contract (src/loading.ts): up until ready(), or, for a game that sends
+  // labels, until it reports progress 1.
+  const screen = cfg.loading ?? { title: cfg.game.id, art: null };
+  let lastLabel: string | null = null;
+  const hold = new LoadingHold({
+    onChange: (s) => panel.setLoadingScreen(s, screen),
+    onSafetyReveal: (ms) =>
+      log(
+        `the game sent loading labels but no ui.loading progress 1 within ${ms / 1000} s of ready(); the shell shows it anyway`,
+        'warn',
+      ),
+  });
+  panel.setLoadingScreen(hold.state, screen);
   const intentParam = LaunchIntent.safeParse(params.get('intent') ?? undefined);
   const baseIntent = intentParam.success ? intentParam.data : (cfg.launch.intent ?? 'quick');
   const join = parseJoinTarget(params, { intent: baseIntent, stored });
@@ -237,18 +252,30 @@ function main(): void {
       user: { id: user.id, username: user.username },
       onReady: (ctx) => {
         readyAt = performance.now();
-        panel.setLoading(1);
         panel.setStatus(`ready · ${ctx.user.username} · ${ctx.intent}`);
         log(
           `ready() after ${Math.round(readyAt - startedAt)} ms → launch context (${ctx.intent}, ${ctx.device.orientation}, dpr ${ctx.device.pixelRatio})`,
           'ok',
         );
+        hold.ready();
+        if (hold.state.holding) log('the game sends loading labels: the loading screen stays up until progress 1');
+        else panel.setLoading(1);
       },
-      onLoading: (p) => panel.setLoading(p),
+      onLoading: (p, label) => {
+        const shown = hold.state.visible;
+        hold.loading(p, label);
+        panel.setLoading(hold.state.visible ? hold.state.progress : 1);
+        if (label && label !== lastLabel) log(`loading: ${label} (${Math.round(p * 100)} %)`, 'info');
+        lastLabel = label ?? lastLabel;
+        if (shown && !hold.state.visible && readyAt !== null) {
+          log(`playable ${Math.round(performance.now() - readyAt)} ms after ready(): loading screen hidden`, 'ok');
+        }
+      },
       onExit: (reason) => {
         log(`exit("${reason}")`, 'warn');
         panel.setStatus(`exited (${reason})`);
         bridge.close();
+        hold.close();
         panel.showExit(reason);
       },
       onJoined: ({ roomId, sessionId, kind }) => {
@@ -276,7 +303,8 @@ function main(): void {
         ),
     }),
     onRequest: (env) => {
-      if (env.method !== 'ping') log(`→ ${env.method}`, 'info');
+      // ui.loading comes many times a second while models download: its answers collapse into one line instead.
+      if (env.method !== 'ping' && env.method !== 'ui.loading') log(`→ ${env.method}`, 'info');
     },
     onResponse: (env, ms) => {
       const took = `${ms < 10 ? ms.toFixed(1) : Math.round(ms)} ms`;
@@ -288,6 +316,7 @@ function main(): void {
           'warn',
         );
       else if (env.method === 'ping') log(`← ping (${took})`, 'ok', 'ping');
+      else if (env.method === 'ui.loading') log(`← ui.loading ok (${took})`, 'ok', 'ui.loading');
       else log(`← ${env.method} ok (${took})`, 'ok');
     },
     onGameEvent: (ev) => {
@@ -339,6 +368,8 @@ function main(): void {
   setTimeout(() => {
     if (readyAt === null && !bridge.isClosed) {
       log(`no ready() after ${READY_TIMEOUT_MS / 1000} s; the shell would show its load-failure overlay`, 'error');
+      // Show the page underneath, so its state can be inspected.
+      hold.close();
     }
   }, READY_TIMEOUT_MS);
 

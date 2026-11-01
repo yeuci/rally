@@ -1,5 +1,12 @@
 import type { HostEvent } from '@rally/protocol';
+import type { LoadingState } from './loading.ts';
 import type { RoomListing } from './matchmake.ts';
+
+/** What the loading screen shows besides the state: the game's title and art. */
+export interface LoadingScreen {
+  title: string;
+  art: string | null;
+}
 
 export type LogLevel = 'info' | 'ok' | 'warn' | 'error';
 
@@ -86,7 +93,10 @@ export function roomRows(listings: RoomListing[], currentRoomId: string | null):
       current: r.roomId === currentRoomId,
     };
   });
-  return rows.map((row, i) => ({ row, i })).sort((a, b) => b.row.connected - a.row.connected || a.i - b.i).map((x) => x.row);
+  return rows
+    .map((row, i) => ({ row, i }))
+    .sort((a, b) => b.row.connected - a.row.connected || a.i - b.i)
+    .map((x) => x.row);
 }
 
 const HOST_EVENTS: HostEvent[] = ['pause', 'resume', 'exitRequested', 'lowMemory', 'partyUpdated'];
@@ -135,7 +145,30 @@ button[hidden] { display: none; }
 .overlay { position: fixed; inset: 0; z-index: 2147483647; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 12px; background: rgba(1, 4, 9, 0.85); color: #e6edf3; font: 16px/1.4 system-ui, sans-serif; }
 .overlay button { font-size: 14px; padding: 6px 14px; }
+.boot { position: fixed; inset: 0; z-index: 2147483645; display: flex; align-items: center; justify-content: center; overflow: hidden;
+  background: #0a0a0a linear-gradient(135deg, #262626, #121212 55%, #0a0a0a); color: #fff;
+  font: 14px/1.35 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; transition: opacity 250ms ease; user-select: none; }
+.boot.hide { opacity: 0; pointer-events: none; }
+.boot-art { position: absolute; inset: -48px; background: center / cover no-repeat; filter: blur(28px); opacity: 0; transition: opacity 450ms; }
+.boot-art.shown { opacity: 1; }
+.boot-scrim { position: absolute; inset: 0; background: linear-gradient(rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0) 30%, rgba(0, 0, 0, 0) 62%, rgba(0, 0, 0, 0.55)); }
+.boot.art .boot-scrim { background-color: rgba(0, 0, 0, 0.4); }
+.boot-brand { position: absolute; top: max(18px, env(safe-area-inset-top)); left: max(20px, env(safe-area-inset-left)); display: flex;
+  align-items: center; gap: 6px; font-size: 20px; font-weight: 800; letter-spacing: -0.5px; }
+.boot-center { position: relative; width: min(340px, calc(100vw - 64px)); display: flex; flex-direction: column; align-items: center; }
+.boot-title { font-size: 28px; line-height: 34px; font-weight: 800; letter-spacing: -0.6px; margin-bottom: 22px; text-align: center;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.35); }
+.boot-bar { width: 100%; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.16); overflow: hidden; }
+.boot-bar > i { display: block; height: 100%; width: 0; border-radius: 3px; background: #fafafa; transition: width 500ms cubic-bezier(0.33, 1, 0.68, 1); }
+.boot-status { width: 100%; margin-top: 12px; display: flex; justify-content: space-between; gap: 12px; font-weight: 500; }
+.boot-status [data-role="loading-detail"] { opacity: 0.55; font-variant-numeric: tabular-nums; white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .boot-bar > i { transition: none; } }
 `;
+
+/** The Rally mark (apps/mobile/src/lib/brand.ts MARK), white. */
+const MARK_SVG =
+  '<svg width="26" height="26" viewBox="0 0 100 100" aria-hidden="true"><g stroke="#fff" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">' +
+  '<path d="M28.5 16 L28.5 84" fill="none"/><path d="M28.5 16 L28.5 56 L71.5 36 Z" fill="#fff"/><path d="M52.5 68 L69.5 84" fill="none"/></g></svg>';
 
 /** Floating, collapsible control panel in a shadow root so neither side's CSS leaks into the other. */
 export class Panel {
@@ -279,6 +312,8 @@ export class Panel {
     this.pending = [];
     this.lastKey = null;
     for (const l of queued) this.log(l.text, l.level, l.key);
+    // The loading screen as it stands now (the game may have reported before the page finished parsing).
+    if (this.bootState) this.setLoadingScreen(this.bootState.state, this.bootState.screen);
   }
 
   /** Fetch the room list now (e.g. right after this page joined a room), if the list is showing. */
@@ -373,6 +408,70 @@ export class Panel {
 
   setLoading(progress: number): void {
     if (this.progressEl) this.progressEl.style.width = `${Math.round(Math.max(0, Math.min(1, progress)) * 100)}%`;
+  }
+
+  private boot: { el: HTMLElement; bar: HTMLElement; label: HTMLElement; detail: HTMLElement } | null = null;
+  private bootState: { state: LoadingState; screen: LoadingScreen } | null = null;
+
+  /**
+   * The shell's loading screen over the page (simpler: the blurred art, the Rally mark, the title, the bar and the
+   * game's words with a percentage), following the hold contract in src/loading.ts. Below the panel, so the panel
+   * stays usable; fades out when the game is shown.
+   */
+  setLoadingScreen(state: LoadingState, screen: LoadingScreen): void {
+    this.bootState = { state, screen };
+    if (!this.root) return;
+    if (!this.boot) {
+      if (!state.visible) return;
+      const el = document.createElement('div');
+      el.className = `boot${screen.art ? ' art' : ''}`;
+      el.dataset.role = 'loading-overlay';
+      const art = document.createElement('div');
+      art.className = 'boot-art';
+      if (screen.art) {
+        // Shown once decoded, like the shell's cross-fade.
+        const img = new Image();
+        img.onload = () => art.classList.add('shown');
+        img.src = screen.art;
+        art.style.backgroundImage = `url("${screen.art.replace(/"/g, '%22')}")`;
+      }
+      const scrim = document.createElement('div');
+      scrim.className = 'boot-scrim';
+      const brand = document.createElement('div');
+      brand.className = 'boot-brand';
+      brand.innerHTML = `${MARK_SVG}<span>Rally</span>`;
+      const center = document.createElement('div');
+      center.className = 'boot-center';
+      const title = document.createElement('div');
+      title.className = 'boot-title';
+      title.textContent = screen.title;
+      const barWrap = document.createElement('div');
+      barWrap.className = 'boot-bar';
+      const bar = document.createElement('i');
+      barWrap.append(bar);
+      const status = document.createElement('div');
+      status.className = 'boot-status';
+      const label = document.createElement('span');
+      label.dataset.role = 'loading-label';
+      const detail = document.createElement('span');
+      detail.dataset.role = 'loading-detail';
+      status.append(label, detail);
+      center.append(title, barWrap, status);
+      el.append(art, scrim, brand, center);
+      // Keep the game's input handlers from seeing clicks on the screen while it is up.
+      for (const type of ['pointerdown', 'mousedown', 'touchstart'])
+        el.addEventListener(type, (ev) => ev.stopPropagation());
+      this.root.appendChild(el);
+      this.boot = { el, bar, label, detail };
+    }
+    const b = this.boot;
+    b.bar.style.width = `${Math.round(state.progress * 100)}%`;
+    b.label.textContent = state.label ?? `Getting ${screen.title} ready…`;
+    b.detail.textContent = `${Math.floor(state.progress * 100)}%`;
+    if (!state.visible && !b.el.classList.contains('hide')) {
+      b.el.classList.add('hide');
+      setTimeout(() => b.el.remove(), 300);
+    }
   }
 
   /** Append a log line. Consecutive lines with the same `key` collapse into one with a counter (pings, telemetry). */
