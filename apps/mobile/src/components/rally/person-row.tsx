@@ -42,6 +42,7 @@ export function openPerson(username: string, self = false) {
 export function PersonRow({
   person,
   detail,
+  subtitle,
   presence,
   accessory,
   self = false,
@@ -49,6 +50,8 @@ export function PersonRow({
   person: PersonRowData;
   /** Extra muted text after the @username ("Friends since Oct 2026", "2 h ago"). */
   detail?: string;
+  /** Replaces the whole second line (the @username too) when the detail matters more: "Sumo · 2 h ago". */
+  subtitle?: string;
   presence?: PersonPresence | null;
   accessory?: ReactNode;
   self?: boolean;
@@ -57,7 +60,13 @@ export function PersonRow({
   return (
     <TapPressable
       accessibilityRole="button"
-      accessibilityLabel={presence ? `${name}, @${person.username}, ${presence.label}` : `${name}, @${person.username}`}
+      accessibilityLabel={
+        presence
+          ? `${name}, @${person.username}, ${presence.label}`
+          : subtitle
+            ? `${name}, @${person.username}, ${subtitle}`
+            : `${name}, @${person.username}`
+      }
       accessibilityHint="Opens the profile"
       onPress={() => openPerson(person.username, self)}
       className={cn(ROW_CLASS, 'active:bg-accent')}
@@ -88,7 +97,7 @@ export function PersonRow({
           </View>
         ) : (
           <Text className="text-muted-foreground text-[13px] leading-[18px]" numberOfLines={1}>
-            {detail ? `@${person.username} · ${detail}` : `@${person.username}`}
+            {subtitle ?? (detail ? `@${person.username} · ${detail}` : `@${person.username}`)}
           </Text>
         )}
       </View>

@@ -26,6 +26,12 @@ export interface FetchEntryOptions {
   digest?: (text: string) => Promise<string>;
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
+  /**
+   * Bytes received so far, for the loading screen. `total` is the response's Content-Length (null when it has none,
+   * or the body is content-encoded so the length is not what arrives). Called per chunk where the fetch exposes the
+   * body as a stream (expo/fetch, browsers), else once with the whole document.
+   */
+  onProgress?: (loaded: number, total: number | null) => void;
 }
 
 /**
@@ -48,7 +54,7 @@ export async function fetchEntryDocument(url: string, opts: FetchEntryOptions = 
     throw new Error(`could not download the game: ${err instanceof Error ? err.message : String(err)}`);
   }
   if (!res.ok) throw new Error(`HTTP ${res.status} loading ${url}`);
-  const html = await res.text();
+  const html = await readText(res, opts.onProgress);
 
   if (opts.expectedSha256) {
     if (!opts.digest) throw new Error('entry integrity check needs a digest function');
@@ -64,4 +70,33 @@ export async function fetchEntryDocument(url: string, opts: FetchEntryOptions = 
     throw new Error(`${url} is not an HTML document`);
   }
   return { html, baseUrl: bundleBasePath(url) };
+}
+
+/** The usable size of a response body: Content-Length, unless the body is content-encoded (then it is not the size we read). */
+export function responseLength(res: Pick<Response, 'headers'>): number | null {
+  const encoding = res.headers.get('content-encoding');
+  if (encoding && encoding.toLowerCase() !== 'identity') return null;
+  const n = Number(res.headers.get('content-length'));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+async function readText(res: Response, onProgress?: (loaded: number, total: number | null) => void): Promise<string> {
+  const total = responseLength(res);
+  const reader = onProgress && res.body && typeof res.body.getReader === 'function' ? res.body.getReader() : null;
+  if (!reader || !onProgress) {
+    const text = await res.text();
+    onProgress?.(total ?? text.length, total);
+    return text;
+  }
+  const decoder = new TextDecoder();
+  let text = '';
+  let loaded = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    loaded += value.byteLength;
+    text += decoder.decode(value, { stream: true });
+    onProgress(loaded, total);
+  }
+  return text + decoder.decode();
 }

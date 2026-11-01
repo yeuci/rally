@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#14161c" />
+    <title>Northdale</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <canvas id="stage" aria-label="Northdale"></canvas>
+    <div id="labels" aria-hidden="true"></div>
+    <div id="vignette" class="vignette" aria-hidden="true"></div>
+    <div id="stick-move" class="stick" hidden><i></i></div>
+    <div id="stick-aim" class="stick aim" hidden><i></i></div>
+    <div id="hud">
+      <button id="exit" class="exit" type="button" aria-label="Leave the game" hidden>✕</button>
+      <div class="me">
+        <div class="bars">
+          <span class="hp"><s id="hp-bar"></s></span>
+          <span class="armor"><s id="armor-bar"></s></span>
+        </div>
+        <div class="counts">
+          <span title="Team scrap">🔩 <b id="scrap">0</b></span
+          ><span title="Your kills">💀 <b id="kills">0</b></span>
+        </div>
+      </div>
+      <div class="clockbox">
+        <span id="phase-icon" class="icon"></span>
+        <span class="text">
+          <b id="phase"></b>
+          <span><span id="clock"></span> · <span id="phase-sub"></span></span>
+        </span>
+      </div>
+      <div class="side">
+        <canvas id="minimap" width="132" height="132"></canvas>
+        <div id="truck" class="truck"></div>
+        <div id="team" class="team"></div>
+      </div>
+      <div class="inventory">
+        <div id="slot-gun" class="slot gun"></div>
+        <div id="slot-melee" class="slot melee"></div>
+        <button id="slot-0" class="slot item" type="button" aria-label="Item 1"></button>
+        <button id="slot-1" class="slot item" type="button" aria-label="Item 2"></button>
+      </div>
+      <button id="melee" class="melee-btn" type="button" aria-label="Melee">🗡️</button>
+      <button id="act" class="act-btn" type="button" aria-label="Interact" hidden>
+        <span id="act-ring" class="ring"></span><span class="hand">✋</span><span id="act-label" class="label"></span>
+      </button>
+      <div id="toasts" class="toasts" aria-live="polite"></div>
+      <div id="banner" class="banner" hidden>
+        <div id="banner-title" class="banner-title"></div>
+        <div id="banner-sub" class="banner-sub"></div>
+      </div>
+      <div id="center" class="center" hidden>
+        <div id="center-title" class="center-title"></div>
+        <div id="center-sub" class="center-sub"></div>
+      </div>
+      <button id="start" class="start" type="button" hidden>Start the run</button>
+      <div id="hint" class="hint">Left thumb: move · Right thumb: aim &amp; fire · 🗡️ melee · hold ✋ to interact</div>
+      <div id="paused" class="veil" hidden><div class="veil-title">Paused</div></div>
+      <div id="loading" class="veil solid">
+        <div class="veil-title">Northdale</div>
+        <div class="bar"><i id="loading-bar"></i></div>
+        <div id="loading-label" class="veil-sub"></div>
+      </div>
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

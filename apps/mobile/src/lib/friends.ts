@@ -17,12 +17,14 @@ import {
   toFriendsPresence,
   toPersonResults,
   toPlayedGames,
+  toRecentPlayers,
   type FriendIntent,
   type FriendPresence,
   type FriendRequest,
   type Friendship,
   type PersonResult,
   type PublicPresence,
+  type RecentPlayer,
 } from '@/lib/social';
 import { supabase } from '@/lib/supabase';
 
@@ -45,6 +47,8 @@ export const socialKeys = {
   publicPresence: (uid: string | null, userId: string) => ['social', uid, 'public-presence', userId] as const,
   /** A requester's card for the friend-request sheet / accepted toast (lib/social-realtime.ts `fetchRequestProfile`). */
   requestProfile: (uid: string | null, userId: string) => ['social', uid, 'request-profile', userId] as const,
+  /** People you shared counted matches with in the last 14 days (`recently_played_with`). */
+  recentPlayers: (uid: string | null) => ['social', uid, 'recent-players'] as const,
 };
 
 /** How often friends' presence refreshes while a screen showing it is in front (m3-phase2 §2; realtime is M4). */
@@ -178,6 +182,29 @@ export function useFriendsPresence(live = true) {
   });
 }
 
+/** Rows fetched for the Friends screen's "Recently played with". */
+export const RECENT_PLAYERS_LIMIT = 20;
+
+/**
+ * People the signed-in user shared counted multiplayer matches with in the last 14 days (`recently_played_with`), most
+ * recent first, with the game, when, and the friendship state for the Add button. Under the social prefix, so every
+ * friendship change refetches it (and `writeFriendship` patches it optimistically).
+ */
+export function useRecentlyPlayedWith(enabled = true) {
+  const { userId } = useSession();
+  return useQuery({
+    queryKey: socialKeys.recentPlayers(userId),
+    enabled: enabled && !!userId,
+    retry: retryable,
+    staleTime: 60_000,
+    queryFn: async (): Promise<RecentPlayer[]> => {
+      const { data, error } = await supabase.rpc('recently_played_with', { p_limit: RECENT_PLAYERS_LIMIT });
+      if (error) throw error;
+      return toRecentPlayers(data);
+    },
+  });
+}
+
 /** A player's status line (`public_presence`): null when offline or hidden from the viewer (their privacy, blocks). */
 export function usePublicPresence(userId: string | undefined, live = true) {
   const { userId: viewer } = useSession();
@@ -229,10 +256,16 @@ async function runIntent(intent: FriendIntent, otherId: string): Promise<unknown
   }
 }
 
-/** Write `status` for `otherId` into every cache that shows it (friendship query, search rows, request lists). */
+/**
+ * Write `status` for `otherId` into every cache that shows it (friendship query, search rows, "Recently played with",
+ * request lists).
+ */
 function writeFriendship(qc: QueryClient, uid: string | null, otherId: string, status: Friendship) {
   qc.setQueryData<Friendship>(socialKeys.friendship(uid, otherId), status);
   qc.setQueriesData<PersonResult[]>({ queryKey: socialKeys.searchAll(uid) }, (rows) =>
+    rows?.map((r) => (r.userId === otherId ? { ...r, friendship: status } : r)),
+  );
+  qc.setQueryData<RecentPlayer[]>(socialKeys.recentPlayers(uid), (rows) =>
     rows?.map((r) => (r.userId === otherId ? { ...r, friendship: status } : r)),
   );
   if (status !== 'incoming' && status !== 'outgoing') {

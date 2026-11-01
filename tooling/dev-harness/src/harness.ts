@@ -11,9 +11,11 @@
 import {
   LaunchIntent,
   PROTOCOL_VERSION,
+  type GameSetting,
   type HostEvent,
   type HostEventPayload,
   type LaunchContext,
+  type MenuPlayer,
 } from '@rally/protocol';
 import type { HarnessConfig } from './config.ts';
 import {
@@ -25,7 +27,17 @@ import {
   parseJoinTarget,
 } from './handlers.ts';
 import { HostBridge } from './host-bridge.ts';
+import { LoadingHold } from './loading.ts';
 import { listRooms, toHttpUrl } from './matchmake.ts';
+import { HarnessMenu, type MenuNet } from './menu.ts';
+import {
+  coerceGameValue,
+  localSettingsStore,
+  menuButtonRect,
+  patchPlatform,
+  playerSettings,
+  valuesFor,
+} from './settings.ts';
 import { Panel, type LogLevel } from './panel.ts';
 import { localProgressStore } from './progress.ts';
 
@@ -197,6 +209,124 @@ function main(): void {
 
   const startedAt = performance.now();
   let readyAt: number | null = null;
+
+  // The shell's loading screen and its hold contract (src/loading.ts): up until ready(), or, for a game that sends
+  // labels, until it reports progress 1.
+  const screen = cfg.loading ?? { title: cfg.game.id, art: null };
+  let lastLabel: string | null = null;
+  // --- the game menu (src/menu.ts, src/settings.ts): settings in localStorage, a corner button, Escape -------------
+  const safeArea = cfg.launch.safeArea ?? { top: 0, right: 0, bottom: 0, left: 0 };
+  const menuButton = menuButtonRect(safeArea);
+  const settingsStore = localSettingsStore(cfg.game.id);
+  let { platform, game: savedGame } = settingsStore.load();
+  let menuDef: { settings: GameSetting[]; help: { title: string; text: string }[] } | null = null;
+  let players: MenuPlayer[] = [];
+  let net: MenuNet | null = null;
+  let exited = false;
+  let settingsTimer: ReturnType<typeof setTimeout> | null = null;
+  let leaveTimer: ReturnType<typeof setTimeout> | null = null;
+  const gameValues = () => (menuDef ? valuesFor(menuDef.settings, savedGame) : { ...savedGame });
+  const currentSettings = () => playerSettings(platform, gameValues());
+  const sendSettings = () => {
+    if (settingsTimer !== null) clearTimeout(settingsTimer);
+    settingsTimer = null;
+    if (!bridge.isClosed) bridge.sendEvent('settingsChanged', currentSettings());
+  };
+  const menu = new HarnessMenu({
+    title: screen.title,
+    button: menuButton,
+    gameId: cfg.game.id,
+    safeArea,
+    onButtonChange: (what) => log(`menu button: ${what}`),
+    state: () => ({
+      platform,
+      game: gameValues(),
+      settings: menuDef?.settings ?? [],
+      help: menuDef?.help ?? [],
+      players,
+      net,
+    }),
+    onOpen: () => openMenu(),
+    onClose: () => closeMenu(),
+    onChange: (patch, final) => {
+      platform = patchPlatform(platform, patch);
+      for (const [key, value] of Object.entries(patch.game ?? {})) {
+        const def = menuDef?.settings.find((d) => d.key === key);
+        const v = def ? coerceGameValue(def, value) : null;
+        if (v !== null) savedGame = { ...savedGame, [key]: v };
+      }
+      if (!final) {
+        // Live while a slider drags, at most every 120 ms (the shell's SETTINGS_THROTTLE_MS); the release sends the last.
+        settingsTimer ??= setTimeout(sendSettings, 120);
+        return;
+      }
+      settingsStore.savePlatform(platform);
+      settingsStore.saveGame(savedGame);
+      sendSettings();
+      const s = currentSettings();
+      log(
+        `→ evt settingsChanged (graphics ${s.graphics}, master ${Math.round(s.volume.master * 100)} %, effects ${Math.round(s.volume.effects * 100)} %${Object.keys(s.game).length ? `, ${JSON.stringify(s.game)}` : ''})`,
+        'info',
+        'settings',
+      );
+    },
+    onLeave: () => leaveGame(),
+  });
+  function openMenu() {
+    if (exited || hold.state.visible || menu.isOpen || bridge.isClosed) return;
+    menu.open();
+    bridge.sendEvent('menu', { open: true });
+    log('→ evt menu {open: true}', 'info');
+  }
+  function closeMenu() {
+    if (!menu.isOpen) return;
+    if (settingsTimer !== null) sendSettings();
+    menu.close();
+    if (!bridge.isClosed) bridge.sendEvent('menu', { open: false });
+    log('→ evt menu {open: false}', 'info');
+  }
+  /** The menu's Leave (and the banner's): the game leaves its room with consent; one that does not is closed. */
+  function leaveGame() {
+    if (exited || bridge.isClosed) return;
+    if (leaveTimer !== null) return forceClose();
+    bridge.sendEvent('exitRequested', {});
+    log('→ evt exitRequested (menu: Leave game)', 'info');
+    leaveTimer = setTimeout(forceClose, 2500);
+  }
+  function forceClose() {
+    if (exited) return;
+    log('the game did not exit after Leave: the shell closes it', 'warn');
+    gameGone('forced');
+  }
+  /** The game is gone (it exited, or was closed): no more menu, button or banner. */
+  function gameGone(reason: string) {
+    exited = true;
+    if (leaveTimer !== null) clearTimeout(leaveTimer);
+    menu.close();
+    menu.showButton(false);
+    menu.renderNet();
+    panel.setStatus(`exited (${reason})`);
+    bridge.close();
+    hold.close();
+    panel.showExit(reason);
+  }
+
+  const hold = new LoadingHold({
+    onChange: (s) => {
+      panel.setLoadingScreen(s, screen);
+      // The menu button shows over the running game, not over the loading screen.
+      if (!s.visible && !exited) {
+        menu.showButton(true);
+        menu.renderNet();
+      }
+    },
+    onSafetyReveal: (ms) =>
+      log(
+        `the game sent loading labels but no ui.loading progress 1 within ${ms / 1000} s of ready(); the shell shows it anyway`,
+        'warn',
+      ),
+  });
+  panel.setLoadingScreen(hold.state, screen);
   const intentParam = LaunchIntent.safeParse(params.get('intent') ?? undefined);
   const baseIntent = intentParam.success ? intentParam.data : (cfg.launch.intent ?? 'quick');
   const join = parseJoinTarget(params, { intent: baseIntent, stored });
@@ -212,11 +342,13 @@ function main(): void {
     ...(cfg.launch.party ? { party: cfg.launch.party } : {}),
     ...(resume ? { resume } : {}),
     device: {
-      safeArea: cfg.launch.safeArea ?? { top: 0, right: 0, bottom: 0, left: 0 },
+      safeArea,
       orientation: window.matchMedia?.('(orientation: portrait)').matches ? 'portrait' : 'landscape',
       pixelRatio: window.devicePixelRatio || 1,
       locale: navigator.language || 'en-US',
+      menuButton,
     },
+    settings: currentSettings(),
   });
 
   const bridge = new HostBridge({
@@ -237,20 +369,38 @@ function main(): void {
       user: { id: user.id, username: user.username },
       onReady: (ctx) => {
         readyAt = performance.now();
-        panel.setLoading(1);
         panel.setStatus(`ready · ${ctx.user.username} · ${ctx.intent}`);
         log(
           `ready() after ${Math.round(readyAt - startedAt)} ms → launch context (${ctx.intent}, ${ctx.device.orientation}, dpr ${ctx.device.pixelRatio})`,
           'ok',
         );
+        hold.ready();
+        if (hold.state.holding) log('the game sends loading labels: the loading screen stays up until progress 1');
+        else panel.setLoading(1);
       },
-      onLoading: (p) => panel.setLoading(p),
+      onLoading: (p, label) => {
+        const shown = hold.state.visible;
+        hold.loading(p, label);
+        panel.setLoading(hold.state.visible ? hold.state.progress : 1);
+        if (label && label !== lastLabel) log(`loading: ${label} (${Math.round(p * 100)} %)`, 'info');
+        lastLabel = label ?? lastLabel;
+        if (shown && !hold.state.visible && readyAt !== null) {
+          log(`playable ${Math.round(performance.now() - readyAt)} ms after ready(): loading screen hidden`, 'ok');
+        }
+      },
       onExit: (reason) => {
         log(`exit("${reason}")`, 'warn');
-        panel.setStatus(`exited (${reason})`);
-        bridge.close();
-        panel.showExit(reason);
+        gameGone(reason);
       },
+      onMenuDefine: (def) => {
+        menuDef = def;
+        menu.refresh();
+        log(
+          `menu.define: ${def.settings.length} setting(s), ${def.help.length} help entr${def.help.length === 1 ? 'y' : 'ies'}`,
+        );
+        return gameValues();
+      },
+      onMenuOpen: () => openMenu(),
       onJoined: ({ roomId, sessionId, kind }) => {
         joinedRoomId = typeof roomId === 'string' ? roomId : null;
         panel.setStatus(`in room ${String(roomId)}`);
@@ -276,7 +426,8 @@ function main(): void {
         ),
     }),
     onRequest: (env) => {
-      if (env.method !== 'ping') log(`→ ${env.method}`, 'info');
+      // ui.loading comes many times a second while models download: its answers collapse into one line instead.
+      if (env.method !== 'ping' && env.method !== 'ui.loading') log(`→ ${env.method}`, 'info');
     },
     onResponse: (env, ms) => {
       const took = `${ms < 10 ? ms.toFixed(1) : Math.round(ms)} ms`;
@@ -288,12 +439,26 @@ function main(): void {
           'warn',
         );
       else if (env.method === 'ping') log(`← ping (${took})`, 'ok', 'ping');
+      else if (env.method === 'ui.loading') log(`← ui.loading ok (${took})`, 'ok', 'ui.loading');
       else log(`← ${env.method} ok (${took})`, 'ok');
     },
     onGameEvent: (ev) => {
       if (ev.method === 'telemetry.report') {
         console.debug(TAG, 'telemetry', ev.params.name, ev.params.values);
         log(`telemetry ${ev.params.name}`, 'info', 'telemetry');
+      } else if (ev.method === 'net.status') {
+        console.debug(TAG, 'net.status', ev.params.state, ev.params.rttMs ?? '');
+        if (ev.params.state !== net?.state)
+          log(`net.status: ${ev.params.state}`, ev.params.state === 'connected' ? 'ok' : 'warn');
+        net =
+          ev.params.rttMs === undefined
+            ? { state: ev.params.state }
+            : { state: ev.params.state, rttMs: ev.params.rttMs };
+        menu.renderNet();
+      } else if (ev.method === 'menu.players') {
+        log(`menu.players: ${ev.params.players.map((p) => p.name).join(', ')}`, 'info', 'menu.players');
+        players = ev.params.players;
+        menu.refresh();
       } else {
         console.error(TAG, 'game.error', ev.params.message, ev.params.stack ?? '');
         log(`game.error: ${ev.params.message}`, 'error');
@@ -339,6 +504,8 @@ function main(): void {
   setTimeout(() => {
     if (readyAt === null && !bridge.isClosed) {
       log(`no ready() after ${READY_TIMEOUT_MS / 1000} s; the shell would show its load-failure overlay`, 'error');
+      // Show the page underneath, so its state can be inspected.
+      hold.close();
     }
   }, READY_TIMEOUT_MS);
 

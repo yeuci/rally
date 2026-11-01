@@ -1,4 +1,13 @@
-import { type Application, BLEND_ADDITIVEALPHA, Color, Entity, PROJECTION_ORTHOGRAPHIC, SHADOW_PCF5_16F, StandardMaterial, Vec3 } from 'playcanvas';
+import {
+  type Application,
+  BLEND_ADDITIVEALPHA,
+  Color,
+  Entity,
+  PROJECTION_ORTHOGRAPHIC,
+  SHADOW_PCF5_16F,
+  StandardMaterial,
+  Vec3,
+} from 'playcanvas';
 import { BASE_SIZE, LAYER_HEIGHT, type Slab } from './sim.ts';
 
 /** Matches the app's near-black background. */
@@ -33,6 +42,8 @@ export interface StackScene {
   update(dt: number): void;
   /** Drop non-essential allocations (lowMemory). */
   trim(): void;
+  /** The game menu's graphics (shadows, live) and the "Flash on perfect drops" setting. */
+  setQuality(q: { shadows: boolean; flash: boolean }): void;
   readonly entityCount: number;
 }
 
@@ -114,6 +125,8 @@ export function createStackScene(app: Application): StackScene {
   app.root.addChild(flash);
   let flashAge = 1;
   let flashSize = { w: 1, d: 1 };
+  /** "Flash on perfect drops" (the game menu): off for players who find the flash too much. */
+  let flashOn = true;
 
   let debris: Debris[] = [];
 
@@ -186,7 +199,7 @@ export function createStackScene(app: Application): StackScene {
     },
     place(slab, perfect) {
       addTowerSlab(slab);
-      if (perfect) {
+      if (perfect && flashOn) {
         flashAge = 0;
         flashSize = { w: slab.w, d: slab.d };
         flash.enabled = true;
@@ -274,6 +287,11 @@ export function createStackScene(app: Application): StackScene {
       prune();
       clearDebris();
       sun.light!.shadowResolution = 512;
+    },
+    setQuality({ shadows, flash: on }) {
+      sun.light!.castShadows = shadows;
+      flashOn = on;
+      if (!on) flash.enabled = false;
     },
   };
 

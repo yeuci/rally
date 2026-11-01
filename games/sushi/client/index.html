@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#2b1d14" />
+    <title>Sushi Shift</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <canvas id="stage" aria-label="Sushi Shift restaurant"></canvas>
+    <div id="labels" aria-hidden="true"></div>
+    <div id="stick" class="stick" hidden><i></i></div>
+    <div id="hud">
+      <div class="topbar">
+        <!-- The host draws its game-menu button in the top-left corner: this spacer keeps the HUD out of it. -->
+        <div id="menu-space" class="menu-space"></div>
+        <button id="exit" class="exit" type="button" aria-label="Leave the game" hidden>✕</button>
+        <div class="daybox">
+          <span id="day-name" class="day-name"></span>
+          <span id="clock" class="clock"></span>
+        </div>
+        <div id="stars" class="stars" aria-label="Reputation"></div>
+        <div class="money">
+          <span id="money" class="yen"></span>
+          <span id="tips" class="tips"></span>
+        </div>
+        <div id="crew" class="crew"></div>
+      </div>
+      <div id="toasts" class="toasts" aria-live="polite"></div>
+      <div id="banner" class="banner" hidden>
+        <div id="banner-title" class="banner-title"></div>
+        <div id="banner-sub" class="banner-sub"></div>
+      </div>
+      <div id="teach" class="teach" hidden></div>
+      <button id="action" class="action" type="button" aria-label="Interact">
+        <span id="action-ring" class="action-ring"></span>
+        <span id="action-icon" class="action-icon"></span>
+        <span id="action-label" class="action-label"></span>
+      </button>
+      <div id="hint" class="hint">Left thumb: move · Button: tap to pick up / put down, hold to chop, roll, wash</div>
+      <div id="night" class="night" hidden>
+        <div id="night-title" class="night-title"></div>
+        <div id="night-stats" class="night-stats"></div>
+        <div id="night-sub" class="night-sub"></div>
+        <div id="cards" class="cards"></div>
+        <div id="night-foot" class="night-foot"></div>
+      </div>
+      <div id="lobby" class="lobby" hidden>
+        <div class="lobby-title">Private kitchen</div>
+        <div id="lobby-code" class="lobby-code" data-role="code"></div>
+        <div class="lobby-sub">Share the code. Walk round and practise; start when the crew is in (1–4 chefs).</div>
+        <button id="start" class="start" type="button">Open the restaurant</button>
+      </div>
+      <div id="paused" class="veil" hidden><div class="veil-title">Paused</div></div>
+      <div id="loading" class="veil solid">
+        <div class="veil-title">Sushi Shift</div>
+        <div class="bar"><i id="loading-bar"></i></div>
+        <div id="loading-label" class="veil-sub"></div>
+      </div>
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

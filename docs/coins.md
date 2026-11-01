@@ -29,6 +29,8 @@ profile cosmetics. Schema, RPCs and rules: `packages/db/supabase/migrations/2026
 | `achievement` | `unlock_achievement` (solo) and `server_record_match` (multiplayer), on a *new* unlock | `achievements.coins`, else 25 (`achievement`) | once per achievement, ever | `<game_id>:<key>` |
 | `solo` | `submit_solo_score`, when the run passes the server's checks (accepted, or `not_best`: a valid run that did not beat the best) | 5 (`solo`) | once per play session; `solo_daily_cap` (50) per UTC day | play session id |
 | `daily` | the first counted match or paying solo run of the UTC day | 50 (`daily`) | once per UTC day | `YYYY-MM-DD` |
+| `level` | reaching a new account level ([progress.md](progress.md)) | 50, +10 per level, at most 250 (`progress_rules`) | once per level | the level |
+| `challenge` | `claim_daily_challenge` ([progress.md](progress.md)) | the challenge's coins (20 / 35 / 50) | once per challenge | challenge id |
 
 Match coins (`match` + `win` + `podium`) are capped at `match_daily_cap` (500) per player per UTC day. The daily
 bonus and achievements are outside the caps. Days roll over at 00:00 UTC, like the daily leaderboards.
