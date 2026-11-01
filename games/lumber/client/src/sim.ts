@@ -6,14 +6,33 @@
  * to buy them. Their cash piles up next to the counter; walking over it collects it, and standing on an unlock pad
  * spends it (helpers, upgrades, a second sawmill). Score = money earned over the shift.
  *
+ * Modes (`MODE_RULES`): Classic is the 4-minute shift that gets busier as it goes; Rush Hour is 2 minutes that start
+ * most of the way into the rush, with a little cash in hand for the first upgrade.
+ *
  * Determinism: everything runs in fixed `TICK` steps (30 Hz) from an accumulator, with a seeded RNG, so the same
  * stick input per tick gives the same camp at 30, 60 or 120 fps. Renderers interpolate movers between the previous
  * and the current tick with `alpha`. The fixed step is also what a server room will run for multiplayer.
  */
 
 export const TICK = 1 / 30;
+/** A Classic shift. */
 export const SHIFT_SECONDS = 240;
-const SHIFT_TICKS = Math.round(SHIFT_SECONDS / TICK);
+
+export type ModeId = 'classic' | 'rush';
+
+export interface ModeRules {
+  /** Shift length. */
+  seconds: number;
+  /** How far into the rush the shift starts (0 = a quiet start, 1 = flat out from the first second). */
+  rushFrom: number;
+  /** Money in the player's pocket at the start (not counted as earned). */
+  startCash: number;
+}
+
+export const MODE_RULES: Record<ModeId, ModeRules> = {
+  classic: { seconds: SHIFT_SECONDS, rushFrom: 0, startCash: 0 },
+  rush: { seconds: 120, rushFrom: 0.6, startCash: 50 },
+};
 /** At most this many ticks per `advance` (0.5 s): after a stall the game slows down instead of jumping. */
 const MAX_TICKS_PER_ADVANCE = 15;
 
@@ -192,8 +211,9 @@ export function queueSlot(slot: number): Vec2 {
 }
 
 /** Seconds between builder arrivals at shift time `t` (before jitter): busier as the shift goes on. */
-export function arrivalGap(t: number): number {
-  const k = Math.min(1, Math.max(0, t / SHIFT_SECONDS));
+export function arrivalGap(t: number, mode: ModeId = 'classic'): number {
+  const r = MODE_RULES[mode];
+  const k = r.rushFrom + (1 - r.rushFrom) * Math.min(1, Math.max(0, t / r.seconds));
   return 3.0 + (0.8 - 3.0) * k;
 }
 
@@ -310,8 +330,16 @@ export class LumberSim {
   /** Events from the last `advance` (sounds, effects). */
   events: SimEvent[] = [];
 
-  constructor(seed = 1) {
+  readonly mode: ModeId;
+  readonly rules: ModeRules;
+  private readonly shiftTicks: number;
+
+  constructor(seed = 1, mode: ModeId = 'classic') {
     this.random = rng(seed);
+    this.mode = mode;
+    this.rules = MODE_RULES[mode];
+    this.shiftTicks = Math.round(this.rules.seconds / TICK);
+    this.wallet = this.rules.startCash;
   }
 
   get time(): number {
@@ -319,7 +347,7 @@ export class LumberSim {
   }
 
   get timeLeft(): number {
-    return Math.max(0, SHIFT_SECONDS - this.time);
+    return Math.max(0, this.rules.seconds - this.time);
   }
 
   /** Interpolation factor between the previous and the current tick, for rendering movers. */
@@ -376,7 +404,7 @@ export class LumberSim {
     this.runHaulers();
     this.spawnCustomers(t);
     this.runQueue();
-    if (this.tick >= SHIFT_TICKS) {
+    if (this.tick >= this.shiftTicks) {
       this.phase = 'over';
       this.acc = 0;
       this.events.push({ type: 'over' });
@@ -546,7 +574,7 @@ export class LumberSim {
 
   private spawnCustomers(t: number): void {
     if (t >= this.nextArrival) {
-      this.nextArrival = t + arrivalGap(t) * (0.75 + this.random() * 0.5);
+      this.nextArrival = t + arrivalGap(t, this.mode) * (0.75 + this.random() * 0.5);
       this.arrive('builder', 1 + Math.floor(this.random() * 4), BUILDER_PATIENCE);
     }
     if (t >= this.nextCart) {

@@ -9,6 +9,7 @@ import {
   DROP_ZONE,
   LumberSim,
   MILL_CAP,
+  MODE_RULES,
   MILL_TRAYS,
   QUEUE_MAX,
   REGISTER_ZONE,
@@ -249,4 +250,33 @@ test('the shift ends at SHIFT_SECONDS with an "over" event', () => {
   assert.equal(sim.phase, 'over');
   assert.equal(sim.timeLeft, 0);
   assert.equal(sim.time, SHIFT_SECONDS);
+});
+
+test('Rush Hour: a 2-minute shift that starts busy, with cash in hand for the first upgrade', () => {
+  const rush = MODE_RULES.rush;
+  const sim = new LumberSim(1, 'rush');
+  assert.equal(sim.mode, 'rush');
+  assert.equal(sim.wallet, rush.startCash);
+  assert.equal(sim.earned, 0, 'start cash is not earned');
+  assert.equal(sim.timeLeft, rush.seconds);
+  // Busier from the first second than a Classic shift, as busy as one at its end.
+  assert.ok(arrivalGap(0, 'rush') < arrivalGap(0));
+  assert.equal(arrivalGap(rush.seconds, 'rush'), arrivalGap(SHIFT_SECONDS));
+  sim.start();
+  let over = 0;
+  for (let t = 0; t < rush.seconds + 5; t += 0.25) for (const e of sim.advance(0.25)) if (e.type === 'over') over++;
+  assert.equal(over, 1);
+  assert.equal(sim.time, rush.seconds);
+});
+
+test('Rush Hour economy: the bot earns stars there too, under the rush board rate limit', () => {
+  const limit = manifest.leaderboards.find((b) => b.id === 'rush')!.maxScorePerMinute;
+  for (const seed of [1, 2, 3]) {
+    const sim = new LumberSim(seed, 'rush');
+    const bot = new Bot();
+    sim.start();
+    while (sim.phase === 'playing') sim.advance(1 / 30, bot.drive);
+    assert.ok(sim.earned >= 500, `seed ${seed}: earned ${sim.earned}`);
+    assert.ok(sim.earned / (MODE_RULES.rush.seconds / 60) < limit / 2, `seed ${seed}: ${sim.earned} vs ${limit} $/min`);
+  }
 });

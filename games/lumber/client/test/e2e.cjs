@@ -6,8 +6,9 @@
 // Starts the Vite dev server (:5195, harness plugin on) unless it is already running, drives Chromium with Playwright
 // and asserts: boot → ready(), a joystick drag starts the shift and walks the player, the greedy bot (dev probe) earns
 // money and buys upgrades, skipping to the whistle shows the results card with earnings / best / leaderboard rank,
-// leaderboard.submit + achievement.unlock('first_sale') + save.put reached the harness, pause/resume freeze/continue
-// the shift clock, exitRequested → save → exit("host"), and ?nohost plays standalone.
+// leaderboard.submit + achievement.unlock('first_sale') + save.put reached the harness, the shift's stars unlock Rush Hour
+// and a Rush Hour shift (2:00) goes to its own board, pause/resume freeze/continue the shift clock,
+// exitRequested → save → exit("host"), and ?nohost plays standalone.
 // Every page runs the dev-only ?lowfx=1 mode (≤ 15 fps, DPR 1, no MSAA or shadows): CI renders WebGL in software on a
 // small runner, and at full quality the shift clock crawls.
 // Env: LUMBER_URL, E2E_SCREENSHOT=<png path> (default <tmp>/lumber.png).
@@ -111,7 +112,7 @@ async function main() {
     let log = await panelLog(page);
     assert.match(log, /ready\(\) after \d+ ms/);
     assert.match(log, /← save\.get ok/);
-    assert.match(log, /boards earnings, 5 achievement\(s\)/);
+    assert.match(log, /boards earnings, rush, 6 achievement\(s\)/);
     assert.equal(await lumber(page, 'phase'), 'ready');
     console.log('✓ boot: ui.loading → save.get → ready(); "Drag anywhere to walk"');
 
@@ -172,6 +173,9 @@ async function main() {
     assert.equal(await page.textContent('#over-score'), `$${score.toLocaleString('en-US')}`);
     assert.equal(await page.textContent('#over-best'), 'New best!');
     assert.match(await page.textContent('#over-stats'), /^Served \d+ · Walked out \d+ · Upgrades \d\/8$/);
+    const stars = await page.evaluate(() => document.querySelectorAll('#over-stars i.on').length);
+    assert.ok(stars >= 2, `stars ${stars}`);
+    assert.equal(await page.textContent('#over-mode'), 'New mode: Rush Hour');
     await page.waitForFunction(
       () => /#\d+ global/.test(document.querySelector('#over-board')?.textContent ?? ''),
       null,
@@ -182,7 +186,7 @@ async function main() {
     const board = await page.textContent('#over-board');
     assert.match(await page.textContent('#over-unlocked'), /Open for Business/);
     console.log(
-      `✓ whistle → results: ${await page.textContent('#over-score')}, "${await page.textContent('#over-stats')}", "${board}"`,
+      `✓ whistle → results: ${await page.textContent('#over-score')}, ${'★'.repeat(stars)}, "${await page.textContent('#over-stats')}", "${board}", Rush Hour unlocked`,
     );
 
     // 7. Harness side: leaderboard.submit / achievement.unlock / save.put went through the bridge.
@@ -195,12 +199,13 @@ async function main() {
     assert.match(log, /← leaderboard\.submit ok/);
     assert.match(log, /← leaderboard\.top ok/);
     await page.waitForFunction(
-      (s) => JSON.parse(localStorage.getItem('rally-harness:save:lumber:progress') || 'null')?.data?.best === s,
+      (s) =>
+        JSON.parse(localStorage.getItem('rally-harness:save:lumber:progress') || 'null')?.data?.bests?.classic === s,
       score,
       { timeout: 10_000 },
     );
     const saved = await local(page, 'rally-harness:save:lumber:progress');
-    assert.deepEqual(saved.data, { best: score, played: 1, version: 1 });
+    assert.deepEqual(saved.data, { bests: { classic: score, rush: 0 }, played: 1, mode: 'classic', version: 2 });
     console.log(
       `✓ harness: board ${mine.username}=$${mine.score}, achievements [${achievements.join(', ')}], save ${JSON.stringify(saved.data)}`,
     );
@@ -211,19 +216,43 @@ async function main() {
     await page.evaluate(() => (document.getElementById('rally-dev-harness').style.display = ''));
     console.log(`  screenshots: ${SCREENSHOT}, ${playing}`);
 
-    // 8. Next shift: a fresh camp, no tutorial the second time.
+    // 8. Next shift: a fresh camp, no tutorial the second time; pick Rush Hour (now unlocked) in the mode picker.
     await page.evaluate(() => window.__lumber.autoplay(false));
     const togglePanel = () => page.click('#rally-dev-harness >> [data-role="head"]');
     await togglePanel();
     await page.click('#again');
+    await page.waitForSelector('#modes:not([hidden])');
+    await page.click('#modes [data-mode="rush"]');
     await togglePanel();
     await page.waitForSelector('#prompt:not([hidden])');
     assert.equal(await lumber(page, 'phase'), 'ready');
+    assert.equal(await lumber(page, 'mode'), 'rush');
     assert.equal(await lumber(page, 'earned'), 0);
+    assert.equal(await page.textContent('#clock'), '2:00');
     await drag(page, 200, 420, 0, -40, 300);
     assert.equal(await lumber(page, 'phase'), 'playing');
     assert.ok(await page.isHidden('#hint'), 'no tutorial on the second shift');
-    console.log('✓ next shift starts fresh (no tutorial)');
+    assert.ok(await page.isHidden('#modes'), 'the mode picker goes once the shift starts');
+    console.log('✓ next shift starts fresh (no tutorial), in Rush Hour (2:00)');
+
+    // 8b. The Rush Hour shift ends at 2:00 and goes to its own board.
+    await page.evaluate(() => window.__lumber.autoplay(true));
+    await page.evaluate(() => window.__lumber.skip(200));
+    assert.equal(await lumber(page, 'phase'), 'over');
+    assert.equal(await lumber(page, 'time'), 120);
+    const rushScore = await lumber(page, 'earned');
+    await page.waitForSelector('#over:not([hidden])', { timeout: 5_000 });
+    assert.equal(await page.textContent('#over-label'), 'Rush Hour over');
+    await page.waitForFunction(
+      (s) =>
+        (JSON.parse(localStorage.getItem('rally-harness:board:lumber:rush') || '[]') || []).some(
+          (e) => e.userId === 'dev-user' && e.score === s,
+        ),
+      rushScore,
+      { timeout: 10_000 },
+    );
+    await page.evaluate(() => window.__lumber.autoplay(false));
+    console.log(`✓ Rush Hour → over at 2:00, $${rushScore} on the rush board`);
 
     // 9. exitRequested → the game saves and calls exit("host").
     await page.click('#rally-dev-harness >> button[data-action="exitRequested"]');

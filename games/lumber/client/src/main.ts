@@ -17,16 +17,20 @@ import { createLabels, type Labels } from './labels.ts';
 import { applyLowFx } from './lowfx.ts';
 import { loadLumberModels } from './models.ts';
 import { PALETTE, createLumberScene, type LumberScene } from './scene.ts';
-import { CASH_ZONE, LumberSim, UNLOCKS, type SimEvent } from './sim.ts';
+import {
+  MODES,
+  type Progress,
+  isUnlocked,
+  modeDef,
+  newlyUnlocked,
+  parseProgress,
+  starText,
+  starsFor,
+  totalStars,
+} from './progress.ts';
+import { CASH_ZONE, LumberSim, UNLOCKS, type ModeId, type SimEvent } from './sim.ts';
 
-const BOARD = 'earnings';
 const TELEMETRY_MS = 10_000;
-
-interface Progress {
-  best: number;
-  played: number;
-  version: 1;
-}
 
 const ACHIEVEMENTS: { key: string; title: string; earned: (s: LumberSim) => boolean }[] = [
   { key: 'first_sale', title: 'Open for Business', earned: (s) => s.served >= 1 },
@@ -34,6 +38,7 @@ const ACHIEVEMENTS: { key: string; title: string; earned: (s: LumberSim) => bool
   { key: 'earn_2500', title: 'Timber Tycoon', earned: (s) => s.earned >= 2500 },
   { key: 'full_camp', title: 'Full Camp', earned: (s) => s.unlocked.size === UNLOCKS.length },
   { key: 'no_walkouts', title: 'Nobody Waits', earned: (s) => s.lost === 0 && s.earned >= 500 },
+  { key: 'rush_hero', title: 'Rush Hour Hero', earned: (s) => s.mode === 'rush' && s.earned >= 800 },
 ];
 
 /** First-shift tutorial, one line at a time; each step ends when its condition holds. */
@@ -55,13 +60,17 @@ const ui = {
   earnedAmount: $('earned-amount'),
   hint: $('hint'),
   prompt: $('prompt'),
+  modes: $('modes'),
   stick: $('stick'),
   over: $('over'),
+  overLabel: $('over-label'),
   overScore: $('over-score'),
+  overStars: $('over-stars'),
   overBest: $('over-best'),
   overStats: $('over-stats'),
   overBoard: $('over-board'),
   overUnlocked: $('over-unlocked'),
+  overMode: $('over-mode'),
   again: $<HTMLButtonElement>('again'),
   paused: $('paused'),
   loading: $('loading'),
@@ -99,21 +108,11 @@ let labels!: Labels;
 loading(0.15);
 
 // --- services --------------------------------------------------------------------------------------
-const save = createSave<Progress>(
-  rally,
-  'progress',
-  { best: 0, played: 0, version: 1 },
-  {
-    debounceMs: 800,
-    parse: (raw, d) => {
-      const r = (raw ?? {}) as Partial<Progress>;
-      const num = (v: unknown, f: number) =>
-        typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : f;
-      return { best: num(r.best, d.best), played: num(r.played, d.played), version: 1 };
-    },
-    onError: (err) => console.warn('[lumber] save failed', err),
-  },
-);
+const save = createSave<Progress>(rally, 'progress', parseProgress(null), {
+  debounceMs: 800,
+  parse: (raw) => parseProgress(raw),
+  onError: (err) => console.warn('[lumber] save failed', err),
+});
 const solo = createSolo(rally, { user: () => rally.context?.user ?? null });
 const audio = createAudio();
 const metrics = createFrameMetrics(2000);
@@ -157,8 +156,14 @@ const lifecycle = createLifecycle(rally, app, {
   },
 });
 
+/** The mode the next shift plays: the saved choice, while it is unlocked. */
+function nextMode(): ModeId {
+  const m = save.data.mode;
+  return isUnlocked(m, save.data.bests) ? m : 'classic';
+}
+
 function newShift() {
-  sim = new LumberSim((save.data.played * 7919 + 17) >>> 0);
+  sim = new LumberSim((save.data.played * 7919 + 17) >>> 0, nextMode());
   labels.clear();
   scene.reset(sim);
   ui.over.hidden = true;
@@ -169,11 +174,44 @@ function newShift() {
     : 'Drag anywhere to walk';
   tutorial = save.data.played === 0 ? 0 : -1;
   ui.hint.hidden = true;
+  renderModes();
   shown.wallet = shown.earned = -1;
   shown.clock = '';
   ui.clock.classList.remove('hurry');
   renderHud();
 }
+
+/** The mode picker under the start prompt: each mode with its best stars, or what it takes to unlock it. */
+function renderModes() {
+  const bests = save.data.bests;
+  const total = totalStars(bests);
+  ui.modes.innerHTML = MODES.map((m) => {
+    const open = isUnlocked(m.id, bests);
+    const side = open
+      ? `<span class="stars">${starText(starsFor(m.id, bests[m.id]))}</span>`
+      : `<span class="lock">🔒 ${m.unlockAt - total} ★ to go</span>`;
+    const cls = ['mode', m.id === sim.mode ? 'on' : '', open ? '' : 'locked'].filter(Boolean).join(' ');
+    return `<button type="button" class="${cls}" data-mode="${m.id}"><b>${m.title}</b>${side}<small>${m.blurb}</small></button>`;
+  }).join('');
+  ui.modes.hidden = sim.phase !== 'ready';
+}
+
+ui.modes.addEventListener('click', (e) => {
+  const id = (e.target as HTMLElement).closest<HTMLElement>('[data-mode]')?.dataset.mode as ModeId | undefined;
+  if (!id || sim.phase !== 'ready') return;
+  if (!isUnlocked(id, save.data.bests)) {
+    audio.blip(200, 90, { type: 'square', gain: 0.12 });
+    ui.hint.textContent = `Earn ${modeDef(id).unlockAt} ★ to unlock ${modeDef(id).title}`;
+    ui.hint.hidden = false;
+    return;
+  }
+  if (id === sim.mode) return;
+  audio.blip(520, 40, { gain: 0.2 });
+  save.update((d) => {
+    d.mode = id;
+  });
+  newShift();
+});
 
 function renderHud() {
   if (sim.wallet !== shown.wallet) {
@@ -261,17 +299,27 @@ function onEvent(e: SimEvent) {
 
 async function gameOver() {
   const token = ++gameOverToken;
+  const mode = sim.mode;
+  const def = modeDef(mode);
   const score = sim.earned;
-  const prevBest = save.data.best;
+  const before = { ...save.data.bests };
+  const prevBest = before[mode];
   save.update((d) => {
     d.played += 1;
-    d.best = Math.max(d.best, score);
+    d.bests[mode] = Math.max(d.bests[mode], score);
   });
   const best = Math.max(prevBest, score);
   const newBest = score > prevBest && score > 0;
+  const stars = starsFor(mode, score);
+  const opened = newlyUnlocked(before, save.data.bests);
   controls.release();
   ui.hint.hidden = true;
+  ui.overLabel.textContent = mode === 'classic' ? 'Shift over' : `${def.title} over`;
   ui.overScore.textContent = money(score);
+  ui.overStars.innerHTML = [0, 1, 2].map((i) => `<i class="${i < stars ? 'on' : ''}">★</i>`).join('');
+  ui.overStars.setAttribute('aria-label', `${stars} of 3 stars`);
+  ui.overMode.textContent = opened.length ? `New mode: ${opened.map((m) => m.title).join(' · ')}` : '';
+  ui.overMode.hidden = !opened.length;
   ui.overBest.textContent = newBest ? 'New best!' : `Best ${money(best)}`;
   ui.overBest.classList.toggle('new', newBest);
   ui.overStats.textContent = `Served ${sim.served} · Walked out ${sim.lost} · Upgrades ${sim.unlocked.size}/${UNLOCKS.length}`;
@@ -286,10 +334,10 @@ async function gameOver() {
 
   const earned = ACHIEVEMENTS.filter((a) => a.earned(sim));
   const [submit, unlocks] = await Promise.all([
-    solo.submit(BOARD, score),
+    solo.submit(def.board, score),
     Promise.all(earned.map(async (a) => ({ a, r: await solo.unlock(a.key) }))),
   ]);
-  const top = await solo.top(BOARD, { scope: 'global', limit: 10 });
+  const top = await solo.top(def.board, { scope: 'global', limit: 10 });
   if (token !== gameOverToken) return;
 
   const fresh = unlocks.filter((u) => u.r.unlocked && !u.r.alreadyHad).map((u) => u.a.title);
@@ -330,6 +378,8 @@ app.on('update', (dt: number) => {
   if (sim.phase === 'ready' && live && (autoplay || (stick && Math.hypot(stick.x, stick.z) > 0.25))) {
     sim.start();
     ui.prompt.hidden = true;
+    ui.modes.hidden = true;
+    if (tutorial < 0) ui.hint.hidden = true;
     audio.blip(660, 80, { gain: 0.25 });
   }
   if (stick) sim.setStick(stick.x, stick.z);
@@ -349,11 +399,13 @@ function collect() {
     p95Ms: f.p95Ms,
     worstMs: f.worstMs,
     earned: sim.earned,
+    mode: sim.mode,
+    stars: totalStars(save.data.bests),
     phase: sim.phase,
     shiftTime: round(sim.time, 1),
     unlocked: sim.unlocked.size,
     customers: sim.customers.length,
-    best: save.data.best,
+    best: save.data.bests[sim.mode],
     played: save.data.played,
     paused: lifecycle.isPaused,
     entities: scene.entityCount,
@@ -446,6 +498,12 @@ if (import.meta.env.DEV) {
     },
     get save() {
       return { ...save.data, version: save.version };
+    },
+    get mode() {
+      return sim.mode;
+    },
+    get stars() {
+      return totalStars(save.data.bests);
     },
     /** Let the greedy bot play (true) or hand control back (false). */
     autoplay(on: boolean) {
