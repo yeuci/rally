@@ -14,6 +14,11 @@ export interface Controls {
   /** True once the player used any control (hides the hint). */
   readonly used: boolean;
   enabled: boolean;
+  /**
+   * The host's shared touch settings: `swap` puts the button on the left (and the thumb stick, which follows the thumb
+   * anywhere, naturally on the right); `size` scales the stick's travel and ring, `opacity` fades the ring.
+   */
+  setLayout(o: { swap: boolean; size: number; opacity: number }): void;
   /** Drop every held control (blur, pause, the host's menu). */
   release(): void;
   /** Position the on-screen stick (once per frame). */
@@ -31,6 +36,7 @@ export function createControls(canvas: HTMLCanvasElement, stickEl: HTMLElement, 
   let presses = 0;
   let finger: number | null = null;
   let keyDown = false;
+  let size = 1;
   const twin: TwinStickHandle = createTwinStick(canvas, {
     radius: STICK_RADIUS,
     split: 1,
@@ -101,8 +107,15 @@ export function createControls(canvas: HTMLCanvasElement, stickEl: HTMLElement, 
 
   return {
     get move() {
-      const m = twin.tracker.move;
-      return m.x !== 0 || m.y !== 0 || twin.tracker.moveFinger ? m : keys.stick;
+      const f = twin.tracker.moveFinger;
+      if (!f) return keys.stick;
+      // The stick's travel scales with the host's stick size (the tracker's own radius is fixed).
+      const r = STICK_RADIUS * size;
+      const x = (f.x - f.originX) / r;
+      const y = (f.y - f.originY) / r;
+      const len = Math.hypot(x, y);
+      if (len < 0.08) return { x: 0, y: 0 };
+      return len > 1 ? { x: x / len, y: y / len } : { x, y };
     },
     get button() {
       return finger !== null || keyDown;
@@ -121,6 +134,12 @@ export function createControls(canvas: HTMLCanvasElement, stickEl: HTMLElement, 
       keys.enabled = on;
       if (!on) release();
     },
+    setLayout(o) {
+      size = Math.max(0.75, Math.min(1.5, o.size));
+      document.body.classList.toggle('swapped', o.swap);
+      stickEl.style.setProperty('--stick-scale', String(size));
+      stickEl.style.opacity = String(Math.max(0.2, Math.min(1, o.opacity)));
+    },
     release,
     draw() {
       const f = twin.tracker.moveFinger;
@@ -130,9 +149,9 @@ export function createControls(canvas: HTMLCanvasElement, stickEl: HTMLElement, 
       }
       const r = canvas.getBoundingClientRect();
       stickEl.hidden = false;
-      stickEl.style.transform = `translate(${f.originX + r.left}px, ${f.originY + r.top}px)`;
-      let dx = f.x - f.originX;
-      let dy = f.y - f.originY;
+      stickEl.style.transform = `translate(${f.originX + r.left}px, ${f.originY + r.top}px) scale(${size})`;
+      let dx = (f.x - f.originX) / size;
+      let dy = (f.y - f.originY) / size;
       const len = Math.hypot(dx, dy);
       const clamp = STICK_RADIUS * 0.7;
       if (len > clamp) [dx, dy] = [(dx / len) * clamp, (dy / len) * clamp];

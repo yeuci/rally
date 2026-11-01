@@ -202,6 +202,10 @@ hud.onVote((i) => {
 
 function applySettings(s: PlayerSettings) {
   sfx.volume = effectsVolume(s.volume);
+  // Shared touch settings (Sushi Shift has no aiming: aimAssist does not apply).
+  if (s.controls) {
+    controls.setLayout({ swap: s.controls.swapSticks, size: s.controls.stickSize, opacity: s.controls.stickOpacity });
+  }
   if (!LOWFX && !ART && s.graphics !== graphics) {
     graphics = s.graphics;
     rememberGraphics(globalThis.localStorage ?? null, graphics);
@@ -668,10 +672,12 @@ function stationLabel(
       else if (v.state === Pan.burnt) chip(`ct:${i}`, 'Burnt', true);
       return;
     case 'plates':
-      if (v.count >= 0) chip(`ct:${i}`, `${v.count} plates`, v.count <= 2, 1.6);
+      if (v.count >= 0 && v.count <= 4) chip(`ct:${i}`, v.count ? `${v.count} plates` : 'No plates!', true, 1.6);
       return;
     case 'crate':
-      if (v.count >= 0 && def.crate !== undefined && st.day >= 6) chip(`ct:${i}`, `${v.count}`, v.count <= 1, 1.5);
+      // Delivery days: only the crates running low say so (the rest would crowd the counter).
+      if (v.count >= 0 && v.count <= 2 && def.crate !== undefined)
+        chip(`ct:${i}`, v.count ? `${v.count} left` : 'Empty', true, 1.35);
       return;
     case 'drop':
       if (v.count > 0) chip(`ct:${i}`, '📦 Delivery!', false, 1.2);
@@ -712,6 +718,15 @@ function reportReconnection() {
   void rally.session
     .reportReconnection({ roomId: net.room.roomId, token: net.room.reconnectionToken, ttlSec: RECONNECT_TTL_SEC })
     .catch(() => {});
+}
+
+const netSent = { count: 0, last: '' };
+function netStatus(state: 'connected' | 'reconnecting' | 'disconnected') {
+  netSent.count++;
+  netSent.last = state;
+  if (!rally.isHosted) return;
+  const rtt = net?.rttMs;
+  rally.net.status(state, state === 'connected' && rtt !== null && rtt !== undefined ? rtt : undefined);
 }
 
 function toWs(url: string) {
@@ -791,13 +806,27 @@ async function boot() {
     resultDay = st ? `${st.run}:${st.day}` : '';
   });
   reportReconnection();
-  net.room.onDrop(() => hud.setMessage('Connection lost', 'Reconnecting…'));
+  // The connection for the host's ping bars and its own "Reconnecting…" banner (ours only in a plain browser).
+  let connected = true;
+  netStatus('connected');
+  setInterval(() => {
+    if (connected && !exiting) netStatus('connected');
+  }, 2000);
+  net.room.onDrop(() => {
+    connected = false;
+    netStatus('reconnecting');
+    if (!rally.isHosted) hud.setMessage('Connection lost', 'Reconnecting…');
+  });
   net.room.onReconnect(() => {
+    connected = true;
+    netStatus('connected');
     hud.setMessage(null);
     reportReconnection();
   });
   net.room.onLeave((code) => {
-    if (!exiting) hud.setMessage('Disconnected', `The server closed the connection (${code}).`);
+    connected = false;
+    netStatus('disconnected');
+    if (!exiting && !rally.isHosted) hud.setMessage('Disconnected', `The server closed the connection (${code}).`);
   });
 }
 
@@ -886,6 +915,9 @@ if (import.meta.env.DEV) {
     },
     get menu() {
       return { ...menuSent };
+    },
+    get netStatus() {
+      return { ...netSent };
     },
     get fps() {
       return metrics.snapshot();

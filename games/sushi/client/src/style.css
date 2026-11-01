@@ -212,6 +212,10 @@ body.standalone .menu-space {
   touch-action: none;
   transition: transform 0.06s;
 }
+body.swapped .action {
+  right: auto;
+  left: calc(var(--safe-left) + 22px);
+}
 .action.down {
   transform: translateY(4px);
   box-shadow:
@@ -552,8 +556,8 @@ body.standalone .menu-space {
   gap: 2px;
 }
 .order .dish {
-  width: 38px;
-  height: 38px;
+  width: 30px;
+  height: 30px;
   border-radius: 10px;
   background-size: contain;
   background-repeat: no-repeat;
@@ -586,8 +590,8 @@ body.standalone .menu-space {
   margin-top: 2px;
 }
 .order .recipe span {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   background-size: contain;
   background-repeat: no-repeat;
   background-position: center;

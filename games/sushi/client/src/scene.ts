@@ -55,10 +55,10 @@ import type { Models, PropModel } from './models.ts';
  */
 
 const CLEAR = new Color(0.17, 0.11, 0.08);
-const PITCH_DEG = 50;
+const PITCH_DEG = 56;
 const FOV_DEG = 32;
 /** Room for the HUD: fraction of the screen kept free at the top and bottom of the framing. */
-const MARGIN_TOP = 0.09;
+const MARGIN_TOP = 0.13;
 const MARGIN_BOTTOM = 0.04;
 const MARGIN_SIDE = 0.02;
 

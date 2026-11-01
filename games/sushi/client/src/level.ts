@@ -108,19 +108,35 @@ export function floorCanvas(): HTMLCanvasElement {
   g.fillRect(X(AREAS.alley.x0), Y(AREAS.alley.y0), (AREAS.alley.x1 - AREAS.alley.x0) * PPU, 8.5 * PPU);
   g.fillStyle = 'rgba(0, 0, 0, 0.25)';
   g.fillRect(X(AREAS.alley.x0 + 0.4), Y(AREAS.alley.y0), 0.12 * PPU, 8.5 * PPU);
-  // The terrace: paving stones with grass at the sides.
-  const ty = AREAS.terrace.y0;
-  g.fillStyle = C.grass;
-  g.fillRect(X(-8), Y(ty), 16 * PPU, 6 * PPU);
-  for (let y = ty; y < AREAS.terrace.y1 + 0.2; y += 0.6) {
-    for (let x = -6 + ((y * 1.7) % 0.6); x < 6; x += 0.6) {
-      g.fillStyle = rnd() < 0.5 ? C.paver : '#c8bba6';
-      g.fillRect(X(x) + 2, Y(y) + 2, 0.6 * PPU - 4, 0.6 * PPU - 4);
-    }
-  }
   // The doormat line at the entrance.
   g.fillStyle = '#7b3a2a';
   g.fillRect(X(-1.1), Y(AREAS.main.y1 - 0.25), 2.2 * PPU, 0.25 * PPU);
+  return c;
+}
+
+/** The festival terrace's ground (shown on Sunday over the street): paving stones with grass at the sides. */
+function terraceCanvas(): HTMLCanvasElement {
+  const w = 16;
+  const h = AREAS.terrace.y1 - AREAS.terrace.y0 + 1;
+  const c = document.createElement('canvas');
+  c.width = w * PPU;
+  c.height = h * PPU;
+  const g = c.getContext('2d');
+  if (!g) return c;
+  let seed = 11;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  g.fillStyle = C.grass;
+  g.fillRect(0, 0, c.width, c.height);
+  for (let i = 0; i < 300; i++) {
+    g.fillStyle = `rgba(${rnd() < 0.5 ? '160,200,110' : '60,100,40'}, 0.18)`;
+    g.fillRect(rnd() * c.width, rnd() * c.height, 6, 3);
+  }
+  for (let y = 0; y < h - 0.6; y += 0.6) {
+    for (let x = 2 + ((y * 1.7) % 0.6); x < w - 2; x += 0.6) {
+      g.fillStyle = rnd() < 0.5 ? C.paver : '#c8bba6';
+      g.fillRect(x * PPU + 2, y * PPU + 2, 0.6 * PPU - 4, 0.6 * PPU - 4);
+    }
+  }
   return c;
 }
 
@@ -327,6 +343,27 @@ export function buildLevel(app: Application, models: Models, vertexMat: Standard
   floor.setLocalScale(FLOOR.x1 - FLOOR.x0, 1, FLOOR.y1 - FLOOR.y0);
   floor.setPosition((FLOOR.x0 + FLOOR.x1) / 2, 0, (FLOOR.y0 + FLOOR.y1) / 2);
   app.root.addChild(floor);
+
+  // The terrace's paving, in its zone.
+  const terraceTex = new Texture(device, {
+    name: 'terrace',
+    format: PIXELFORMAT_RGBA8,
+    mipmaps: true,
+    minFilter: FILTER_LINEAR_MIPMAP_LINEAR,
+    magFilter: FILTER_LINEAR,
+    addressU: ADDRESS_CLAMP_TO_EDGE,
+    addressV: ADDRESS_CLAMP_TO_EDGE,
+  });
+  terraceTex.setSource(terraceCanvas());
+  const terraceMat = floorMat.clone();
+  terraceMat.diffuseMap = terraceTex;
+  terraceMat.update();
+  const terrace = new Entity('terrace-floor');
+  terrace.addComponent('render', { type: 'plane', material: terraceMat, castShadows: false, receiveShadows: true });
+  const th = AREAS.terrace.y1 - AREAS.terrace.y0 + 1;
+  terrace.setLocalScale(16, 1, th);
+  terrace.setPosition(0, 0.004, AREAS.terrace.y0 + th / 2);
+  zones.get(Zone.terrace)?.addChild(terrace);
 
   // The bar and its belt.
   const bar = new Entity('bar');

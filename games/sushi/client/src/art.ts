@@ -173,7 +173,7 @@ export function artPose(shot: ArtShot): ArtPose {
         state: snapshot(g),
         me: 'p0',
         clean: true,
-        frame: { x0: -3.6, y0: -3.2, x1: 2.4, y1: 0.4 },
+        frame: { x0: -3.2, y0: -3.0, x1: 1.8, y1: 0.0 },
         result: null,
       };
     }
@@ -196,7 +196,7 @@ export function artPose(shot: ArtShot): ArtPose {
       if (chefs[1]) chefs[1].vote = 1;
       if (chefs[2]) chefs[2].vote = 0;
       return {
-        state: snapshot(g),
+        state: snapshot(g, { timer: 11.6 }),
         me: 'p0',
         clean: false,
         result: {
