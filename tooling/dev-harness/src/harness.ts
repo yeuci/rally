@@ -11,9 +11,11 @@
 import {
   LaunchIntent,
   PROTOCOL_VERSION,
+  type GameSetting,
   type HostEvent,
   type HostEventPayload,
   type LaunchContext,
+  type MenuPlayer,
 } from '@rally/protocol';
 import type { HarnessConfig } from './config.ts';
 import {
@@ -27,6 +29,15 @@ import {
 import { HostBridge } from './host-bridge.ts';
 import { LoadingHold } from './loading.ts';
 import { listRooms, toHttpUrl } from './matchmake.ts';
+import { HarnessMenu, type MenuNet } from './menu.ts';
+import {
+  coerceGameValue,
+  localSettingsStore,
+  menuButtonRect,
+  patchPlatform,
+  playerSettings,
+  valuesFor,
+} from './settings.ts';
 import { Panel, type LogLevel } from './panel.ts';
 import { localProgressStore } from './progress.ts';
 
@@ -203,8 +214,109 @@ function main(): void {
   // labels, until it reports progress 1.
   const screen = cfg.loading ?? { title: cfg.game.id, art: null };
   let lastLabel: string | null = null;
+  // --- the game menu (src/menu.ts, src/settings.ts): settings in localStorage, a corner button, Escape -------------
+  const safeArea = cfg.launch.safeArea ?? { top: 0, right: 0, bottom: 0, left: 0 };
+  const menuButton = menuButtonRect(safeArea);
+  const settingsStore = localSettingsStore(cfg.game.id);
+  let { platform, game: savedGame } = settingsStore.load();
+  let menuDef: { settings: GameSetting[]; help: { title: string; text: string }[] } | null = null;
+  let players: MenuPlayer[] = [];
+  let net: MenuNet | null = null;
+  let exited = false;
+  let settingsTimer: ReturnType<typeof setTimeout> | null = null;
+  let leaveTimer: ReturnType<typeof setTimeout> | null = null;
+  const gameValues = () => (menuDef ? valuesFor(menuDef.settings, savedGame) : { ...savedGame });
+  const currentSettings = () => playerSettings(platform, gameValues());
+  const sendSettings = () => {
+    if (settingsTimer !== null) clearTimeout(settingsTimer);
+    settingsTimer = null;
+    if (!bridge.isClosed) bridge.sendEvent('settingsChanged', currentSettings());
+  };
+  const menu = new HarnessMenu({
+    title: screen.title,
+    button: menuButton,
+    state: () => ({
+      platform,
+      game: gameValues(),
+      settings: menuDef?.settings ?? [],
+      help: menuDef?.help ?? [],
+      players,
+      net,
+    }),
+    onOpen: () => openMenu(),
+    onClose: () => closeMenu(),
+    onChange: (patch, final) => {
+      platform = patchPlatform(platform, patch);
+      for (const [key, value] of Object.entries(patch.game ?? {})) {
+        const def = menuDef?.settings.find((d) => d.key === key);
+        const v = def ? coerceGameValue(def, value) : null;
+        if (v !== null) savedGame = { ...savedGame, [key]: v };
+      }
+      if (!final) {
+        // Live while a slider drags, at most every 120 ms (the shell's SETTINGS_THROTTLE_MS); the release sends the last.
+        settingsTimer ??= setTimeout(sendSettings, 120);
+        return;
+      }
+      settingsStore.savePlatform(platform);
+      settingsStore.saveGame(savedGame);
+      sendSettings();
+      const s = currentSettings();
+      log(
+        `→ evt settingsChanged (graphics ${s.graphics}, master ${Math.round(s.volume.master * 100)} %, effects ${Math.round(s.volume.effects * 100)} %${Object.keys(s.game).length ? `, ${JSON.stringify(s.game)}` : ''})`,
+        'info',
+        'settings',
+      );
+    },
+    onLeave: () => leaveGame(),
+  });
+  function openMenu() {
+    if (exited || hold.state.visible || menu.isOpen || bridge.isClosed) return;
+    menu.open();
+    bridge.sendEvent('menu', { open: true });
+    log('→ evt menu {open: true}', 'info');
+  }
+  function closeMenu() {
+    if (!menu.isOpen) return;
+    if (settingsTimer !== null) sendSettings();
+    menu.close();
+    if (!bridge.isClosed) bridge.sendEvent('menu', { open: false });
+    log('→ evt menu {open: false}', 'info');
+  }
+  /** The menu's Leave (and the banner's): the game leaves its room with consent; one that does not is closed. */
+  function leaveGame() {
+    if (exited || bridge.isClosed) return;
+    if (leaveTimer !== null) return forceClose();
+    bridge.sendEvent('exitRequested', {});
+    log('→ evt exitRequested (menu: Leave game)', 'info');
+    leaveTimer = setTimeout(forceClose, 2500);
+  }
+  function forceClose() {
+    if (exited) return;
+    log('the game did not exit after Leave: the shell closes it', 'warn');
+    gameGone('forced');
+  }
+  /** The game is gone (it exited, or was closed): no more menu, button or banner. */
+  function gameGone(reason: string) {
+    exited = true;
+    if (leaveTimer !== null) clearTimeout(leaveTimer);
+    menu.close();
+    menu.showButton(false);
+    menu.renderNet();
+    panel.setStatus(`exited (${reason})`);
+    bridge.close();
+    hold.close();
+    panel.showExit(reason);
+  }
+
   const hold = new LoadingHold({
-    onChange: (s) => panel.setLoadingScreen(s, screen),
+    onChange: (s) => {
+      panel.setLoadingScreen(s, screen);
+      // The menu button shows over the running game, not over the loading screen.
+      if (!s.visible && !exited) {
+        menu.showButton(true);
+        menu.renderNet();
+      }
+    },
     onSafetyReveal: (ms) =>
       log(
         `the game sent loading labels but no ui.loading progress 1 within ${ms / 1000} s of ready(); the shell shows it anyway`,
@@ -227,11 +339,13 @@ function main(): void {
     ...(cfg.launch.party ? { party: cfg.launch.party } : {}),
     ...(resume ? { resume } : {}),
     device: {
-      safeArea: cfg.launch.safeArea ?? { top: 0, right: 0, bottom: 0, left: 0 },
+      safeArea,
       orientation: window.matchMedia?.('(orientation: portrait)').matches ? 'portrait' : 'landscape',
       pixelRatio: window.devicePixelRatio || 1,
       locale: navigator.language || 'en-US',
+      menuButton,
     },
+    settings: currentSettings(),
   });
 
   const bridge = new HostBridge({
@@ -273,11 +387,17 @@ function main(): void {
       },
       onExit: (reason) => {
         log(`exit("${reason}")`, 'warn');
-        panel.setStatus(`exited (${reason})`);
-        bridge.close();
-        hold.close();
-        panel.showExit(reason);
+        gameGone(reason);
       },
+      onMenuDefine: (def) => {
+        menuDef = def;
+        menu.refresh();
+        log(
+          `menu.define: ${def.settings.length} setting(s), ${def.help.length} help entr${def.help.length === 1 ? 'y' : 'ies'}`,
+        );
+        return gameValues();
+      },
+      onMenuOpen: () => openMenu(),
       onJoined: ({ roomId, sessionId, kind }) => {
         joinedRoomId = typeof roomId === 'string' ? roomId : null;
         panel.setStatus(`in room ${String(roomId)}`);
@@ -325,8 +445,17 @@ function main(): void {
         log(`telemetry ${ev.params.name}`, 'info', 'telemetry');
       } else if (ev.method === 'net.status') {
         console.debug(TAG, 'net.status', ev.params.state, ev.params.rttMs ?? '');
+        if (ev.params.state !== net?.state)
+          log(`net.status: ${ev.params.state}`, ev.params.state === 'connected' ? 'ok' : 'warn');
+        net =
+          ev.params.rttMs === undefined
+            ? { state: ev.params.state }
+            : { state: ev.params.state, rttMs: ev.params.rttMs };
+        menu.renderNet();
       } else if (ev.method === 'menu.players') {
-        log(`menu.players: ${ev.params.players.map((p) => p.name).join(', ')}`, 'info');
+        log(`menu.players: ${ev.params.players.map((p) => p.name).join(', ')}`, 'info', 'menu.players');
+        players = ev.params.players;
+        menu.refresh();
       } else {
         console.error(TAG, 'game.error', ev.params.message, ev.params.stack ?? '');
         log(`game.error: ${ev.params.message}`, 'error');
