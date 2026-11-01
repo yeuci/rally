@@ -2,16 +2,24 @@ import {
   RenderClock,
   SnapshotBuffer,
   applySafeAreaVars,
+  assistAim,
+  bindSettings,
   createApp,
   createAudio,
   createBootProgress,
   createFrameMetrics,
   createLifecycle,
+  createNetStatus,
+  effectsVolume,
+  graphicsPreset,
   jsHeapMb,
   matchmakingLabel,
+  rememberGraphics,
+  rememberedGraphics,
   round,
   safeArea,
 } from '@rally/game-kit';
+import type { MenuPlayer, PlayerSettings } from '@rally/sdk';
 import { rally } from '@rally/sdk';
 import {
   ClientMessage,
@@ -53,6 +61,7 @@ const ui = {
   loadingBar: $('loading-bar'),
   loadingLabel: $('loading-label'),
   loadingDetail: $('loading-detail'),
+  hint: $('hint'),
 };
 const params = new URLSearchParams(location.search);
 /** `?predict=0` draws your own player interpolated like everyone else (to compare). */
@@ -85,8 +94,16 @@ const loader = createBootProgress({
 const bootStart = performance.now();
 
 // --- engine, scene, HUD, input -----------------------------------------------------------------------
-const { app, onResize } = createApp({
+/**
+ * The host's game menu sets the graphics quality (DPR, shadows, effects: live; MSAA from the quality chosen last time,
+ * at boot). `?lowfx` (e2e), `?art` and the dev perf knobs keep their own settings.
+ */
+const PERF_KNOBS = import.meta.env.DEV && ['noaa', 'noshadow', 'nofx'].some((k) => params.has(k));
+const FIXED_GRAPHICS = LOWFX || !!ART || PERF_KNOBS;
+const bootGraphics = graphicsPreset(rememberedGraphics());
+const { app, onResize, setMaxPixelRatio } = createApp({
   canvas: ui.canvas,
+  ...(FIXED_GRAPHICS ? {} : { antialias: bootGraphics.antialias, maxPixelRatio: bootGraphics.maxPixelRatio }),
   ...(ART ? { maxPixelRatio: 3 } : {}),
   ...(LOWFX ? { maxPixelRatio: 1, antialias: false } : {}),
   // Dev-only render knobs for perf measurements (test/perf.cjs PERF_QUERY): ?noaa, ?noshadow, ?nofx.
@@ -97,10 +114,12 @@ if (LOWFX) applyLowFx(app);
 let scene!: OverrunScene;
 const sceneOptions = LOWFX
   ? { shadows: false, effects: false }
-  : {
-      shadows: !(import.meta.env.DEV && params.has('noshadow')),
-      effects: !(import.meta.env.DEV && params.has('nofx')),
-    };
+  : FIXED_GRAPHICS
+    ? {
+        shadows: !(import.meta.env.DEV && params.has('noshadow')),
+        effects: !(import.meta.env.DEV && params.has('nofx')),
+      }
+    : { shadows: bootGraphics.shadows, effects: bootGraphics.effects };
 const hud = createHud();
 const controls = createControls(ui.canvas, ui.stickMove, ui.stickAim);
 const audio = createAudio();
@@ -167,6 +186,7 @@ const lifecycle = createLifecycle(rally, app, {
   },
   onExitRequested: async () => {
     exiting = true;
+    netStatus.stop();
     controls.enabled = false;
     releaseInput();
     const joined = net ?? (await joining?.catch(() => null));
@@ -177,8 +197,89 @@ const lifecycle = createLifecycle(rally, app, {
     scene?.trim(); // not built yet while the models load
     audio.close();
   },
+  // The host's game menu: the run keeps going underneath, but nothing we hold keeps moving or firing.
+  onMenu: (open) => {
+    controls.enabled = !open;
+    if (open) releaseInput();
+  },
 });
 ui.exit.addEventListener('click', () => void lifecycle.exit('button'));
+// In the shell, Leave is in the host's game menu (its button sits where ours was): ours stays for a plain browser.
+ui.exit.hidden = rally.isHosted;
+
+// --- the host's game menu: how to play, our settings, the player's settings, players and connection --------
+const MENU = {
+  settings: [
+    { type: 'toggle' as const, key: 'showNames', label: 'Names over players', default: true },
+    { type: 'toggle' as const, key: 'screenShake', label: 'Screen shake', default: true },
+  ],
+  help: [
+    {
+      title: 'Move and shoot',
+      text: 'Left thumb moves. Right thumb aims and fires while held. On a computer: WASD and the mouse.',
+    },
+    { title: 'Hold the depot', text: 'Waves of zombies come through the gates. Survive as many waves as you can.' },
+    {
+      title: 'Switch guns',
+      text: 'Pick up ammo crates for better guns. Tap a gun in the HUD, or use 1–5 or the wheel.',
+    },
+    { title: 'Barrels', text: 'Shoot red barrels to blow up the horde around them. Chains make fireworks.' },
+    {
+      title: 'Revive your crew',
+      text: 'A downed player gets back up if a teammate stands next to them for three seconds.',
+    },
+    { title: 'Combo', text: 'Kill fast to raise the combo up to ×8. Getting hit resets it.' },
+  ],
+};
+/** Aim assist and the game's own settings, from the menu. */
+let aimAssist = true;
+function applySettings(s: PlayerSettings) {
+  audio.volume = effectsVolume(s);
+  controls.configure(s.controls);
+  aimAssist = s.controls.aimAssist;
+  ui.labels.hidden = s.game.showNames === false;
+  ui.hint.textContent = s.controls.swapSticks
+    ? 'Right thumb: move · Left thumb: aim & fire · WASD + mouse · 1–5 / wheel'
+    : 'Left thumb: move · Right thumb: aim & fire · WASD + mouse · 1–5 / wheel';
+  const g = graphicsPreset(s.graphics);
+  if (!FIXED_GRAPHICS) {
+    setMaxPixelRatio(g.maxPixelRatio);
+    if (rally.isHosted) rememberGraphics(s.graphics);
+  }
+  scene?.setQuality({
+    shadows: FIXED_GRAPHICS ? sceneOptions.shadows : g.shadows,
+    effects: FIXED_GRAPHICS ? sceneOptions.effects : g.effects,
+    shake: s.game.screenShake !== false,
+  });
+}
+const settings = bindSettings(rally, applySettings);
+/** Connection for the host's ping bars and its Reconnecting / Connection lost banner. */
+const netStatus = createNetStatus(rally, { rtt: () => net?.rttMs ?? null });
+let playersKey = '';
+/** Who is in the run, for the menu's People list: on join and whenever the roster or the kills change. */
+function reportPlayers() {
+  if (!net?.state?.players || !rally.isHosted) return;
+  const players: MenuPlayer[] = [];
+  net.state.players.forEach((p, id) =>
+    players.push({
+      name: p.name.slice(0, 32) || 'Player',
+      detail: `${p.kills} ${p.kills === 1 ? 'kill' : 'kills'}`,
+      ...(id === me ? { you: true } : {}),
+    }),
+  );
+  players.sort((a, b) => Number(!!b.you) - Number(!!a.you) || a.name.localeCompare(b.name));
+  const key = JSON.stringify(players);
+  if (key === playersKey) return;
+  playersKey = key;
+  rally.menu.players(players.slice(0, 16));
+}
+/** Touch aim gently snapped toward a zombie inside a narrow cone (aim assist). */
+function assisted(dir: Vec2, myPos: Vec2): Vec2 {
+  if (!aimAssist || !net?.state?.zombies) return dir;
+  const targets: Vec2[] = [];
+  net.state.zombies.forEach((z) => targets.push({ x: z.x, y: z.y }));
+  return assistAim(dir, myPos, targets, { range: 11, minRange: 0.6 });
+}
 const stopInput = () => {
   controls.release();
   releaseInput();
@@ -297,6 +398,7 @@ function onPatch(t: number) {
   const ps: [string, { x: number; y: number; vx: number; vy: number }][] = [];
   st.players.forEach((p, id) => ps.push([id, { x: p.x, y: p.y, vx: p.vx, vy: p.vy }]));
   playersBuf.push(serverMs, ps);
+  reportPlayers();
   const zs: [string, { x: number; y: number; kind: number }][] = [];
   st.zombies.forEach((z, id) => zs.push([id, { x: z.x, y: z.y, kind: z.kind }]));
   zombiesBuf.push(serverMs, zs);
@@ -341,7 +443,7 @@ function aimFromControls(myPos: Vec2): Vec2 | null {
     const dx = g.x - myPos.x;
     const dy = g.y - myPos.y;
     const len = Math.hypot(dx, dy);
-    return len > 1e-3 ? { x: dx / len, y: dy / len } : null;
+    return len > 1e-3 ? assisted({ x: dx / len, y: dy / len }, myPos) : null;
   }
   const m = controls.move;
   const len = Math.hypot(m.x, m.y);
@@ -575,6 +677,7 @@ async function boot() {
   const models = await loadModels(app, (f, bytes) => loader.progress(f, bytes));
   loader.stage('arena');
   scene = createOverrunScene(app, (fn) => onResize(fn), models, sceneOptions);
+  settings.refresh();
   app.start();
   loader.progress(0.5);
   await new Promise<void>((resolve) => {
@@ -587,6 +690,14 @@ async function boot() {
     const ctx = await rally.ready();
     applySafeAreaVars(safeArea(ctx.device.safeArea));
     username = ctx.user.username;
+    // The host's menu button sits top-left: keep our HUD out of it.
+    const b = ctx.device.menuButton;
+    if (b) document.documentElement.style.setProperty('--rally-menu-inset', `${b.x + b.width + 8}px`);
+    settings.refresh();
+    void rally.menu.define(MENU).then(
+      () => settings.refresh(),
+      (err: unknown) => console.warn('[overrun] menu.define failed', err),
+    );
   } else {
     applySafeAreaVars(safeArea());
   }
@@ -638,13 +749,22 @@ async function boot() {
     results.receive(r, performance.now());
   });
   reportReconnection();
-  net.room.onDrop(() => hud.setMessage('Connection lost', 'Reconnecting…'));
+  // The connection: in the shell its banner says Reconnecting / Connection lost; in a plain browser our HUD does.
+  netStatus.set('connected');
+  reportPlayers();
+  net.room.onDrop(() => {
+    netStatus.set('reconnecting');
+    if (!rally.isHosted) hud.setMessage('Connection lost', 'Reconnecting…');
+  });
   net.room.onReconnect(() => {
-    hud.setMessage(null);
+    netStatus.set('connected');
+    if (!rally.isHosted) hud.setMessage(null);
     reportReconnection();
   });
   net.room.onLeave((code) => {
-    if (!exiting) hud.setMessage('Disconnected', `The server closed the connection (${code}).`);
+    if (exiting) return;
+    netStatus.set('disconnected');
+    if (!rally.isHosted) hud.setMessage('Disconnected', `The server closed the connection (${code}).`);
   });
   // In the run: playable. The host drops its loading screen, the veil goes.
   loader.done();
@@ -719,6 +839,16 @@ if (import.meta.env.DEV) {
     },
     get rtt() {
       return net?.rttMs ?? null;
+    },
+    /** What the game applied from the host's game menu (e2e). */
+    get applied() {
+      return {
+        volume: audio.volume,
+        dpr: app.graphicsDevice.maxPixelRatio,
+        namesHidden: ui.labels.hidden,
+        settings: rally.settings,
+        net: netStatus.state,
+      };
     },
     get teamKills() {
       return net?.state.teamKills ?? 0;

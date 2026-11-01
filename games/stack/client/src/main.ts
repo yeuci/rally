@@ -1,5 +1,6 @@
 import {
   applySafeAreaVars,
+  bindSettings,
   createApp,
   createAudio,
   createBootProgress,
@@ -8,11 +9,15 @@ import {
   createLifecycle,
   createSave,
   createSolo,
+  effectsVolume,
+  graphicsPreset,
   jsHeapMb,
+  rememberGraphics,
+  rememberedGraphics,
   round,
   safeArea,
 } from '@rally/game-kit';
-import { rally } from '@rally/sdk';
+import { rally, type PlayerSettings } from '@rally/sdk';
 import { createStackScene } from './scene.ts';
 import { StackSim, type DropOutcome } from './sim.ts';
 
@@ -68,7 +73,13 @@ const loader = createBootProgress({
 const bootStart = performance.now();
 
 // --- engine + scene ------------------------------------------------------------------------------
-const { app } = createApp({ canvas: ui.canvas });
+// MSAA is fixed when the WebGL context is made: it follows the graphics quality the player chose last time.
+const bootGraphics = graphicsPreset(rememberedGraphics());
+const { app, setMaxPixelRatio } = createApp({
+  canvas: ui.canvas,
+  antialias: bootGraphics.antialias,
+  maxPixelRatio: bootGraphics.maxPixelRatio,
+});
 loader.stage('tower');
 const scene = createStackScene(app);
 
@@ -125,7 +136,39 @@ const lifecycle = createLifecycle(rally, app, {
     scene.trim();
     audio.close();
   },
+  // Solo: the tower stops while the host's game menu is open (taps meanwhile are dropped).
+  pauseWhileMenuOpen: true,
+  onMenu: (open) => {
+    if (open) presses = [];
+  },
 });
+
+// --- the host's game menu: how to play, our own setting, and the player's settings applied live ----------
+const MENU = {
+  settings: [{ type: 'toggle' as const, key: 'perfectFlash', label: 'Flash on perfect drops', default: true }],
+  help: [
+    { title: 'Drop the block', text: 'Tap anywhere to drop the sliding block onto the tower.' },
+    { title: 'Trim the overhang', text: 'Whatever hangs over the edge is cut off, so the next block gets smaller.' },
+    {
+      title: 'Go for perfect',
+      text: 'Line a block up exactly and it keeps its full size. Chain perfects for a combo.',
+    },
+    { title: 'Miss and it is over', text: 'A block that misses the tower completely ends the game.' },
+    {
+      title: 'Climb the board',
+      text: 'Your best height goes on the leaderboard; achievements unlock as you go higher.',
+    },
+  ],
+};
+
+function applySettings(s: PlayerSettings) {
+  audio.volume = effectsVolume(s);
+  const g = graphicsPreset(s.graphics);
+  setMaxPixelRatio(g.maxPixelRatio);
+  scene.setQuality({ shadows: g.shadows, flash: s.game.perfectFlash !== false });
+  if (rally.isHosted) rememberGraphics(s.graphics);
+}
+const settings = bindSettings(rally, applySettings);
 
 function newGame() {
   sim = new StackSim();
@@ -302,6 +345,12 @@ async function boot() {
   if (rally.isHosted) {
     const ctx = await rally.ready();
     applySafeAreaVars(safeArea(ctx.device.safeArea));
+    // The launch context's settings, then our own once declared (their saved values, else our defaults).
+    settings.refresh();
+    void rally.menu.define(MENU).then(
+      () => settings.refresh(),
+      (err: unknown) => console.warn('[stack] menu.define failed', err),
+    );
   } else {
     applySafeAreaVars(safeArea());
   }
@@ -341,6 +390,10 @@ if (import.meta.env.DEV) {
     },
     get save() {
       return { ...save.data, version: save.version };
+    },
+    /** What the game applied from the host's game menu (e2e). */
+    get applied() {
+      return { volume: audio.volume, dpr: app.graphicsDevice.maxPixelRatio, settings: rally.settings };
     },
   };
 }

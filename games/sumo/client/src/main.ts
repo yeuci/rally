@@ -2,17 +2,24 @@ import {
   RenderClock,
   SnapshotBuffer,
   applySafeAreaVars,
+  bindSettings,
   createApp,
   createAudio,
   createBootProgress,
   createFrameMetrics,
   createLifecycle,
+  createNetStatus,
+  effectsVolume,
+  graphicsPreset,
   jsHeapMb,
   matchmakingLabel,
+  rememberGraphics,
+  rememberedGraphics,
   round,
   safeArea,
+  stickLook,
 } from '@rally/game-kit';
-import { rally } from '@rally/sdk';
+import { rally, type MenuPlayer, type PlayerSettings } from '@rally/sdk';
 import { ClientMessage, DT, PATCH_MS, type FxEvent } from '@rally/game-sumo-server';
 import { createControls } from './controls.ts';
 import { createHud } from './hud.ts';
@@ -69,14 +76,31 @@ const bootStart = performance.now();
 
 // --- engine, scene, HUD, input -----------------------------------------------------------------------
 // The art capture renders at up to 3× device pixels (store screenshots); the game itself keeps the cap of 2.
-const { app, onResize } = createApp({
+/**
+ * The host's game menu sets the graphics quality (DPR, shadows, effects: live). MSAA and clustered lighting are fixed
+ * at boot, from the quality chosen last time. `?lowfx` (e2e) and `?art` keep their own settings.
+ */
+const FIXED_GRAPHICS = LOWFX || !!ART;
+const bootGraphics = graphicsPreset(rememberedGraphics());
+const { app, onResize, setMaxPixelRatio } = createApp({
   canvas: ui.canvas,
-  ...(ART ? { maxPixelRatio: 3 } : {}),
+  antialias: bootGraphics.antialias,
+  maxPixelRatio: bootGraphics.maxPixelRatio,
+  ...(ART ? { maxPixelRatio: 3, antialias: true } : {}),
   ...(LOWFX ? { maxPixelRatio: 1, antialias: false } : {}),
 });
 if (LOWFX) applyLowFx(app);
+else if (!FIXED_GRAPHICS && !bootGraphics.clusteredLighting) app.scene.clusteredLightingEnabled = false;
 loader.stage('arena');
-const scene = createSumoScene(app, (fn) => onResize(fn), LOWFX ? { shadows: false, effects: false } : {});
+const scene = createSumoScene(
+  app,
+  (fn) => onResize(fn),
+  LOWFX
+    ? { shadows: false, effects: false }
+    : ART
+      ? {}
+      : { shadows: bootGraphics.shadows, effects: bootGraphics.effects },
+);
 const hud = createHud();
 const controls = createControls(ui.canvas, ui.stick);
 const audio = createAudio();
@@ -140,6 +164,7 @@ const lifecycle = createLifecycle(rally, app, {
   },
   onExitRequested: async () => {
     exiting = true;
+    netStatus.stop();
     controls.enabled = false;
     releaseInput();
     // Consented leave: the seat is freed at once instead of being held for the reconnection grace. A join still in
@@ -152,8 +177,70 @@ const lifecycle = createLifecycle(rally, app, {
     scene.trim();
     audio.close();
   },
+  // The host's game menu: the match keeps running underneath, but nothing we hold keeps pushing.
+  onMenu: (open) => {
+    controls.enabled = !open;
+    if (open) releaseInput();
+  },
 });
 ui.exit.addEventListener('click', () => void lifecycle.exit('button'));
+// In the shell, Leave is in the host's game menu (its button sits where ours was): ours stays for a plain browser.
+ui.exit.hidden = rally.isHosted;
+
+// --- the host's game menu: how to play, our settings, the player's settings, players and connection --------
+const MENU = {
+  settings: [
+    { type: 'toggle' as const, key: 'showNames', label: 'Names over pucks', default: true },
+    { type: 'toggle' as const, key: 'screenShake', label: 'Screen shake', default: true },
+  ],
+  help: [
+    { title: 'Push', text: 'Drag anywhere to push your puck. The farther you drag, the harder you push.' },
+    {
+      title: 'Knock them off',
+      text: 'Bump the other pucks over the edge. The last puck on the platform wins the round.',
+    },
+    { title: 'The ring shrinks', text: 'The platform gets smaller as the round goes on, so nobody can hide for long.' },
+    { title: 'First to three', text: 'Win three rounds to win the match. Wins go on the leaderboard.' },
+    { title: 'Keyboard', text: 'On a computer, use WASD or the arrow keys. Escape opens this menu.' },
+  ],
+};
+
+function applySettings(s: PlayerSettings) {
+  audio.volume = effectsVolume(s);
+  controls.configure(stickLook(s.controls));
+  ui.labels.hidden = s.game.showNames === false;
+  const g = graphicsPreset(s.graphics);
+  if (!FIXED_GRAPHICS) {
+    setMaxPixelRatio(g.maxPixelRatio);
+    if (rally.isHosted) rememberGraphics(s.graphics);
+  }
+  scene.setQuality({
+    shadows: FIXED_GRAPHICS ? !LOWFX : g.shadows,
+    effects: FIXED_GRAPHICS ? !LOWFX : g.effects,
+    shake: s.game.screenShake !== false,
+  });
+}
+const settings = bindSettings(rally, applySettings);
+/** Connection for the host's ping bars and its Reconnecting / Connection lost banner. */
+const netStatus = createNetStatus(rally, { rtt: () => net?.rttMs ?? null });
+let playersKey = '';
+/** Who is in the match, for the menu's People list: on join and whenever the roster or a score changes. */
+function reportPlayers() {
+  if (!net?.state?.players || !rally.isHosted) return;
+  const players: MenuPlayer[] = [];
+  net.state.players.forEach((p, id) =>
+    players.push({
+      name: p.name.slice(0, 32) || 'Player',
+      detail: `${p.score} ${p.score === 1 ? 'round' : 'rounds'}`,
+      ...(id === me ? { you: true } : {}),
+    }),
+  );
+  players.sort((a, b) => Number(!!b.you) - Number(!!a.you) || a.name.localeCompare(b.name));
+  const key = JSON.stringify(players);
+  if (key === playersKey) return;
+  playersKey = key;
+  rally.menu.players(players.slice(0, 16));
+}
 // Hosted games are not paused on visibility (the shell sends `pause`), but the stick must still stop when the
 // page is hidden or loses focus; the next frame sends whatever is held again.
 const stopInput = () => {
@@ -205,6 +292,7 @@ function onPatch(t: number) {
   const entries: [string, { x: number; y: number; vx: number; vy: number }][] = [];
   st.players.forEach((p, id) => entries.push([id, { x: p.x, y: p.y, vx: p.vx, vy: p.vy }]));
   remote.push(serverMs, entries);
+  reportPlayers();
   const mine = st.players.get(me);
   predictor.rttMs = net.rttMs ?? 0;
   // The snapshot's content time on the local clock (when that tick's data is expected to arrive), not its arrival
@@ -331,6 +419,14 @@ async function boot() {
     const ctx = await rally.ready();
     applySafeAreaVars(safeArea(ctx.device.safeArea));
     username = ctx.user.username;
+    // The host's menu button sits top-left: keep our HUD out of it.
+    const b = ctx.device.menuButton;
+    if (b) document.documentElement.style.setProperty('--rally-menu-inset', `${b.x + b.width + 8}px`);
+    settings.refresh();
+    void rally.menu.define(MENU).then(
+      () => settings.refresh(),
+      (err: unknown) => console.warn('[sumo] menu.define failed', err),
+    );
   } else {
     applySafeAreaVars(safeArea());
   }
@@ -387,13 +483,22 @@ async function boot() {
     results.receive(r, performance.now());
   });
   reportReconnection();
-  net.room.onDrop(() => hud.setMessage('Connection lost', 'Reconnecting…'));
+  // The connection: in the shell its banner says Reconnecting / Connection lost; in a plain browser our HUD does.
+  netStatus.set('connected');
+  reportPlayers();
+  net.room.onDrop(() => {
+    netStatus.set('reconnecting');
+    if (!rally.isHosted) hud.setMessage('Connection lost', 'Reconnecting…');
+  });
   net.room.onReconnect(() => {
-    hud.setMessage(null);
+    netStatus.set('connected');
+    if (!rally.isHosted) hud.setMessage(null);
     reportReconnection();
   });
   net.room.onLeave((code) => {
-    if (!exiting) hud.setMessage('Disconnected', `The server closed the connection (${code}).`);
+    if (exiting) return;
+    netStatus.set('disconnected');
+    if (!rally.isHosted) hud.setMessage('Disconnected', `The server closed the connection (${code}).`);
   });
   // In the match: playable. The host drops its loading screen, the veil goes.
   loader.done();
@@ -456,6 +561,16 @@ if (import.meta.env.DEV) {
     },
     get rtt() {
       return net?.rttMs ?? null;
+    },
+    /** What the game applied from the host's game menu (e2e). */
+    get applied() {
+      return {
+        volume: audio.volume,
+        dpr: app.graphicsDevice.maxPixelRatio,
+        namesHidden: ui.labels.hidden,
+        settings: rally.settings,
+        net: netStatus.state,
+      };
     },
     get stick() {
       return controls.stick;

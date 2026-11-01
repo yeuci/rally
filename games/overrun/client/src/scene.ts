@@ -125,6 +125,8 @@ export interface OverrunScene {
   setZoom(k: number): void;
   /** Drop pooled effects (lowMemory). */
   trim(): void;
+  /** The game menu: shadows and bursts / shake (graphics quality, live) and the "Screen shake" setting. */
+  setQuality(q: { shadows: boolean; effects: boolean; shake: boolean }): void;
   /** Zombies drawn last frame (instanced + flashed). */
   readonly drawnZombies: number;
   readonly camera: Entity;
@@ -391,6 +393,9 @@ export function createOverrunScene(
   { shadows = true, effects = true }: OverrunSceneOptions = {},
 ): OverrunScene {
   const device = app.graphicsDevice;
+  /** Blood bursts and shake (the game menu's graphics, live; floor decals stay as booted), and "Screen shake". */
+  let fx = effects;
+  let shakeOn = true;
   app.scene.ambientLight = new Color(0.4, 0.38, 0.42);
   // One directional light: clustered lighting buys nothing here and costs every fragment (a lot on weak GPUs).
   app.scene.clusteredLightingEnabled = false;
@@ -671,7 +676,8 @@ export function createOverrunScene(
   const waveBase = glow(new Color(1, 0.8, 0.5));
   const shocks = pool(MAX_BOOMS, () => effectEntity('cylinder', waveBase));
   const bloodBase = material(new Color(0.5, 0.03, 0.05));
-  const bursts = effects ? pool(MAX_BURSTS, () => effectEntity('box', bloodBase, false)) : [];
+  // Allocated even when effects start off: the game menu can turn them on mid-match.
+  const bursts = pool(MAX_BURSTS, () => effectEntity('box', bloodBase, false));
   const take = (list: Effect[]) => {
     let best = list[0]!;
     for (const f of list) {
@@ -910,7 +916,7 @@ export function createOverrunScene(
       s.size = radius * 2.2;
       s.e.setPosition(x, 0.08, y);
       decals?.scorch(x, y, radius * 0.6, Math.floor(x * 97 + y * 13) >>> 0);
-      if (effects) {
+      if (fx) {
         for (let i = 0; i < 8; i++) {
           const b = take(bursts);
           start(b, 0.6);
@@ -928,7 +934,7 @@ export function createOverrunScene(
     },
     blood(x, y, amount, seed) {
       decals?.blood(x, y, amount, seed);
-      if (!effects) return;
+      if (!fx) return;
       const n = amount >= 1 ? 6 : 2;
       for (let i = 0; i < n; i++) {
         const b = take(bursts);
@@ -949,7 +955,7 @@ export function createOverrunScene(
       decals?.splash(x, y, seed);
     },
     shake(amount) {
-      if (!effects) return;
+      if (!fx || !shakeOn) return;
       shakeAmp = Math.min(0.8, Math.max(shakeAmp, amount));
     },
     clearDecals() {
@@ -1078,6 +1084,12 @@ export function createOverrunScene(
         }
       }
       corpses.length = 0;
+    },
+    setQuality(q) {
+      sun.light!.castShadows = q.shadows;
+      fx = q.effects;
+      shakeOn = q.shake;
+      if (!fx || !shakeOn) shakeAmp = 0;
     },
   };
 }
