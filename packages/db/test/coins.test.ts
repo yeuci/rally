@@ -689,21 +689,27 @@ describe('shop: catalog, buy_item, equip_item', () => {
   );
   after(() => db.close());
 
-  test('seeded catalog: 15 data-drawn cosmetics in four kinds and price tiers, no game unlocks', async () => {
+  test('seeded catalog: 41 data-drawn cosmetics in four kinds on a price ladder, no game unlocks', async () => {
     const items = await asUser(db, ann, async () =>
       (await db.query<{ id: string; kind: string; price: number; data: Record<string, unknown> }>(
         `select id, kind, price, data from public.shop_items order by kind, sort`,
       )).rows,
     );
-    assert.equal(items.length, 15);
+    // 15 from 20261031000400_coins.sql, 26 from 20261102000300_more_content.sql (pinned in more-content.test.ts).
+    assert.equal(items.length, 41);
     const kinds = new Map<string, number>();
     for (const i of items) kinds.set(i.kind, (kinds.get(i.kind) ?? 0) + 1);
-    assert.deepEqual(Object.fromEntries(kinds), { avatar_frame: 4, badge: 3, name_color: 5, profile_banner: 3 });
+    assert.deepEqual(Object.fromEntries(kinds), { avatar_frame: 11, badge: 9, name_color: 11, profile_banner: 10 });
     assert.ok(!items.some((i) => i.kind === 'game_unlock'));
     const prices = [...new Set(items.map((i) => i.price))].sort((a, b) => a - b);
-    assert.deepEqual(prices, [100, 150, 250, 600, 1000, 2000]);
+    assert.deepEqual(prices, [100, 150, 250, 300, 400, 500, 600, 800, 900, 1000, 1200, 1500, 1800, 2000, 5000, 6000, 8000, 12000, 15000, 25000]);
     // Reachable after a day's bonus and a few matches.
-    assert.equal(items.filter((i) => i.price <= 100).length, 2);
+    assert.equal(items.filter((i) => i.price <= 100).length, 3);
+    // The v1 items are unchanged.
+    const v1 = new Map(items.map((i) => [i.id, i.price]));
+    for (const [id, price] of [['name-mint', 100], ['name-gold', 600], ['frame-gilded', 2000], ['banner-sunset', 1000], ['badge-crown', 2000]] as const) {
+      assert.equal(v1.get(id), price, id);
+    }
   });
 
   test('item data is checked per kind', async () => {
@@ -771,8 +777,11 @@ describe('shop: catalog, buy_item, equip_item', () => {
     await db.query(`update public.shop_items set available = false where id in ('badge-star', 'badge-flame')`);
     await assert.rejects(buy(db, ann, 'badge-flame'), notFound);
     assert.equal((await buy(db, ann, 'badge-star')).status, 'owned');
+    // (The v1 badges: later batches add more.)
     const seen = (uid: string) =>
-      asUser(db, uid, async () => (await db.query<{ id: string }>(`select id from public.shop_items where kind = 'badge' order by sort`)).rows.map((r) => r.id));
+      asUser(db, uid, async () => (await db.query<{ id: string }>(
+        `select id from public.shop_items where kind = 'badge' and id in ('badge-star', 'badge-flame', 'badge-crown') order by sort`,
+      )).rows.map((r) => r.id));
     assert.deepEqual(await seen(ann), ['badge-star', 'badge-crown']);
     assert.deepEqual(await seen(ben), ['badge-crown']);
     // A retired item the caller owns can still be equipped.

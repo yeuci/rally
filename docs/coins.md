@@ -36,8 +36,9 @@ Match coins (`match` + `win` + `podium`) are capped at `match_daily_cap` (500) p
 bonus and achievements are outside the caps. Days roll over at 00:00 UTC, like the daily leaderboards.
 
 **Why these numbers.** A 2-3 minute match pays 10 (35 for a win), so an evening of play earns a few hundred coins
-with the daily bonus; the cheapest cosmetics (100) are a day's bonus plus a handful of matches away, mid-tier items
-(250-600) take a few sessions, and the top items (2,000) are goals for regulars. The win bonus is large enough to
+with the daily bonus; the cheapest cosmetics (100-500) are a day's bonus plus a handful of matches away, mid-tier items
+(600-2,000) take a few sessions to a couple of weeks, and the prestige items (5,000-25,000) are long goals for
+regulars: at a few hundred coins a day, the top one is a couple of months of play. The win bonus is large enough to
 matter but participation still pays, so losing players keep earning. Solo pays less because solo scores are
 client-reported (spoofable, architecture §8): 5 per run and at most 50 a day keeps a cheater's gain to one cheap item
 every couple of days. The match cap (500, roughly an hour and a half of play) bounds farming with a guest alt in a public room;
@@ -84,24 +85,48 @@ session ids are unique, days are in the past, and achievements pay only on a new
   default look). Balances, ledgers and inventories are owner-only (RLS).
 - `my_wallet()` → balance, lifetime earnings, and today's progress toward the caps (shown in the shop).
 
-v1 cosmetics are drawn from data, no image assets (colours are `#RRGGBB`; `light` is the variant for the light theme):
+Cosmetics are drawn from data, no image assets (colours are `#RRGGBB`; `light` is the variant for the light theme).
+The optional `glow`, `spin`, `dotted`, `pattern`, `shine` and `fill` keys and the icons from `leaf` on came with
+`20261102000300_more_content.sql`: app builds before it ignore the keys (and draw a star for the new icons), and the
+database trigger allows them (it checks the base keys only).
 
 | Kind | `data` | Drawn as |
 |---|---|---|
-| `name_color` | `{color, light?}` | the player's name, wherever it appears |
-| `avatar_frame` | `{colors: [1-4]}` | a gradient ring on `ProfileAvatar` |
-| `profile_banner` | `{colors: [2-3]}` | a gradient band behind the profile header |
-| `badge` | `{icon, color, light?}` | a lucide icon after the name (`star`, `flame`, `crown`, `zap`, `gem`, `heart`, `rocket`, `ghost`, `skull`, `trophy`, `sparkles`, `medal`, `award`; others fall back to a star) |
+| `name_color` | `{color, light?, glow?: true}` | the player's name, wherever it appears; `glow` adds a soft halo in its colour (a text shadow) |
+| `avatar_frame` | `{colors: [1-4], spin?: true, dotted?: true}` | a gradient ring on `ProfileAvatar`; `spin` turns it slowly (one turn in 9 s, still under Reduce Motion), `dotted` draws it as beads |
+| `profile_banner` | `{colors: [2-3], pattern?, shine?: true}` | a gradient band behind the profile header; `pattern` (`stripes`, `dots`, `grid`, `stars`) lays a faint white texture over it, `shine` sweeps a sheen across every few seconds (none under Reduce Motion) |
+| `badge` | `{icon, color, light?, fill?}` | a lucide icon after the name; `fill` is a second colour inside it (two-tone). Icons: `star`, `flame`, `crown`, `zap`, `gem`, `heart`, `rocket`, `ghost`, `skull`, `trophy`, `sparkles`, `medal`, `award`, `leaf`, `moon`, `shield`, `swords`, `sun`, `snowflake`, `feather`, `anchor`, `mountain`, `target`, `infinity`, `clover`, `music`, `compass`, `puzzle`, `gamepad-2` (`BADGE_ICON_NAMES` in `lib/coins-model.ts`); others fall back to a star |
 | `game_unlock` | `{game_id}` | not shown yet (see below) |
 
-The migration seeds 15 cosmetics at 100 / 150 / 250 / 600 / 1,000 / 2,000 coins. Add more with an insert (a trigger
-checks `data` for the kind); retire one with `available = false` (owners keep it; never delete an owned item, the
-foreign key refuses):
+Keep motion and glow (`spin`, `shine`, `glow`) for prestige items (5,000 coins and up): it is what makes them read as
+special, and `packages/db/test/more-content.test.ts` holds the catalog to it. `pattern`, `dotted` and `fill` are fine
+at any price.
+
+**The catalog: 41 cosmetics.** `20261031000400_coins.sql` seeds 15 (v1); `20261102000300_more_content.sql` adds 26,
+the batch the shop tags "New". Inside each kind `sort` follows the price, so the shop's Featured order is a ladder
+from the cheapest item to the prestige ones.
+
+| Kind | v1 (`20261031000400`) | Added (`20261102000300`) |
+|---|---|---|
+| Name colours | Mint 100, Sky 100, Rose 250, Violet 250, Gold 600 | Coral 150, Lime 150, Silver 300, Orchid 900, Copper 1,500, **Moonlit 5,000** (glow) |
+| Avatar frames | Ember 250, Ocean 250, Aurora 1,000, Gilded 2,000 | Graphite 150, Citrus 300, Beads 400 (dotted), Iris 900, Twilight 1,800, **Prism 12,000** (spin), **Eclipse 25,000** (spin) |
+| Profile banners | Dusk 250, Lagoon 600, Sunset 1,000 | Slate 150, Peach 300, Pinstripe 500 (stripes), Confetti 800 (dots), Blueprint 1,200 (grid), **Obsidian 8,000** (stripes, shine), **Nebula 15,000** (stars, shine) |
+| Badges | Star 150, Flame 600, Crown 2,000 | Leaf 100, Spark 250, Moon 300, Shield 1,000 (two-tone), Duel 2,000 (two-tone), **Diamond 6,000** (two-tone) |
+
+Prestige items in bold. The batch is 12 cheap items (100-500), 8 mid (800-2,000) and 6 prestige (5,000-25,000).
+
+Add more with an insert (a trigger checks `data` for the kind); retire one with `available = false` (owners keep it;
+never delete an owned item, the foreign key refuses). Give it a `sort` between its neighbours by price:
 
 ```sql
 insert into public.shop_items (id, kind, name, description, price, data, sort)
-values ('frame-neon', 'avatar_frame', 'Neon', 'Electric pink and cyan.', 800, '{"colors": ["#F0ABFC", "#22D3EE"]}', 50);
+values ('frame-neon', 'avatar_frame', 'Neon', 'Electric pink and cyan.', 800, '{"colors": ["#F0ABFC", "#22D3EE"]}', 25);
 ```
+
+**"New".** The app tags the latest batch on sale "New" for 30 days: the items created within an hour of the newest
+item (one migration, or one sitting in the SQL editor). Inserting items later makes them the new batch. When every item
+on sale arrived together (a project that applies both migrations in one push, or a fresh local database), nothing is
+tagged.
 
 ### Coin-only games (model ready, not enforced)
 
@@ -138,10 +163,14 @@ popups** turns it off (default on).
 ## App
 
 - **Balance:** a gold pill in the profile header (opens the shop) and the drawer header; the drawer's Shop item shows
-  it too.
+  it too. The pill is compact from 10,000 (`formatCoinsShort`: "12.3K", "1M"; screen readers hear the exact amount);
+  the shop, the drawer's Shop item and the coin history show full numbers.
 - **Shop** (`/shop`): balance with today's progress (daily bonus, solo and match caps), cosmetics grouped by kind with
-  price / Owned / Equipped, an item sheet that previews you wearing it with Buy (the confirmation), a "not enough
-  coins" state, Equip and Unequip, and "How to earn" from the live rules.
+  price / Owned / Equipped ("3 of 11 owned" per kind), an item sheet that previews you wearing it with Buy (the
+  confirmation), a "not enough coins" state, Equip and Unequip, and "How to earn" from the live rules. Browsing: a
+  filter (All, New while a batch is new, Names, Frames, Banners, Badges), the order (Featured, Low to high, High to
+  low) and a count ("41 items · 5 owned"); tiles of the latest batch carry a "New" tag and prestige items (5,000+) a
+  gold sparkle. The tiles draw the extras (a turning ring, a shining banner, a glowing name).
 - **Coin history** (`/coins`): balance, lifetime earnings and every ledger row with its reason, 30 at a time.
 - **Cosmetics everywhere a player appears**, through shared components: `ProfileAvatar` (frame), `PlayerName` (colour
   and badge), `ProfileHeader` (banner). Leaderboard rows, person rows (search, friends, requests), the friends row on
@@ -150,12 +179,13 @@ popups** turns it off (default on).
 
 ## Owner steps
 
-Apply the migration to the hosted project:
+Apply the migrations to the hosted project (`20261031000400_coins.sql`, and `20261102000300_more_content.sql` for the
+second batch of cosmetics and challenge templates):
 
 ```
 cd packages\db
 npx supabase db push
 ```
 
-Nothing else is required: the economy starts with the values above, the 15 cosmetics are seeded by the migration, and
-the app reads everything at runtime. The ledger purge runs in the existing `purge-stale-play-sessions` cron job.
+Nothing else is required: the economy starts with the values above, the 41 cosmetics are seeded by the migrations, and
+the app reads everything at runtime (the new looks and badge icons need the app build from the same change). The ledger purge runs in the existing `purge-stale-play-sessions` cron job.
