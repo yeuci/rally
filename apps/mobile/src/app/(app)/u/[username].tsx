@@ -8,6 +8,7 @@ import { EmptyState, RetryButton } from '@/components/rally/empty-state';
 import { FriendButtons, FriendButtonsSkeleton } from '@/components/rally/friend-button';
 import { PresenceDot } from '@/components/rally/presence-dot';
 import { FriendsRowSection, PlayedGamesSection, ProfileHeader, StatsStrip } from '@/components/rally/profile-sections';
+import { ReportSheet, type ReportTarget } from '@/components/rally/report-sheet';
 import { SectionHeader } from '@/components/rally/section-header';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
@@ -32,8 +33,8 @@ import { usePalette } from '@/lib/use-palette';
  * button(s) from `friendship_with`; Games played · Achievements · Friends (`public_profile_stats`); "Games played"
  * (`public_profile_games`) and "Friends" (`public_friends`), each shown only when the owner's privacy lets the viewer
  * see a non-empty list; unlocked achievements. Under the names, a status line (`public_presence`: "Online" / "Playing
- * Sumo", only when their privacy lets the viewer see it; refreshed every 30 s while in front). Block / Unblock sit in
- * the header's overflow menu. Your own username
+ * Sumo", only when their privacy lets the viewer see it; refreshed every 30 s while in front). Report (the report
+ * sheet, components/rally/report-sheet.tsx) and Block / Unblock sit in the header's overflow menu. Your own username
  * redirects to `/profile`. Portrait: one centred column. Landscape: identity on the left, the lists on the right.
  */
 export default function PublicProfileScreen() {
@@ -56,6 +57,7 @@ export default function PublicProfileScreen() {
   const action = useFriendshipAction();
   const [refreshing, setRefreshing] = useState(false);
   const [confirming, setConfirming] = useState<'block' | 'unblock' | null>(null);
+  const [reporting, setReporting] = useState(false);
 
   if (sameUsername(username, me.data?.username) || (p && p.id === userId)) return <Redirect href="/profile" />;
 
@@ -63,6 +65,7 @@ export default function PublicProfileScreen() {
   const blocked = status === 'blocked';
   const handle = p ? `@${p.username}` : 'this player';
   const menuAction = status ? blockAction(status) : null;
+  const reportTarget: ReportTarget | null = reporting && p ? { userId: p.id, name: handle, friendship: status } : null;
 
   async function refresh() {
     setRefreshing(true);
@@ -82,18 +85,32 @@ export default function PublicProfileScreen() {
     }
   }
 
+  // Report is always offered (App Store 1.2); Block / Unblock once the relationship is known.
   function openMenu() {
-    if (!menuAction) return;
-    const label = menuAction === 'block' ? `Block ${handle}` : `Unblock ${handle}`;
+    if (!p) return;
+    const items: { label: string; destructive: boolean; run: () => void }[] = [
+      { label: `Report ${handle}`, destructive: true, run: () => setReporting(true) },
+    ];
+    if (menuAction) {
+      items.push({
+        label: menuAction === 'block' ? `Block ${handle}` : `Unblock ${handle}`,
+        destructive: menuAction === 'block',
+        run: () => setConfirming(menuAction),
+      });
+    }
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
-        { options: [label, 'Cancel'], destructiveButtonIndex: menuAction === 'block' ? 0 : undefined, cancelButtonIndex: 1 },
-        (i) => i === 0 && setConfirming(menuAction),
+        {
+          options: [...items.map((it) => it.label), 'Cancel'],
+          destructiveButtonIndex: items.flatMap((it, i) => (it.destructive ? [i] : [])),
+          cancelButtonIndex: items.length,
+        },
+        (i) => items[i]?.run(),
       );
     } else {
       Alert.alert(handle, undefined, [
         { text: 'Cancel', style: 'cancel' },
-        { text: label, style: menuAction === 'block' ? 'destructive' : 'default', onPress: () => setConfirming(menuAction) },
+        ...items.map((it) => ({ text: it.label, style: it.destructive ? ('destructive' as const) : ('default' as const), onPress: it.run })),
       ]);
     }
   }
@@ -102,7 +119,7 @@ export default function PublicProfileScreen() {
     <Stack.Screen
       options={{
         title: p ? `@${p.username}` : 'Player',
-        headerRight: menuAction
+        headerRight: p
           ? () => (
               <TapPressable onPress={openMenu} accessibilityRole="button" accessibilityLabel="More" hitSlop={10} className="active:opacity-70">
                 <Icon as={EllipsisIcon} className="text-foreground size-6" />
@@ -138,6 +155,7 @@ export default function PublicProfileScreen() {
       }}
     />
   );
+  const reportSheet = <ReportSheet target={reportTarget} onClose={() => setReporting(false)} />;
 
   if (!profile.isLoading && !p) {
     return (
@@ -242,6 +260,7 @@ export default function PublicProfileScreen() {
           {lists}
         </ScrollView>
         {confirm}
+        {reportSheet}
       </View>
     );
   }
@@ -257,6 +276,7 @@ export default function PublicProfileScreen() {
       {identity}
       {lists}
       {confirm}
+      {reportSheet}
     </ScrollView>
   );
 }

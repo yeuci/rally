@@ -1,5 +1,5 @@
 // Hand-written to match `supabase gen types typescript` output for supabase/migrations (M1 + M2 + M4 social + M3 phase 2
-// + coins + progress).
+// + coins + progress + moderation).
 // Regenerate against a real project with `pnpm --filter @rally/db gen:types` once one is linked;
 // keep this file in that exact shape so the swap is a no-op for consumers.
 export type Json =
@@ -1184,6 +1184,76 @@ export type Database = {
           },
         ]
       }
+      reports: {
+        Row: {
+          created_at: string
+          game_id: string | null
+          id: string
+          last_reported_at: string
+          moderator_note: string | null
+          note: string | null
+          reason: string
+          reporter_id: string | null
+          reviewed_at: string | null
+          room_id: string | null
+          status: string
+          target_id: string
+          target_snapshot: Json
+        }
+        Insert: {
+          created_at?: string
+          game_id?: string | null
+          id?: string
+          last_reported_at?: string
+          moderator_note?: string | null
+          note?: string | null
+          reason: string
+          reporter_id?: string | null
+          reviewed_at?: string | null
+          room_id?: string | null
+          status?: string
+          target_id: string
+          target_snapshot?: Json
+        }
+        Update: {
+          created_at?: string
+          game_id?: string | null
+          id?: string
+          last_reported_at?: string
+          moderator_note?: string | null
+          note?: string | null
+          reason?: string
+          reporter_id?: string | null
+          reviewed_at?: string | null
+          room_id?: string | null
+          status?: string
+          target_id?: string
+          target_snapshot?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reports_game_id_fkey"
+            columns: ["game_id"]
+            isOneToOne: false
+            referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reports_reporter_id_fkey"
+            columns: ["reporter_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reports_target_id_fkey"
+            columns: ["target_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       shop_items: {
         Row: {
           available: boolean
@@ -1423,6 +1493,7 @@ export type Database = {
       buy_item: { Args: { p_item_id: string }; Returns: Json }
       claim_daily_challenge: { Args: { p_id: string }; Returns: Json }
       contains_banned_word: { Args: { input: string }; Returns: boolean }
+      delete_my_account: { Args: never; Returns: undefined }
       end_play_session: {
         Args: { p_playtime_s?: number; p_session_id: string }
         Returns: undefined
@@ -1581,6 +1652,16 @@ export type Database = {
       }
       release_username: { Args: never; Returns: undefined }
       remove_friend: { Args: { p_user_id: string }; Returns: undefined }
+      report_user: {
+        Args: {
+          p_game_id?: string
+          p_note?: string
+          p_reason: string
+          p_room_id?: string
+          p_user_id: string
+        }
+        Returns: undefined
+      }
       respond_friend_request: {
         Args: { p_accept: boolean; p_user_id: string }
         Returns: string
