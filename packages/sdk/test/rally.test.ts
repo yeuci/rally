@@ -92,6 +92,7 @@ const settings = {
   volume: { master: 0.5, music: 0, effects: 1 },
   graphics: 'low',
   haptics: false,
+  controls: { swapSticks: true, stickSize: 1.25, stickOpacity: 0.5, aimAssist: false },
   game: { aimAssist: false },
 } as const;
 
@@ -162,6 +163,10 @@ test('menu.players is a fire-and-forget event; Escape opens the menu (not on rep
   ]);
   assert.equal(sent.at(-1)!.kind, 'evt');
   assert.equal(sent.at(-1)!.method, 'menu.players');
+  rally.net.status('connected', 47.6);
+  assert.deepEqual(sent.at(-1)!.params, { state: 'connected', rttMs: 48 });
+  rally.net.status('reconnecting');
+  assert.deepEqual(sent.at(-1)!.params, { state: 'reconnecting' });
   let listener: ((ev: Event) => void) | null = null;
   bindEscape(rally, { addEventListener: (_type: string, fn: unknown) => (listener = fn as (ev: Event) => void) });
   let prevented = 0;

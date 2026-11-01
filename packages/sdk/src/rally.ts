@@ -18,6 +18,7 @@ export const DEFAULT_SETTINGS: PlayerSettings = {
   volume: { master: 1, music: 1, effects: 1 },
   graphics: 'high',
   haptics: true,
+  controls: { swapSticks: false, stickSize: 1, stickOpacity: 0.8, aimAssist: true },
   game: {},
 };
 
@@ -145,6 +146,15 @@ export class Rally {
     open: (): Promise<null> => this.client.request('menu.open', {}),
     /** Who is in the match, for the menu's People list. Send on join and whenever it changes. */
     players: (players: MenuPlayer[]): void => this.client.emit('menu.players', { players }),
+  };
+
+  readonly net = {
+    /**
+     * Report the connection to your game server: on every state change, and about every 2 s with the round-trip time
+     * while connected. The host shows ping bars in its game menu and its own "Reconnecting…" banner.
+     */
+    status: (state: 'connected' | 'reconnecting' | 'disconnected', rttMs?: number): void =>
+      this.client.emit('net.status', rttMs === undefined ? { state } : { state, rttMs: Math.round(rttMs) }),
   };
 
   readonly ui = {
