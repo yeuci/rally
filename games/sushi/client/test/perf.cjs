@@ -72,6 +72,8 @@ async function measure(browser, dpr) {
   // Let the restaurant fill up.
   await page.waitForFunction(() => window.__sushi.drawn.customers >= 8, null, { timeout: 120_000 });
   await page.waitForTimeout(2000);
+  const graphics = await page.evaluate(() => window.__sushi.graphics);
+  if (graphics !== GRAPHICS) throw new Error(`the game runs at ${graphics}, not ${GRAPHICS}`);
   const samples = [];
   const until = Date.now() + SECONDS * 1000;
   while (Date.now() < until) {

@@ -70,11 +70,12 @@ else safe-area + 56 px); no leave button or settings screen of our own when host
 a plain browser keeps a ✕). Settings apply at boot and live: effects volume (master × effects), graphics quality
 (`client/src/quality.ts`: high = DPR 2, MSAA, shadows incl. the customers', effects; medium = DPR 1.5, chefs' and the
 restaurant's shadows; low = DPR 1, no MSAA, shadows or effects, like `?lowfx` without its fps cap; MSAA follows at the
-next launch), the shared touch controls (`swapSticks` puts the button on the left, `stickSize`, `stickOpacity`), and
-our own settings from `menu.define`: **Recipe hints on orders** (the ingredients under each bubble) and **Highlight
-stations**, plus six "How to play" entries. While the menu is open the stick and the button are released and ignored
-(the shift keeps running on the server). `menu.players` lists the crew (the Rally user id of signed-in chefs, "You",
-"Wednesday · 12 served"); `net.status` reports the connection on every change and every 2 s with the ping, and the
+next launch; on a host without the menu, or in a plain browser, the last setting is kept), the shared touch controls
+(`swapSticks` puts the button on the left, `stickSize`, `stickOpacity`), and our own settings from `menu.define`:
+**Recipe hints on orders** (the ingredients under each bubble) and **Highlight stations**, plus six "How to play"
+entries. While the menu is open the stick and the button are released and ignored (the shift keeps running on the
+server). `menu.players` lists the crew (the Rally user id of signed-in chefs, "You", "Wednesday · 12 served");
+`net.status` reports the connection on every change and every 2 s with the ping, and the
 host draws the "Reconnecting…" banner (ours only in a plain browser). Boot sends user-facing loading labels
 ("Downloading the kitchen", "Downloading chefs", "Setting up the restaurant", "Connecting to the server", "Joining
 your crew") and progress 1 only once joined.
@@ -252,21 +253,24 @@ without a GPU renders WebGL in software (swiftshader) on the CPU, so these are f
 
 ## Perf
 
-Measured with `perf` (844 × 390, festival Sunday with every zone open, four chefs and 7–10 customers, swiftshader on a
-shared 4-core machine that other jobs were loading, so they swing by ± 30 %):
+Measured with `perf` (844 × 390, festival Sunday with every zone open, four chefs and 6–10 customers, swiftshader on a
+shared 4-core machine that other jobs were loading, load average 5–16, so they swing by ± 30 %; the check fails if the
+game is not running at the quality asked for):
 
-| Quality (host menu) | DPR | fps  | frame (p95)     | draw calls (shadow) |
-| ------------------- | --- | ---- | --------------- | ------------------- |
-| high                | 1   | 6.5  | 163 ms (362 ms) | 95 (25)             |
-| medium              | 1   | 3.5  | 291 ms (523 ms) | 84 (23)             |
-| low                 | 1   | 10.8 | 95 ms (180 ms)  | 69 (11)             |
+| Quality (host menu) | DPR             | fps  | frame (p95)     | draw calls (shadow) |
+| ------------------- | --------------- | ---- | --------------- | ------------------- |
+| high                | 1               | 7.5  | 139 ms (282 ms) | 86 (24)             |
+| high                | 2               | 2.8  | 385 ms (744 ms) | 89 (23)             |
+| medium              | 1               | 5.3  | 220 ms (555 ms) | 74 (15)             |
+| low                 | 1               | 10.5 | 93 ms (158 ms)  | 60 (0)              |
+| low                 | 2 (drawn at 1×) | 10.0 | 103 ms (235 ms) | 58 (0)              |
 
-(The medium run landed on the busiest stretch of the shared machine; it draws less than high.) For comparison, Gun
-Run's eight-player yard measures ≈ 13 fps at DPR 1 with shadows on the same software renderer. On a phone's GPU the
-frame is far cheaper; the knobs that matter on the software floor are shadows (high → low ≈ + 65 %) and the DOM labels
-and belt scroll (`?nolabels&noscroll` ≈ + 20 % at low).
+For comparison, Gun Run's eight-player yard measures ≈ 13 fps at DPR 1 with shadows on the same software renderer. On
+a phone's GPU the frame is far cheaper; the knobs that matter on the software floor are pixels (high at DPR 2 costs
+≈ 2.5× DPR 1), MSAA and shadows (high → low ≈ + 40 %), then the DOM labels and the belt scroll (`?nolabels&noscroll`
+≈ + 20 % at low).
 
-A frame is ≈ 80–95 draw calls: the restaurant is one batched vertex-coloured mesh per zone (≈ 13.6k triangles of
+A frame is ≈ 60–95 draw calls: the restaurant is one batched vertex-coloured mesh per zone (≈ 13.6k triangles of
 props for everything open), the bar and the belt one mesh each (the belt's slats scroll with a texture offset), each
 character one skinned draw (1,000–1,250 triangles), food and plates a draw or two each (plate stacks two draws however
 tall); one directional light with hard shadows (PCF1), clustered lighting off.

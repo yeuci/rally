@@ -196,12 +196,18 @@ rally.on('menu', ({ open }) => {
   menuOpen = open;
   setInputEnabled();
 });
-rally.on('settingsChanged', (s) => applySettings(s));
+rally.on('settingsChanged', (s) => {
+  hostMenu = true;
+  applySettings(s);
+});
 hud.onStart(() => net?.start());
 hud.onVote((i) => {
   net?.vote(i);
   sfx.vote();
 });
+
+/** The host has the game menu (settings in the launch context, or a `settingsChanged`): its quality rules. */
+let hostMenu = false;
 
 function applySettings(s: PlayerSettings) {
   sfx.volume = effectsVolume(s.volume);
@@ -209,9 +215,9 @@ function applySettings(s: PlayerSettings) {
   if (s.controls) {
     controls.setLayout({ swap: s.controls.swapSticks, size: s.controls.stickSize, opacity: s.controls.stickOpacity });
   }
-  // Only the host's menu sets the quality: outside the shell `rally.settings` is the SDK's default ('high'), which
-  // would overwrite the remembered setting at every launch.
-  if (!LOWFX && !ART && rally.isHosted && s.graphics !== graphics) {
+  // Only the host's menu sets the quality: outside the shell, or on a host without the menu (the dev harness),
+  // `rally.settings` is the SDK's default ('high'), which would overwrite the remembered setting at every launch.
+  if (!LOWFX && !ART && hostMenu && s.graphics !== graphics) {
     graphics = s.graphics;
     rememberGraphics(globalThis.localStorage ?? null, graphics);
     const q = renderQuality(graphics);
@@ -764,6 +770,7 @@ async function boot() {
     applySafeAreaVars(safeArea(ctx.device.safeArea));
     reserveMenuButton(ctx.device.menuButton);
     username = ctx.user.username;
+    hostMenu ||= ctx.settings !== undefined;
     applySettings(rally.settings);
   } else {
     applySafeAreaVars(safeArea());
@@ -862,6 +869,9 @@ if (import.meta.env.DEV) {
     },
     get lowfx() {
       return LOWFX;
+    },
+    get graphics() {
+      return graphics;
     },
     get me() {
       return me;
