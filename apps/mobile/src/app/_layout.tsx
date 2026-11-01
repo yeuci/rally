@@ -10,6 +10,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { useUniwind } from 'uniwind';
 import { IntroOverlay, introPending } from '@/components/rally/intro-overlay';
+import { OfflineBanner } from '@/components/rally/offline-banner';
 import { config } from '@/config';
 import { useSession } from '@/lib/auth/session';
 // Loaded at startup on purpose: reading the stored preferences applies the chosen appearance (Settings) early.
@@ -66,6 +67,8 @@ export default function RootLayout() {
           </Stack.Protected>
         </Stack>
         <PortalHost />
+        {/* "You're offline" under the status bar on every screen but a running game. */}
+        <OfflineBanner />
         {intro && <IntroOverlay />}
       </ThemeProvider>
     </QueryClientProvider>
