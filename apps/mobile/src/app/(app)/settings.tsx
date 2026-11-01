@@ -262,7 +262,7 @@ export default function SettingsScreen() {
         <Separator className="ml-16" />
         <ToggleRow
           icon={GaugeIcon}
-          label="Show FPS in games"
+          label={__DEV__ ? 'Show FPS and screen sizes' : 'Show FPS in games'}
           value={showFps}
           onChange={(next) => prefs.update({ showFps: next })}
         />

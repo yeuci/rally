@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
-import { StyleSheet, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
+import { StyleSheet, Text, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets, type EdgeInsets } from 'react-native-safe-area-context';
+import { usePrefs } from './prefs';
 import { insetsFromProbe, type Frame } from './viewport-model';
 
 /**
@@ -51,9 +52,26 @@ export function ViewportProvider({ children }: { children: ReactNode }) {
     return { width: outer.width, height: outer.height, insets: insetsFromProbe(outer, inner) };
   }, [outer, inner, reported.width, reported.height, reportedInsets]);
 
+  // Dev builds with "Show FPS" on: the reported and the measured numbers side by side, so a screenshot after a
+  // rotation shows which one went stale.
+  const { showFps } = usePrefs();
+  const readout =
+    __DEV__ && showFps
+      ? `window ${fmt(reported.width)}×${fmt(reported.height)} · root ${outer ? `${fmt(outer.width)}×${fmt(outer.height)}` : '?'}\n` +
+        `insets reported ${insetText(reportedInsets)} · measured ${outer && inner ? insetText(value.insets) : '?'}`
+      : null;
+
   return (
     <ViewportContext.Provider value={value}>
       {children}
+      {readout ? (
+        <View
+          pointerEvents="none"
+          style={[styles.readout, { bottom: value.insets.bottom + 4, left: value.insets.left + 4 }]}
+        >
+          <Text style={styles.readoutText}>{readout}</Text>
+        </View>
+      ) : null}
       <View
         style={StyleSheet.absoluteFill}
         onLayout={onOuter}
@@ -82,4 +100,19 @@ export function useViewport(): Viewport {
   return measured ?? { width: reported.width, height: reported.height, insets: reportedInsets };
 }
 
-const styles = StyleSheet.create({ fill: { flex: 1 } });
+const fmt = (n: number) => String(Math.round(n));
+const insetText = (i: EdgeInsets) => `t${fmt(i.top)} l${fmt(i.left)} r${fmt(i.right)} b${fmt(i.bottom)}`;
+
+const styles = StyleSheet.create({
+  fill: { flex: 1 },
+  readout: {
+    position: 'absolute',
+    zIndex: 9999,
+    elevation: 9999,
+    backgroundColor: 'rgba(0,0,0,0.72)',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+  readoutText: { color: '#FFFFFF', fontSize: 10, lineHeight: 13, fontVariant: ['tabular-nums'] },
+});
