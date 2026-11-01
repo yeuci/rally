@@ -8,7 +8,7 @@
 // skip to night N, spawn zombies, give items, hurt or down a survivor, set the truck) and Northdale's Vite dev server
 // (:5186) unless they are already running, drives Chromium with Playwright and asserts:
 //   1. ?name=Alice and ?name=Bob → host matchmaking → one room, both survivors on both pages; the host menu got
-//      `menu.define` (settings + help) and `menu.players` with both names.
+//      `menu.define` (settings + help), `menu.players` with both names and `net.status` "connected" with a round trip.
 //   2. A chest: Alice stands at the safehouse chest and holds E; it opens and its loot lands in her pockets.
 //   3. Melee: a zombie in front of Alice, frozen; she swings the knife (F) until it dies; the kill reaches Bob's page
 //      and her kill count.
