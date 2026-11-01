@@ -11,7 +11,7 @@ A multiplayer mode (2–4 players sharing one camp for a shift) is planned. The 
 below), but nothing networked exists yet.
 
 ```bash
-pnpm --filter @rally/game-lumber dev        # http://localhost:5184 with the dev harness (fake host); ?nohost = standalone
+pnpm --filter @rally/game-lumber dev        # http://localhost:5195 with the dev harness (fake host); ?nohost = standalone
 pnpm --filter @rally/game-lumber build      # -> client/dist
 pnpm --filter @rally/game-lumber test       # simulation unit tests (node:test)
 pnpm --filter @rally/game-lumber test:e2e   # Playwright through the dev harness (needs Chromium; playwright via NODE_PATH)
@@ -22,7 +22,7 @@ Controls: drag anywhere for a floating joystick (touch or mouse), or arrow keys 
 
 In the Rally app, with the dev server running on a PC the phone can reach:
 
-- **Developer screen** (anyone): Profile → Developer, bundle URL `http://<pc-ip>:5184/index.html`. The room does not
+- **Developer screen** (anyone): Profile → Developer, bundle URL `http://<pc-ip>:5195/index.html`. The room does not
   matter (a solo game never matchmakes); saves and boards stay in memory under the dev identity.
 - **Catalog** (owner, before the real publish): apply `docs/dev/lumber-dev-rows.sql` in Supabase Studio with the IP of
   the PC serving the game. Lumber Camp then shows up with its board and achievements; the real publish replaces it.

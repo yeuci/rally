@@ -19,8 +19,9 @@ export default defineConfig({
       },
     },
   },
-  // 5184: after the spike (5180), Stack (5181), Sumo (5182) and Overrun (5183). VITE_NO_HMR=1 disables the hot-reload
-  // client (see games/spike/README.md: its reconnect after iOS suspends the app forces a full reload).
-  server: { port: 5184, strictPort: true, hmr: process.env.VITE_NO_HMR ? false : undefined },
-  preview: { port: 5184, strictPort: true },
+  // 5195: second-developer games use 5195+ (the owner's games count up from 5180; the web app has 5190). VITE_NO_HMR=1
+  // disables the hot-reload client (see games/spike/README.md: its reconnect after iOS suspends the app forces a full
+  // reload).
+  server: { port: 5195, strictPort: true, hmr: process.env.VITE_NO_HMR ? false : undefined },
+  preview: { port: 5195, strictPort: true },
 });

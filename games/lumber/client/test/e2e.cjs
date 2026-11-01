@@ -3,7 +3,7 @@
 //
 //   pnpm --filter @rally/game-lumber test:e2e
 //
-// Starts the Vite dev server (:5184, harness plugin on) unless it is already running, drives Chromium with Playwright
+// Starts the Vite dev server (:5195, harness plugin on) unless it is already running, drives Chromium with Playwright
 // and asserts: boot → ready(), a joystick drag starts the shift and walks the player, the greedy bot (dev probe) earns
 // money and buys upgrades, skipping to the whistle shows the results card with earnings / best / leaderboard rank,
 // leaderboard.submit + achievement.unlock('first_sale') + save.put reached the harness, pause/resume freeze/continue
@@ -20,7 +20,7 @@ const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
 
 const ROOT = path.resolve(__dirname, '../../../..');
-const LUMBER_URL = process.env.LUMBER_URL || 'http://localhost:5184/';
+const LUMBER_URL = process.env.LUMBER_URL || 'http://localhost:5195/';
 const SCREENSHOT = process.env.E2E_SCREENSHOT || path.join(os.tmpdir(), 'lumber.png');
 
 const started = [];
