@@ -1,18 +1,29 @@
 import { router } from 'expo-router';
 import {
+  AudioLinesIcon,
+  BlendIcon,
+  CircleDotIcon,
   CoinsIcon,
+  CrosshairIcon,
   Gamepad2Icon,
   GaugeIcon,
+  HandIcon,
   LifeBuoyIcon,
   LogOutIcon,
+  MusicIcon,
   ShieldIcon,
   SparklesIcon,
   SunMoonIcon,
   UserPlusIcon,
   VibrateIcon,
+  Volume2Icon,
   type LucideIcon,
 } from 'lucide-react-native';
-import { ScrollView, View } from 'react-native';
+import { PixelRatio, Platform, ScrollView, View } from 'react-native';
+import { Slider } from '@/components/rally/slider';
+import { GRAPHICS_CHOICES, STICK_OPACITY, STICK_SIZE, autoGraphics, type GraphicsChoice } from '@/game-host/settings';
+import { updatePlatformSettings, usePlatformSettings } from '@/lib/game-settings';
+import { usePalette } from '@/lib/use-palette';
 import { RetryButton } from '@/components/rally/empty-state';
 import { ErrorText } from '@/components/rally/form-field';
 import { LogoMark } from '@/components/rally/logo';
@@ -43,6 +54,65 @@ const ALERT_OPTIONS: readonly { value: FriendAlertStyle; label: string }[] = [
   { value: 'banner', label: 'Banner' },
   { value: 'off', label: 'Off' },
 ];
+
+const GRAPHICS_LABEL: Record<GraphicsChoice, string> = { auto: 'Auto', low: 'Low', medium: 'Medium', high: 'High' };
+const GRAPHICS_OPTIONS = GRAPHICS_CHOICES.map((g) => ({ value: g, label: GRAPHICS_LABEL[g] }));
+
+/** Slider props for a 0…100 % style value between `min` and `max`. */
+const percent = (min: number, max: number) => ({
+  min,
+  max,
+  step: 0.05,
+  format: (v: number) => `${Math.round(v * 100)}%`,
+});
+
+/** Icon, label, a slider and its value on one row: applied while dragging, saved on release. */
+function SliderRow({
+  icon,
+  label,
+  value,
+  min,
+  max,
+  step,
+  format,
+  onChange,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  format: (v: number) => string;
+  onChange: (v: number, final: boolean) => void;
+}) {
+  const palette = usePalette();
+  return (
+    <View className="flex-row items-center gap-3.5 px-4 py-2.5">
+      <View className="bg-muted size-9 items-center justify-center rounded-xl">
+        <Icon as={icon} className="text-secondary-foreground size-[18px]" />
+      </View>
+      <Text className="w-[92px] text-[15px] font-medium" numberOfLines={2}>
+        {label}
+      </Text>
+      <View className="flex-1">
+        <Slider
+          label={label}
+          value={value}
+          min={min}
+          max={max}
+          step={step}
+          format={format}
+          onChange={onChange}
+          colors={{ track: palette.muted, fill: palette.foreground, thumb: palette.foreground }}
+        />
+      </View>
+      <Text variant="muted" className="w-11 text-right text-[13px]" style={{ fontVariant: ['tabular-nums'] }}>
+        {format(value)}
+      </Text>
+    </View>
+  );
+}
 
 /** Icon, label and a segmented choice on one row (wraps under the label in a narrow column). */
 function ChoiceRow<T extends string>({
@@ -90,6 +160,9 @@ export default function SettingsScreen() {
   const { insets } = useLayout();
   const column = useColumnPadding();
   const { showFps, appearance, haptics, friendAlerts, friendAlertsInGame, coinPopups } = usePrefs();
+  // The in-game menu's platform settings (one store, lib/game-settings.ts): changed here outside a game too.
+  const game = usePlatformSettings();
+  const auto = autoGraphics({ os: Platform.OS, version: Platform.Version, pixelRatio: PixelRatio.get() });
   const reduceMotion = useReduceMotionSetting();
   const profile = useProfile();
   const privacy = usePrivacy();
@@ -163,12 +236,91 @@ export default function SettingsScreen() {
         />
       </SettingsGroup>
 
-      <SettingsGroup title="Games" footer="A frame-rate counter in the top-left corner while a game runs.">
+      <SettingsGroup
+        title="Games"
+        footer={`${game.graphics === 'auto' ? `Auto picks ${GRAPHICS_LABEL[auto]} on this device. ` : ''}The same settings are in the menu inside every game. Show FPS puts a frame-rate counter beside the game's menu button.`}
+      >
+        <ChoiceRow
+          icon={SparklesIcon}
+          label="Graphics"
+          options={GRAPHICS_OPTIONS}
+          value={game.graphics}
+          onChange={(next) => updatePlatformSettings({ graphics: next })}
+        />
+        <Separator className="ml-16" />
+        <ToggleRow
+          icon={VibrateIcon}
+          label="Vibration in games"
+          value={game.haptics}
+          onChange={(next) => updatePlatformSettings({ haptics: next })}
+        />
+        <Separator className="ml-16" />
         <ToggleRow
           icon={GaugeIcon}
           label="Show FPS in games"
           value={showFps}
           onChange={(next) => prefs.update({ showFps: next })}
+        />
+      </SettingsGroup>
+
+      <SettingsGroup title="Game sound">
+        <SliderRow
+          icon={Volume2Icon}
+          label="Master volume"
+          value={game.volume.master}
+          {...percent(0, 1)}
+          onChange={(v, final) => updatePlatformSettings({ volume: { master: v } }, final)}
+        />
+        <Separator className="ml-16" />
+        <SliderRow
+          icon={MusicIcon}
+          label="Music"
+          value={game.volume.music}
+          {...percent(0, 1)}
+          onChange={(v, final) => updatePlatformSettings({ volume: { music: v } }, final)}
+        />
+        <Separator className="ml-16" />
+        <SliderRow
+          icon={AudioLinesIcon}
+          label="Effects"
+          value={game.volume.effects}
+          {...percent(0, 1)}
+          onChange={(v, final) => updatePlatformSettings({ volume: { effects: v } }, final)}
+        />
+      </SettingsGroup>
+
+      <SettingsGroup
+        title="Touch controls"
+        footer="For games with on-screen sticks. Aim assist gently snaps your aim toward targets in games that aim."
+      >
+        <ToggleRow
+          icon={HandIcon}
+          label="Left-handed (swap sticks)"
+          value={game.controls.swapSticks}
+          onChange={(next) => updatePlatformSettings({ controls: { swapSticks: next } })}
+        />
+        <Separator className="ml-16" />
+        <SliderRow
+          icon={CircleDotIcon}
+          label="Stick size"
+          value={game.controls.stickSize}
+          {...percent(STICK_SIZE.min, STICK_SIZE.max)}
+          onChange={(v, final) => updatePlatformSettings({ controls: { stickSize: v } }, final)}
+        />
+        <Separator className="ml-16" />
+        <SliderRow
+          icon={BlendIcon}
+          label="Stick opacity"
+          value={game.controls.stickOpacity}
+          {...percent(STICK_OPACITY.min, STICK_OPACITY.max)}
+          onChange={(v, final) => updatePlatformSettings({ controls: { stickOpacity: v } }, final)}
+        />
+        <Separator className="ml-16" />
+        <ToggleRow
+          icon={CrosshairIcon}
+          label="Aim assist"
+          value={game.controls.aimAssist}
+          onChange={(next) => updatePlatformSettings({ controls: { aimAssist: next } })}
         />
       </SettingsGroup>
 

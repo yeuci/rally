@@ -15,16 +15,33 @@ import type { KeyValueStorage } from './session-journal';
 export type GraphicsChoice = 'auto' | GraphicsQuality;
 export const GRAPHICS_CHOICES: readonly GraphicsChoice[] = ['auto', 'low', 'medium', 'high'];
 
+export interface ControlSettings {
+  /** Left-handed: the games swap their on-screen sticks. */
+  swapSticks: boolean;
+  /** 0.75 … 1.5. */
+  stickSize: number;
+  /** 0.2 … 1. */
+  stickOpacity: number;
+  /** A gentle aim snap in games that aim. */
+  aimAssist: boolean;
+}
+
 export interface PlatformSettings {
   volume: { master: number; music: number; effects: number };
   graphics: GraphicsChoice;
   haptics: boolean;
+  controls: ControlSettings;
 }
+
+/** The ranges of the stick sliders (the protocol's `controls`). */
+export const STICK_SIZE = { min: 0.75, max: 1.5 } as const;
+export const STICK_OPACITY = { min: 0.2, max: 1 } as const;
 
 export const DEFAULT_PLATFORM_SETTINGS: PlatformSettings = {
   volume: { master: 1, music: 1, effects: 1 },
   graphics: 'auto',
   haptics: true,
+  controls: { swapSticks: false, stickSize: 1, stickOpacity: 0.8, aimAssist: true },
 };
 
 export type GameValues = Record<string, GameSettingValue>;
@@ -34,11 +51,25 @@ export interface SettingsPatch {
   volume?: Partial<PlatformSettings['volume']>;
   graphics?: GraphicsChoice;
   haptics?: boolean;
+  controls?: Partial<ControlSettings>;
   game?: GameValues;
 }
 
-const clamp01 = (n: unknown, fallback: number) =>
-  typeof n === 'number' && Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : fallback;
+const clampTo = (n: unknown, min: number, max: number, fallback: number) =>
+  typeof n === 'number' && Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+const clamp01 = (n: unknown, fallback: number) => clampTo(n, 0, 1, fallback);
+const bool = (v: unknown, fallback: boolean) => (typeof v === 'boolean' ? v : fallback);
+
+/** Stored or patched controls over `base`: each field checked, the stick values clamped to their ranges. */
+function controlsFrom(raw: unknown, base: ControlSettings): ControlSettings {
+  const c = (raw && typeof raw === 'object' ? raw : {}) as Partial<Record<keyof ControlSettings, unknown>>;
+  return {
+    swapSticks: bool(c.swapSticks, base.swapSticks),
+    stickSize: clampTo(c.stickSize, STICK_SIZE.min, STICK_SIZE.max, base.stickSize),
+    stickOpacity: clampTo(c.stickOpacity, STICK_OPACITY.min, STICK_OPACITY.max, base.stickOpacity),
+    aimAssist: bool(c.aimAssist, base.aimAssist),
+  };
+}
 
 /** Stored JSON → platform settings; anything missing or malformed falls back to the default. */
 export function parsePlatformSettings(raw: string | null): PlatformSettings {
@@ -55,7 +86,8 @@ export function parsePlatformSettings(raw: string | null): PlatformSettings {
         effects: clamp01(v.effects, d.volume.effects),
       },
       graphics: GRAPHICS_CHOICES.includes(p.graphics as GraphicsChoice) ? (p.graphics as GraphicsChoice) : d.graphics,
-      haptics: typeof p.haptics === 'boolean' ? p.haptics : d.haptics,
+      haptics: bool(p.haptics, d.haptics),
+      controls: controlsFrom(p.controls, d.controls),
     };
   } catch {
     return DEFAULT_PLATFORM_SETTINGS;
@@ -122,11 +154,12 @@ export function playerSettings(platform: PlatformSettings, game: GameValues, aut
     volume: { ...platform.volume },
     graphics: platform.graphics === 'auto' ? auto : platform.graphics,
     haptics: platform.haptics,
+    controls: { ...platform.controls },
     game: { ...game },
   };
 }
 
-/** Apply a menu change to the platform settings (volumes clamped). */
+/** Apply a menu change to the platform settings (volumes and stick values clamped). */
 export function patchPlatform(p: PlatformSettings, patch: SettingsPatch): PlatformSettings {
   return {
     volume: {
@@ -135,8 +168,35 @@ export function patchPlatform(p: PlatformSettings, patch: SettingsPatch): Platfo
       effects: clamp01(patch.volume?.effects, p.volume.effects),
     },
     graphics: patch.graphics && GRAPHICS_CHOICES.includes(patch.graphics) ? patch.graphics : p.graphics,
-    haptics: typeof patch.haptics === 'boolean' ? patch.haptics : p.haptics,
+    haptics: bool(patch.haptics, p.haptics),
+    controls: controlsFrom(patch.controls, p.controls),
   };
+}
+
+/** The game's connection, from its `net.status` events. */
+export interface NetStatus {
+  state: 'connected' | 'reconnecting' | 'disconnected';
+  rttMs?: number;
+}
+
+/**
+ * Ping bars for the game menu's header: 4 bars under 80 ms, 3 under 150, 2 under 250, else 1; `good` / `fair` /
+ * `poor` colour them. Reconnecting is fair with no bars filled beyond 1, disconnected `offline`.
+ */
+export function netBars(net: NetStatus): {
+  bars: 0 | 1 | 2 | 3 | 4;
+  tone: 'good' | 'fair' | 'poor' | 'offline';
+  label: string;
+} {
+  if (net.state === 'disconnected') return { bars: 0, tone: 'offline', label: 'Offline' };
+  if (net.state === 'reconnecting') return { bars: 1, tone: 'fair', label: 'Reconnecting' };
+  const rtt = net.rttMs;
+  if (rtt === undefined) return { bars: 4, tone: 'good', label: 'Connected' };
+  const label = `${Math.round(rtt)} ms`;
+  if (rtt < 80) return { bars: 4, tone: 'good', label };
+  if (rtt < 150) return { bars: 3, tone: 'good', label };
+  if (rtt < 250) return { bars: 2, tone: 'fair', label };
+  return { bars: 1, tone: 'poor', label };
 }
 
 /** Size of the host's game-menu button over the game (points = CSS px of the page). */

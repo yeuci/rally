@@ -736,7 +736,12 @@ const responseTo = (delivered: () => { kind: string; id?: string; params?: unkno
 async function seededStore() {
   const storage = createMemoryStorage();
   const store = createGameSettingsStore(storage);
-  await store.savePlatform({ volume: { master: 0.5, music: 0.2, effects: 0.8 }, graphics: 'auto', haptics: true });
+  await store.savePlatform({
+    volume: { master: 0.5, music: 0.2, effects: 0.8 },
+    graphics: 'auto',
+    haptics: true,
+    controls: { swapSticks: false, stickSize: 1, stickOpacity: 0.8, aimAssist: true },
+  });
   await store.saveGame('spike', { aimAssist: false, sensitivity: 1.5 });
   return { storage, store };
 }
@@ -835,12 +840,14 @@ test('settings: live while dragging (throttled), at once and saved when final', 
   controller.changeSettings({ graphics: 'low' });
   controller.changeSettings({ game: { aimAssist: true, sensitivity: 9, unknown: 1 } });
   controller.changeSettings({ game: { aimAssist: 'yes' } }); // wrong type: ignored
+  controller.changeSettings({ controls: { swapSticks: true, stickOpacity: 0.5 } });
   sent = events(delivered, 'settingsChanged') as never;
-  assert.equal(sent.length, 4);
+  assert.equal(sent.length, 5);
   assert.deepEqual(sent.at(-1), {
     volume: { master: 0.7, music: 0.2, effects: 0.8 },
     graphics: 'low',
     haptics: true,
+    controls: { swapSticks: true, stickSize: 1, stickOpacity: 0.5, aimAssist: true },
     game: { aimAssist: true, sensitivity: 2 },
   });
   await tick();
@@ -955,5 +962,33 @@ test('a reload or a new document forgets what the page defined and closes the me
   controller.reload();
   v = controller.getSnapshot();
   assert.equal(v.menu.defined, false);
+  controller.stop();
+});
+
+test('connection status: net.status drives the view (ping bars, banner); a new document forgets it', async () => {
+  let renders = 0;
+  const { controller } = setup();
+  controller.subscribe(() => (renders += 1));
+  controller.handleMessage(ready(), BUNDLE);
+  await tick();
+  assert.equal(controller.getSnapshot().net, null, 'solo games never report one');
+  controller.handleMessage(evt('net.status', { state: 'connected', rttMs: 48 }), BUNDLE);
+  await tick();
+  assert.deepEqual(controller.getSnapshot().net, { state: 'connected', rttMs: 48 });
+  const before = renders;
+  controller.handleMessage(evt('net.status', { state: 'connected', rttMs: 48 }), BUNDLE);
+  await tick();
+  assert.equal(renders, before, 'the same status again changes nothing');
+  controller.handleMessage(evt('net.status', { state: 'reconnecting' }), BUNDLE);
+  await tick();
+  assert.deepEqual(controller.getSnapshot().net, { state: 'reconnecting' });
+  controller.handleMessage(evt('net.status', { state: 'disconnected' }), BUNDLE);
+  await tick();
+  assert.equal(controller.getSnapshot().net?.state, 'disconnected');
+  controller.handleMessage(evt('net.status', { state: 'lost' }), BUNDLE); // not in the protocol: dropped
+  await tick();
+  assert.equal(controller.getSnapshot().net?.state, 'disconnected');
+  controller.onMainFrameLoadStart(BUNDLE);
+  assert.equal(controller.getSnapshot().net, null);
   controller.stop();
 });

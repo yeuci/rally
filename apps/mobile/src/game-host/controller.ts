@@ -30,6 +30,7 @@ import {
   type GameSettingsStore,
   type GameValues,
   type PlatformSettings,
+  type NetStatus,
   type SettingsPatch,
 } from './settings';
 import type { WebViewHandle } from './webview';
@@ -104,6 +105,11 @@ export interface HostView {
   settings: SettingsView;
   /** The player asked to leave; the game is finishing up. */
   leaving: boolean;
+  /**
+   * The game's connection to its server (`net.status`), for the menu's ping bars and the Reconnecting / Connection
+   * lost banner; null until the page reports one (solo games never do).
+   */
+  net: NetStatus | null;
 }
 
 /** The fields of the view that are set directly; the rest is derived from the controller's state. */
@@ -249,6 +255,8 @@ export class GameHostController {
   private menuDef: { settings: GameSetting[]; help: HelpEntry[] } | null = null;
   /** The current page's latest `menu.players`. */
   private players: MenuPlayer[] = [];
+  /** The current page's latest `net.status`. */
+  private net: NetStatus | null = null;
   /** A settings change the game has not been told about yet (a slider being dragged). */
   private settingsPending = false;
   private settingsTimer: ReturnType<typeof setTimeout> | null = null;
@@ -319,6 +327,7 @@ export class GameHostController {
       },
       settings: { platform: this.platform, game: this.gameValues(), auto: this.auto },
       leaving: this.leaving,
+      net: this.net,
     };
   }
 
@@ -676,6 +685,7 @@ export class GameHostController {
   private resetMenuPage() {
     this.menuDef = null;
     this.players = [];
+    this.net = null;
     if (this.settingsTimer !== null) clearTimeout(this.settingsTimer);
     this.settingsTimer = null;
     this.settingsPending = false;
@@ -869,7 +879,15 @@ export class GameHostController {
       onGameEvent: (ev) => {
         if (ev.method === 'telemetry.report') this.metrics = ev.params.values;
         else if (ev.method === 'game.error') this.lastError = ev.params.message;
-        else if (ev.method === 'menu.players') {
+        else if (ev.method === 'net.status') {
+          const next: NetStatus =
+            ev.params.rttMs === undefined
+              ? { state: ev.params.state }
+              : { state: ev.params.state, rttMs: ev.params.rttMs };
+          if (this.net?.state === next.state && this.net.rttMs === next.rttMs) return;
+          this.net = next;
+          this.setView({});
+        } else if (ev.method === 'menu.players') {
           this.players = ev.params.players;
           this.setView({});
         }

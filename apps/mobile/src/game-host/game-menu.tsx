@@ -12,18 +12,8 @@ import {
   ShareIcon,
   XIcon,
 } from 'lucide-react-native';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import {
-  BackHandler,
-  type GestureResponderEvent,
-  Pressable,
-  ScrollView,
-  Share,
-  StyleSheet,
-  View,
-  useWindowDimensions,
-  type LayoutChangeEvent,
-} from 'react-native';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { BackHandler, Pressable, ScrollView, Share, StyleSheet, View, useWindowDimensions } from 'react-native';
 import Animated, { FadeIn, FadeOut, ReduceMotion } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScopedTheme } from 'uniwind';
@@ -31,6 +21,7 @@ import { FriendButtons } from '@/components/rally/friend-button';
 import { LogoMark } from '@/components/rally/logo';
 import { ProfileAvatar } from '@/components/rally/profile-avatar';
 import { Segmented } from '@/components/rally/segmented';
+import { Slider } from '@/components/rally/slider';
 import { Icon } from '@/components/ui/icon';
 import { Switch } from '@/components/ui/switch';
 import { Text } from '@/components/ui/text';
@@ -40,7 +31,15 @@ import { formatJoinCode, roomCodeShareMessage, spokenJoinCode } from '@/lib/join
 import { supabase } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
 import type { MenuView, SettingsView } from './controller';
-import { GRAPHICS_CHOICES, type GraphicsChoice, type SettingsPatch } from './settings';
+import {
+  GRAPHICS_CHOICES,
+  STICK_OPACITY,
+  STICK_SIZE,
+  netBars,
+  type GraphicsChoice,
+  type NetStatus,
+  type SettingsPatch,
+} from './settings';
 
 /**
  * The host's game menu, Roblox-style: a dark translucent panel over the dimmed game with pill tabs (People when the
@@ -58,6 +57,7 @@ import { GRAPHICS_CHOICES, type GraphicsChoice, type SettingsPatch } from './set
 
 const NEVER = ReduceMotion.Never;
 const WHITE = '#FFFFFF';
+const SLIDER_COLORS = { track: 'rgba(255,255,255,0.18)', fill: WHITE, thumb: WHITE };
 
 type Tab = 'people' | 'settings' | 'help';
 
@@ -73,6 +73,8 @@ export interface GameMenuProps {
   /** Leave game (confirmed in the menu). */
   onLeave: () => void;
   onChange: (patch: SettingsPatch, final: boolean) => void;
+  /** The game's connection (`net.status`): ping bars in the header. */
+  net?: NetStatus | null;
   /** The tab to open on; default People in a match with others, else Settings. */
   initialTab?: GameMenuTab;
 }
@@ -82,7 +84,7 @@ export type GameMenuTab = Tab;
 const GRAPHICS_LABEL: Record<GraphicsChoice, string> = { auto: 'Auto', low: 'Low', medium: 'Medium', high: 'High' };
 
 export function GameMenu(props: GameMenuProps) {
-  const { title, iconUri, menu, settings, leaving, roomCode, onResume, onLeave, onChange, initialTab } = props;
+  const { title, iconUri, menu, settings, leaving, roomCode, net, onResume, onLeave, onChange, initialTab } = props;
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const landscape = width > height;
@@ -158,6 +160,7 @@ export function GameMenu(props: GameMenuProps) {
                 <Text className="text-white" style={styles.title} numberOfLines={1} accessibilityRole="header">
                   {title?.trim() || 'Game menu'}
                 </Text>
+                {net ? <PingBars net={net} /> : null}
                 {!landscape ? <CloseButton onPress={onResume} /> : null}
               </View>
               <View style={[styles.tabsRow, landscape && styles.tabsRowLandscape]}>
@@ -243,6 +246,32 @@ export function GameMenuButton({
     >
       <LogoMark size={Math.round(rect.width * 0.62)} color={WHITE} />
     </Pressable>
+  );
+}
+
+const TONE: Record<ReturnType<typeof netBars>['tone'], string> = {
+  good: '#4ADE80',
+  fair: '#FBBF24',
+  poor: '#F87171',
+  offline: '#F87171',
+};
+
+/** Connection quality in the menu header: four bars and the round-trip time ("48 ms"), or Reconnecting / Offline. */
+export function PingBars({ net }: { net: NetStatus }) {
+  const { bars, tone, label } = netBars(net);
+  const color = TONE[tone];
+  return (
+    <View style={styles.ping} accessible accessibilityLabel={`Connection: ${label}`}>
+      <View style={styles.bars}>
+        {[1, 2, 3, 4].map((i) => (
+          <View
+            key={i}
+            style={[styles.bar, { height: 3 + i * 3, backgroundColor: i <= bars ? color : 'rgba(255,255,255,0.2)' }]}
+          />
+        ))}
+      </View>
+      <Text style={[styles.pingText, { color: tone === 'good' ? 'rgba(255,255,255,0.7)' : color }]}>{label}</Text>
+    </View>
   );
 }
 
@@ -349,6 +378,38 @@ function SettingsTab({
             ? `Auto picks ${GRAPHICS_LABEL[settings.auto]} on this device.`
             : 'Lower settings run smoother and save battery.'}
         </Text>
+      </Section>
+      <Section title="Controls">
+        <ToggleRow
+          label="Left-handed"
+          caption="Swap the move and aim sticks"
+          value={platform.controls.swapSticks}
+          onChange={(v) => onChange({ controls: { swapSticks: v } }, true)}
+        />
+        <SliderRow
+          label="Stick size"
+          value={platform.controls.stickSize}
+          min={STICK_SIZE.min}
+          max={STICK_SIZE.max}
+          step={0.05}
+          format={(v) => `${Math.round(v * 100)}%`}
+          onChange={(v, final) => onChange({ controls: { stickSize: v } }, final)}
+        />
+        <SliderRow
+          label="Stick opacity"
+          value={platform.controls.stickOpacity}
+          min={STICK_OPACITY.min}
+          max={STICK_OPACITY.max}
+          step={0.05}
+          format={(v) => `${Math.round(v * 100)}%`}
+          onChange={(v, final) => onChange({ controls: { stickOpacity: v } }, final)}
+        />
+        <ToggleRow
+          label="Aim assist"
+          caption="A gentle snap toward targets in games that aim"
+          value={platform.controls.aimAssist}
+          onChange={(v) => onChange({ controls: { aimAssist: v } }, true)}
+        />
       </Section>
       <Section title="Haptics">
         <ToggleRow
@@ -487,84 +548,20 @@ function SliderRow({
         {label}
       </Text>
       <View style={styles.flex}>
-        <MenuSlider label={label} value={value} min={min} max={max} step={step} format={format} onChange={onChange} />
+        <Slider
+          label={label}
+          value={value}
+          min={min}
+          max={max}
+          step={step}
+          format={format}
+          onChange={onChange}
+          colors={SLIDER_COLORS}
+        />
       </View>
       <Text className="text-white" style={[styles.value, styles.sliderValue]} numberOfLines={1}>
         {format(value)}
       </Text>
-    </View>
-  );
-}
-
-const THUMB = 22;
-
-/**
- * A slider on the plain responder system (no native module: Expo Go has everything it needs). Tap to jump, drag to
- * slide; reports every step while dragging (`final` false) and once on release. Screen readers adjust it in steps.
- */
-function MenuSlider({
-  label,
-  value,
-  min,
-  max,
-  step,
-  format,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  format: (v: number) => string;
-  onChange: (v: number, final: boolean) => void;
-}) {
-  const [width, setWidth] = useState(0);
-  /** The drag in progress: where it started (in the track and on the page) and the last value reported. */
-  const drag = useRef({ x: 0, page: 0, last: value });
-
-  const at = (x: number) => {
-    const usable = Math.max(1, width - THUMB);
-    const f = Math.min(1, Math.max(0, (x - THUMB / 2) / usable));
-    const snapped = min + Math.round((f * (max - min)) / step) * step;
-    return Math.min(max, Math.max(min, Number(snapped.toFixed(6))));
-  };
-  const report = (v: number, final: boolean) => {
-    if (!final && v === drag.current.last) return;
-    drag.current.last = v;
-    onChange(v, final);
-  };
-  const xOf = (e: GestureResponderEvent) => drag.current.x + e.nativeEvent.pageX - drag.current.page;
-
-  const f = max > min ? (Math.min(max, Math.max(min, value)) - min) / (max - min) : 0;
-  const thumbX = f * Math.max(0, width - THUMB);
-  const nudge = (dir: 1 | -1) => onChange(Math.min(max, Math.max(min, Number((value + dir * step).toFixed(6)))), true);
-
-  return (
-    <View
-      style={styles.slider}
-      onLayout={(e: LayoutChangeEvent) => setWidth(e.nativeEvent.layout.width)}
-      accessible
-      accessibilityRole="adjustable"
-      accessibilityLabel={label}
-      accessibilityValue={{ text: format(value) }}
-      accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
-      onAccessibilityAction={(e) => nudge(e.nativeEvent.actionName === 'increment' ? 1 : -1)}
-      onStartShouldSetResponder={() => true}
-      onMoveShouldSetResponder={() => true}
-      onResponderTerminationRequest={() => false}
-      onResponderGrant={(e) => {
-        drag.current = { x: e.nativeEvent.locationX, page: e.nativeEvent.pageX, last: value };
-        report(at(e.nativeEvent.locationX), false);
-      }}
-      onResponderMove={(e) => report(at(xOf(e)), false)}
-      onResponderRelease={(e) => report(at(xOf(e)), true)}
-      onResponderTerminate={() => report(drag.current.last, true)}
-    >
-      <View style={styles.sliderTrack} pointerEvents="none">
-        <View style={[styles.sliderFill, { width: thumbX + THUMB / 2 }]} />
-      </View>
-      <View style={[styles.sliderThumb, { transform: [{ translateX: thumbX }] }]} pointerEvents="none" />
     </View>
   );
 }
@@ -842,30 +839,6 @@ const styles = StyleSheet.create({
   rowLabel: { fontSize: 15, lineHeight: 20, fontWeight: '500' },
   value: { fontSize: 13, lineHeight: 18, opacity: 0.55, fontVariant: ['tabular-nums'] },
   caption: { fontSize: 13, lineHeight: 18, opacity: 0.55 },
-  slider: { height: 32, justifyContent: 'center' },
-  sliderTrack: {
-    position: 'absolute',
-    left: THUMB / 2,
-    right: THUMB / 2,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    overflow: 'hidden',
-  },
-  sliderFill: { position: 'absolute', left: 0, top: 0, bottom: 0, backgroundColor: WHITE, marginLeft: -THUMB / 2 },
-  sliderThumb: {
-    position: 'absolute',
-    left: 0,
-    width: THUMB,
-    height: THUMB,
-    borderRadius: THUMB / 2,
-    backgroundColor: WHITE,
-    shadowColor: '#000',
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 2,
-  },
   helpList: { gap: 10 },
   helpCard: { padding: 14, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.06)', gap: 4 },
   helpTitle: { fontSize: 15, lineHeight: 20, fontWeight: '700' },
@@ -886,6 +859,10 @@ const styles = StyleSheet.create({
   youText: { fontSize: 11, lineHeight: 16, fontWeight: '800', color: BRAND.base },
   codeCard: { gap: 4, padding: 12, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.06)' },
   codeRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  ping: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4 },
+  bars: { flexDirection: 'row', alignItems: 'flex-end', gap: 2, height: 15 },
+  bar: { width: 3, borderRadius: 1 },
+  pingText: { fontSize: 12, lineHeight: 16, fontWeight: '600', fontVariant: ['tabular-nums'] },
   iconButton: {
     width: 40,
     height: 40,

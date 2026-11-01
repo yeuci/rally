@@ -10,6 +10,7 @@ import {
   createGameSettingsStore,
   gameSettingsKey,
   menuButtonRect,
+  netBars,
   parseGameValues,
   parsePlatformSettings,
   patchPlatform,
@@ -37,11 +38,36 @@ test('platform settings: stored JSON parsed defensively; missing or malformed fi
   assert.deepEqual(parsePlatformSettings('not json'), DEFAULT_PLATFORM_SETTINGS);
   assert.deepEqual(
     parsePlatformSettings(
-      JSON.stringify({ volume: { master: 0.5, music: 7, effects: 'x' }, graphics: 'ultra', haptics: false }),
+      JSON.stringify({
+        volume: { master: 0.5, music: 7, effects: 'x' },
+        graphics: 'ultra',
+        haptics: false,
+        controls: { swapSticks: true, stickSize: 9, stickOpacity: 0.05, aimAssist: 'no' },
+      }),
     ),
-    { volume: { master: 0.5, music: 1, effects: 1 }, graphics: 'auto', haptics: false },
+    {
+      volume: { master: 0.5, music: 1, effects: 1 },
+      graphics: 'auto',
+      haptics: false,
+      controls: { swapSticks: true, stickSize: 1.5, stickOpacity: 0.2, aimAssist: true },
+    },
   );
   assert.equal(parsePlatformSettings(JSON.stringify({ graphics: 'low' })).graphics, 'low');
+  assert.deepEqual(
+    parsePlatformSettings(JSON.stringify({ graphics: 'low' })).controls,
+    DEFAULT_PLATFORM_SETTINGS.controls,
+    'settings saved before controls existed get the defaults',
+  );
+});
+
+test('connection bars: by round-trip time, then reconnecting and offline', () => {
+  assert.deepEqual(netBars({ state: 'connected', rttMs: 48 }), { bars: 4, tone: 'good', label: '48 ms' });
+  assert.deepEqual(netBars({ state: 'connected', rttMs: 120 }), { bars: 3, tone: 'good', label: '120 ms' });
+  assert.deepEqual(netBars({ state: 'connected', rttMs: 200 }), { bars: 2, tone: 'fair', label: '200 ms' });
+  assert.deepEqual(netBars({ state: 'connected', rttMs: 640.4 }), { bars: 1, tone: 'poor', label: '640 ms' });
+  assert.deepEqual(netBars({ state: 'connected' }), { bars: 4, tone: 'good', label: 'Connected' });
+  assert.deepEqual(netBars({ state: 'reconnecting', rttMs: 30 }), { bars: 1, tone: 'fair', label: 'Reconnecting' });
+  assert.deepEqual(netBars({ state: 'disconnected' }), { bars: 0, tone: 'offline', label: 'Offline' });
 });
 
 test('game values: only primitives survive; each is checked against its definition when used', () => {
@@ -73,13 +99,19 @@ test('Auto graphics: recent iPhones high, older iOS and Android medium, very old
 });
 
 test('player settings: Auto resolved, volumes patched and clamped', () => {
-  const p = patchPlatform(DEFAULT_PLATFORM_SETTINGS, { volume: { music: 0.25, effects: -1 }, haptics: false });
-  assert.deepEqual(p, { volume: { master: 1, music: 0.25, effects: 0 }, graphics: 'auto', haptics: false });
-  assert.deepEqual(playerSettings(p, { aimAssist: true }, 'medium'), {
+  const p = patchPlatform(DEFAULT_PLATFORM_SETTINGS, {
+    volume: { music: 0.25, effects: -1 },
+    haptics: false,
+    controls: { swapSticks: true, stickSize: 0.5 },
+  });
+  const controls = { swapSticks: true, stickSize: 0.75, stickOpacity: 0.8, aimAssist: true };
+  assert.deepEqual(p, { volume: { master: 1, music: 0.25, effects: 0 }, graphics: 'auto', haptics: false, controls });
+  assert.deepEqual(playerSettings(p, { camera: 'far' }, 'medium'), {
     volume: { master: 1, music: 0.25, effects: 0 },
     graphics: 'medium',
     haptics: false,
-    game: { aimAssist: true },
+    controls,
+    game: { camera: 'far' },
   });
   assert.equal(playerSettings({ ...p, graphics: 'low' }, {}, 'high').graphics, 'low');
   assert.equal(patchPlatform(p, { graphics: 'bogus' as never }).graphics, 'auto');

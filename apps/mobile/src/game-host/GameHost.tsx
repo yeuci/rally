@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { LaunchContext, LaunchIntent } from '@rally/protocol';
 import * as Crypto from 'expo-crypto';
 import * as Haptics from 'expo-haptics';
@@ -12,10 +11,12 @@ import { GameHostController, type DeviceInfo, type GameHostResult, type HapticKi
 import { fetchEntryDocument, type EntryDocument } from './entry';
 import { usePrefs } from '@/lib/prefs';
 import { GameMenu, GameMenuButton } from './game-menu';
+import { NetBanner } from './net-banner';
 import type { MatchmakingTarget } from './handlers';
 import { buildInjectedScript } from './injected';
 import { GameLoadingScreen, GameProblemScreen } from './loading-screen';
-import { autoGraphics, createGameSettingsStore, menuButtonRect, type GameSettingsStore } from './settings';
+import { autoGraphics, menuButtonRect, type GameSettingsStore } from './settings';
+import { gameSettingsStore } from '@/lib/game-settings';
 import type { PlaySessionService } from './play-session';
 import type { ProgressStore } from './progress';
 import type { SaveStore } from './saves';
@@ -70,12 +71,6 @@ function newNonce(): string {
 }
 
 const sha256Hex = (text: string) => Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, text);
-
-let settingsStore: GameSettingsStore | null = null;
-/** The game menu's settings on the device (AsyncStorage), shared by every launch. */
-function defaultSettingsStore(): GameSettingsStore {
-  return (settingsStore ??= createGameSettingsStore(AsyncStorage));
-}
 
 /** A game's `haptics()` request (games granted the capability, while the player has haptics on). */
 function playHaptic(kind: HapticKind): void {
@@ -150,7 +145,7 @@ export function GameHost(props: GameHostProps) {
         onExit: props.onExit,
         onPlayRecorded: props.onPlayRecorded,
         createNonce: newNonce,
-        settingsStore: props.settingsStore === undefined ? defaultSettingsStore() : props.settingsStore,
+        settingsStore: props.settingsStore === undefined ? gameSettingsStore : props.settingsStore,
         autoGraphics: autoGraphics({ os: Platform.OS, version: Platform.Version, pixelRatio: PixelRatio.get() }),
         playHaptic: props.capabilities?.includes('haptics') ? playHaptic : undefined,
         log: __DEV__ ? (m) => console.log(m) : undefined,
@@ -338,6 +333,16 @@ export function GameHost(props: GameHostProps) {
           loading screen has its own "Leave", the problem screens their "Back". */}
       {view.phase === 'ready' && !view.menuOpen && <GameMenuButton rect={menuButton} onPress={controller.openMenu} />}
 
+      {/* Reconnecting / Connection lost, from the game's net.status (top-centre, clear of the menu button). */}
+      {view.phase === 'ready' && (
+        <NetBanner
+          net={view.net}
+          top={menuButton.y}
+          inset={menuButton.x + menuButton.width + 12}
+          onLeave={controller.leave}
+        />
+      )}
+
       {view.phase === 'ready' && view.menuOpen && (
         <GameMenu
           title={props.title ?? null}
@@ -346,6 +351,7 @@ export function GameHost(props: GameHostProps) {
           settings={view.settings}
           leaving={view.leaving}
           roomCode={props.roomCode ?? null}
+          net={view.net}
           onResume={controller.closeMenu}
           onLeave={controller.leave}
           onChange={controller.changeSettings}
