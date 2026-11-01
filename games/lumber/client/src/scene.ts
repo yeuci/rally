@@ -1,18 +1,23 @@
+import { hexRgb, recolored, setupAnimLayers, toLinear } from '@rally/game-kit';
 import {
+  type AnimComponentLayer,
   type Application,
   BLEND_NORMAL,
   Color,
   Entity,
   GAMMA_SRGB,
   type GraphicsDevice,
+  type Mesh,
   MeshInstance,
   PROJECTION_ORTHOGRAPHIC,
+  type RenderComponent,
   SHADOW_PCF5_16F,
   StandardMaterial,
   TONEMAP_NEUTRAL,
   Vec3,
 } from 'playcanvas';
 import { roundedBox } from './meshes.ts';
+import { MODELS, type CharacterName, type Models, type PropName } from './models.ts';
 import {
   BOUNDS,
   CASH_ZONE,
@@ -73,6 +78,7 @@ export const PALETTE = {
   hardhat: '#ffcc33',
   cart: '#4a90d9',
   shirts: ['#e67e22', '#5d9cec', '#9b59b6', '#16a085', '#e74c3c', '#7f8c8d'],
+  skins: ['#f1c7a1', '#c68642', '#e0ac69', '#8d5524', '#ffdbac', '#a8714a', '#d9a273'],
 } as const;
 
 /** Plank thickness on stacks. */
@@ -82,7 +88,11 @@ const CASH_H = 0.12;
 /** Dollars per bundle on the floor pile. */
 export const CASH_PER_BUNDLE = 10;
 const MAX_CASH_BUNDLES = 60;
-const LEG_SWING = 34;
+/** The clips' natural ground speeds at camp scale (units/s): playback follows the real speed. */
+const WALK_STRIDE = 1.5;
+const RUN_STRIDE = 3.6;
+/** From this ground speed people run instead of walking. */
+const RUN_FROM = 3.2;
 /** Seconds for a new plank / bundle to pop in. */
 const POP_TIME = 0.2;
 /** Carried stack spring: how stiff it is and how quickly the wobble dies down. */
@@ -93,8 +103,10 @@ const STACK_LAG = 0.0065;
 /** Turn speed (1/s) for characters' smoothed facing. */
 const TURN_RATE = 14;
 
-/** Set by `createLumberScene`; the builders below need it for generated meshes. */
+/** Set by `createLumberScene`; the builders below need them for generated meshes, models and their material. */
 let device: GraphicsDevice;
+let models: Models;
+let vertexMat: StandardMaterial;
 
 const materials = new Map<string, StandardMaterial>();
 
@@ -244,14 +256,16 @@ function pile(
 const plankMesh = (root: Entity, i: number, size: V3) =>
   part(root, 'box', i % 3 === 1 ? PALETTE.plank2 : PALETTE.plank, [0, 0, 0], size, { radius: 0.035 });
 
-/** A rounded, slightly chibi person: swinging legs and arms, a torso that bobs and leans, a big head, a hat. */
+/**
+ * A person: one of the Quaternius characters (CC0), skinned and animated with the pack's shared clips, optionally
+ * with their accent material (shirt, jacket) recoloured, and a plank pile held in front (the carry clips hold it).
+ */
 interface Rig {
   root: Entity;
-  torso: Entity;
-  legs: [Entity, Entity];
-  arms: [Entity, Entity];
+  model: Entity;
+  body: AnimComponentLayer;
+  state: string;
   carry: Pile | null;
-  walk: number;
   /** Smoothed facing (radians). */
   yaw: number;
   /** Carried-stack spring (local x / z offsets per height² and their velocities). */
@@ -261,55 +275,85 @@ interface Rig {
   bendVZ: number;
 }
 
-function makeRig(
-  parent: Entity,
-  opts: { shirt: string; hat: 'beanie' | 'hardhat'; hatColor: string; carry?: number },
-): Rig {
-  const root = new Entity('rig');
-  parent.addChild(root);
-  const legPivot = (x: number) => {
-    const pivot = new Entity('hip');
-    pivot.setLocalPosition(x, 0.38, 0);
-    root.addChild(pivot);
-    part(pivot, 'capsule', PALETTE.pants, [0, -0.17, 0], [0.17, 0.19, 0.17]);
-    part(pivot, 'box', PALETTE.boots, [0, -0.33, 0.04], [0.18, 0.1, 0.26], { radius: 0.045 });
-    return pivot;
-  };
-  const legs: [Entity, Entity] = [legPivot(-0.11), legPivot(0.11)];
+/** Recoloured character meshes, shared by everyone in the same look (pinned: people come and go). */
+const looks = new Map<string, Mesh>();
 
-  const torso = new Entity('torso');
-  root.addChild(torso);
-  part(torso, 'box', opts.shirt, [0, 0.62, 0], [0.5, 0.5, 0.36], { radius: 0.16 });
-  const armPivot = (x: number) => {
-    const pivot = new Entity('shoulder');
-    pivot.setLocalPosition(x, 0.8, 0);
-    torso.addChild(pivot);
-    part(pivot, 'capsule', opts.shirt, [0, -0.15, 0], [0.14, 0.17, 0.14]);
-    part(pivot, 'sphere', PALETTE.skin, [0, -0.32, 0], [0.14, 0.14, 0.14]);
-    return pivot;
-  };
-  const arms: [Entity, Entity] = [armPivot(-0.31), armPivot(0.31)];
-  part(torso, 'sphere', PALETTE.skin, [0, 1.12, 0], [0.5, 0.48, 0.48]);
-  // Eyes, so you can tell which way they face.
-  part(torso, 'sphere', PALETTE.eyes, [-0.09, 1.14, 0.22], [0.065, 0.085, 0.04], { shadows: false });
-  part(torso, 'sphere', PALETTE.eyes, [0.09, 1.14, 0.22], [0.065, 0.085, 0.04], { shadows: false });
-  if (opts.hat === 'beanie') {
-    part(torso, 'sphere', opts.hatColor, [0, 1.23, -0.01], [0.53, 0.36, 0.52]);
-    part(torso, 'sphere', '#ffffff', [0, 1.42, -0.02], [0.14, 0.14, 0.14]);
-  } else {
-    part(torso, 'sphere', opts.hatColor, [0, 1.25, 0], [0.54, 0.32, 0.54]);
-    part(torso, 'cylinder', opts.hatColor, [0, 1.2, 0.03], [0.62, 0.035, 0.62]);
+/**
+ * The pack ships every character with the same near-black `Skin` material (meant to be coloured per character), so
+ * each person gets a skin tone here as well as their accent colour.
+ */
+function lookMesh(app: Application, role: CharacterName, source: Mesh, accent: string, skin: string): Mesh {
+  const key = `${role}/${accent}/${skin}`;
+  let mesh = looks.get(key);
+  if (!mesh) {
+    const look = MODELS.looks[role];
+    mesh = recolored(app, source, look.colors, {
+      [look.accent]: toLinear(hexRgb(accent)),
+      Skin: toLinear(hexRgb(skin)),
+    });
+    mesh.incRefCount();
+    looks.set(key, mesh);
   }
+  return mesh;
+}
+
+function makeRig(
+  app: Application,
+  parent: Entity,
+  role: CharacterName,
+  opts: { accent?: string; skin?: string; carry?: number } = {},
+): Rig {
+  const model = models.characters[role].instantiateRenderEntity();
+  for (const c of model.findComponents('render')) {
+    const render = c as RenderComponent;
+    for (const mi of render.meshInstances) {
+      mi.mesh = lookMesh(app, role, mi.mesh!, opts.accent ?? PALETTE.player, opts.skin ?? PALETTE.skins[0]);
+      mi.material = vertexMat;
+    }
+    render.castShadows = true;
+  }
+  const s = MODELS.characterScale;
+  model.setLocalScale(s, s, s);
+  const root = new Entity(`rig-${role}`);
+  root.addChild(model);
+  parent.addChild(root);
+  const layers = setupAnimLayers(model, models.clips, [
+    {
+      name: 'Body',
+      initial: 'Idle',
+      states: {
+        Idle: { clip: 'Idle' },
+        Walk: { clip: 'Walk' },
+        Run: { clip: 'Run' },
+        Carry: { clip: 'Walk_Carry' },
+        RunCarry: { clip: 'Run_Carry' },
+        // Standing still with a load: the carry walk's first frame, held.
+        Hold: { clip: 'Walk_Carry', speed: 0 },
+        Victory: { clip: 'Victory' },
+      },
+    },
+  ]);
   const carry =
     opts.carry !== undefined
       ? pile(
-          torso,
+          root,
           opts.carry,
-          (i) => [Math.sin(i * 1.7) * 0.015, 0.56 + i * PLANK_H, -0.36],
+          (i) => [Math.sin(i * 1.7) * 0.015, 0.74 + i * PLANK_H, 0.34],
           (r, i) => plankMesh(r, i, [0.72, PLANK_H * 0.92, 0.3]),
         )
       : null;
-  return { root, torso, legs, arms, carry, walk: 0, yaw: 0, bendX: 0, bendZ: 0, bendVX: 0, bendVZ: 0 };
+  return {
+    root,
+    model,
+    body: layers.Body!,
+    state: 'Idle',
+    carry,
+    yaw: 0,
+    bendX: 0,
+    bendZ: 0,
+    bendVX: 0,
+    bendVZ: 0,
+  };
 }
 
 /** Shortest signed angle from a to b (radians). */
@@ -318,10 +362,11 @@ function angleTo(a: number, b: number): number {
 }
 
 /**
- * Place a rig at an interpolated mover position; turn it smoothly towards `heading`; animate legs, arms, torso bob and
- * lean; and spring its carried stack so it lags behind and wobbles when they start, stop or turn.
+ * Place a rig at an interpolated mover position; turn it smoothly towards `heading`; play the clip for what it is
+ * doing (idle / walk / run, carrying or not, at a playback speed that follows its ground speed, or `override`); and
+ * spring its carried stack so it lags behind and wobbles when they start, stop or turn.
  */
-function poseRig(rig: Rig, m: Mover, alpha: number, heading: number | null, dt: number) {
+function poseRig(rig: Rig, m: Mover, alpha: number, heading: number | null, dt: number, override?: string) {
   const x = m.px + (m.x - m.px) * alpha;
   const z = m.pz + (m.z - m.pz) * alpha;
   rig.root.setLocalPosition(x, 0, z);
@@ -336,20 +381,27 @@ function poseRig(rig: Rig, m: Mover, alpha: number, heading: number | null, dt: 
   const forward = vx * sin + vz * cos;
   const side = vx * cos - vz * sin;
   const speed = Math.hypot(vx, vz);
-  const moving = speed > 0.05;
-
-  rig.walk = moving ? rig.walk + dt * (6 + speed * 1.6) : rig.walk * Math.max(0, 1 - dt * 10);
-  const amp = moving ? Math.min(1, speed / 3) : Math.min(1, Math.abs(Math.sin(rig.walk)));
-  const swing = Math.sin(rig.walk) * LEG_SWING * amp;
-  rig.legs[0].setLocalEulerAngles(swing, 0, 0);
-  rig.legs[1].setLocalEulerAngles(-swing, 0, 0);
   const carrying = (rig.carry?.shown ?? 0) > 0;
-  // Carrying: hands reach back to hold the stack; otherwise arms swing against the legs.
-  rig.arms[0].setLocalEulerAngles(carrying ? -40 : -swing * 0.8, 0, carrying ? 10 : 6);
-  rig.arms[1].setLocalEulerAngles(carrying ? -40 : swing * 0.8, 0, carrying ? -10 : -6);
-  const bob = Math.abs(Math.sin(rig.walk)) * 0.045 * amp;
-  rig.torso.setLocalPosition(0, bob, 0);
-  rig.torso.setLocalEulerAngles(Math.max(-4, Math.min(8, forward * 1.6)), 0, 0);
+  const running = speed > RUN_FROM;
+  const want =
+    override ??
+    (speed > 0.05
+      ? running
+        ? carrying
+          ? 'RunCarry'
+          : 'Run'
+        : carrying
+          ? 'Carry'
+          : 'Walk'
+      : carrying
+        ? 'Hold'
+        : 'Idle');
+  if (want !== rig.state) {
+    rig.body.transition(want, 0.15);
+    rig.state = want;
+  }
+  const stride = running ? RUN_STRIDE : WALK_STRIDE;
+  rig.model.anim!.speed = speed > 0.05 && !override ? Math.max(0.6, Math.min(1.7, speed / stride)) : 1;
 
   if (rig.carry) {
     if (dt > 0) {
@@ -397,15 +449,16 @@ function roundTree(parent: Entity, x: number, z: number, size: number) {
   );
 }
 
-/** A horizontal log (along x) at (x, y, z). */
-function log(parent: Entity, x: number, y: number, z: number, len: number, r: number) {
-  part(parent, 'cylinder', PALETTE.log, [x, y, z], [r * 2, len, r * 2], { rot: [0, 0, 90] });
-  for (const end of [-1, 1]) {
-    part(parent, 'cylinder', PALETTE.logEnd, [x + end * (len / 2 + 0.005), y, z], [r * 1.8, 0.02, r * 1.8], {
-      rot: [0, 0, 90],
-      shadows: false,
-    });
-  }
+/** A survival-pack prop (vertex-coloured, standing on its local y = 0) at `pos`, turned `yaw` degrees. */
+function prop(parent: Entity, name: PropName, pos: V3, yaw = 0, tilt: V3 = [0, 0, 0]): Entity {
+  const e = new Entity(`prop-${name}`);
+  e.addComponent('render', { castShadows: true, receiveShadows: true });
+  e.render!.meshInstances = [new MeshInstance(models.props[name], vertexMat)];
+  e.render!.castShadows = true;
+  e.setLocalPosition(...pos);
+  e.setLocalEulerAngles(tilt[0], yaw + tilt[1], tilt[2]);
+  parent.addChild(e);
+  return e;
 }
 
 /** Thin outline square on the ground. */
@@ -453,7 +506,7 @@ function makeMill(parent: Entity, i: number): MillView {
   // A log riding in from the yard.
   const feed = new Entity('feed');
   m.addChild(feed);
-  log(feed, 0, 0, 0, 1.2, 0.18);
+  prop(feed, 'WoodLog', [0, -0.17, 0]);
   // Output tray + its planks.
   const tray = new Entity('tray');
   tray.setLocalPosition(t.x, 0, t.z);
@@ -491,8 +544,17 @@ interface Burst {
 }
 
 /** `shadows: false` for the dev-only low-render mode (see lowfx.ts). */
-export function createLumberScene(app: Application, opts: { shadows?: boolean } = {}): LumberScene {
+/** `shadows: false` for the dev-only low-render mode (see lowfx.ts). */
+export function createLumberScene(app: Application, loaded: Models, opts: { shadows?: boolean } = {}): LumberScene {
   device = app.graphicsDevice;
+  models = loaded;
+  // The models' colours are vertex colours (linear, like glTF's colour factors).
+  vertexMat = new StandardMaterial();
+  vertexMat.diffuseVertexColor = true;
+  vertexMat.useMetalness = false;
+  vertexMat.specular = new Color(0.04, 0.04, 0.04);
+  vertexMat.gloss = 0.2;
+  vertexMat.update();
   // Linear lighting with sRGB output and a neutral tone curve: softer light falloff and gentler shadows than shading
   // in gamma space, with the palette's colours kept (they are authored in sRGB).
   app.scene.ambientLight = new Color(0.46, 0.48, 0.55);
@@ -572,11 +634,22 @@ export function createLumberScene(app: Application, opts: { shadows?: boolean } 
   const yard = new Entity('yard');
   world.addChild(yard);
   for (let row = 0; row < 3; row++) {
-    for (let k = 0; k < 7 - row; k++) {
-      log(yard, -4.2 + k * 1.3 + row * 0.65, 0.28 + row * 0.42, -6.6, 1.2, 0.22);
-      log(yard, -4.2 + k * 1.3 + row * 0.65 + 0.2, 0.28 + row * 0.42, -7.1, 1.2, 0.22);
+    for (let k = 0; k < 5 - row; k++) {
+      prop(yard, 'WoodLog', [-2.9 + k * 1.3 + row * 0.65, row * 0.33, -6.6], (k * 37 + row * 11) % 7);
+      prop(yard, 'WoodLog', [-2.7 + k * 1.3 + row * 0.65, row * 0.33, -7.05], (k * 23 + row * 5) % 9);
     }
   }
+
+  // Camp life north of the mills and by the west fence, out of the way.
+  const decor = new Entity('decor');
+  world.addChild(decor);
+  prop(decor, 'Tent', [-4.4, 0, -7.7], 25);
+  prop(decor, 'Bonfire_Fire', [4.2, 0, -6.6]);
+  prop(decor, 'Pot', [4.95, 0, -6.15], 30);
+  part(decor, 'cylinder', PALETTE.trunk, [-4.55, 0.2, -5.85], [0.55, 0.4, 0.55]);
+  prop(decor, 'Axe', [-4.5, 0.36, -5.85], 60, [0, 0, -18]);
+  prop(decor, 'Shovel', [-4.95, 0, 4.3], 90, [0, 0, 14]);
+  prop(decor, 'Backpack', [-4.6, 0, 6.1], 160);
 
   const trees = new Entity('trees');
   world.addChild(trees);
@@ -658,8 +731,8 @@ export function createLumberScene(app: Application, opts: { shadows?: boolean } 
   // --- people ----------------------------------------------------------------------------------------
   const actors = new Entity('actors');
   world.addChild(actors);
-  const player = makeRig(actors, { shirt: PALETTE.player, hat: 'beanie', hatColor: PALETTE.playerHat, carry: 28 });
-  const cashier = makeRig(actors, { shirt: PALETTE.cashier, hat: 'beanie', hatColor: '#c0392b' });
+  const player = makeRig(app, actors, 'player', { accent: PALETTE.player, carry: 28 });
+  const cashier = makeRig(app, actors, 'cashier', { accent: PALETTE.cashier, skin: PALETTE.skins[2] });
   cashier.root.setLocalPosition(REGISTER_ZONE.x, 0, REGISTER_ZONE.z + 0.15);
   cashier.root.enabled = false;
   const cashierSpot: Mover = {
@@ -687,10 +760,9 @@ export function createLumberScene(app: Application, opts: { shadows?: boolean } 
   }
 
   function makeCustomer(kind: 'builder' | 'cart', id: number): Rig {
-    const rig = makeRig(actors, {
-      shirt: PALETTE.shirts[id % PALETTE.shirts.length]!,
-      hat: 'hardhat',
-      hatColor: PALETTE.hardhat,
+    const rig = makeRig(app, actors, id % 2 ? 'builder' : 'builder2', {
+      accent: PALETTE.shirts[id % PALETTE.shirts.length]!,
+      skin: PALETTE.skins[(id * 3) % PALETTE.skins.length]!,
       carry: kind === 'cart' ? undefined : 4,
     });
     if (kind === 'cart') {
@@ -733,11 +805,17 @@ export function createLumberScene(app: Application, opts: { shadows?: boolean } 
 
       // Player + helpers.
       player.carry!.set(sim.player.carry);
-      poseRig(player, sim.player, a, sim.player.heading, dt);
+      poseRig(player, sim.player, a, sim.player.heading, dt, sim.phase === 'over' ? 'Victory' : undefined);
       cashier.root.enabled = sim.cashierHired;
       if (cashier.root.enabled) poseRig(cashier, cashierSpot, 1, 0, dt);
       while (haulers.length < sim.haulers.length) {
-        haulers.push(makeRig(actors, { shirt: PALETTE.hauler, hat: 'beanie', hatColor: '#f39c12', carry: 6 }));
+        haulers.push(
+          makeRig(app, actors, 'hauler', {
+            accent: PALETTE.hauler,
+            skin: PALETTE.skins[haulers.length ? 3 : 1],
+            carry: 6,
+          }),
+        );
       }
       sim.haulers.forEach((h, i) => {
         const rig = haulers[i]!;
@@ -868,6 +946,7 @@ export function createLumberScene(app: Application, opts: { shadows?: boolean } 
       shadowsLow = true;
       sun.light!.shadowResolution = 1024;
       trees.enabled = false;
+      decor.enabled = false;
     },
   };
 

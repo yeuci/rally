@@ -13,9 +13,10 @@ import {
 import { rally } from '@rally/sdk';
 import { Bot } from './bot.ts';
 import { createControls } from './controls.ts';
-import { createLabels } from './labels.ts';
+import { createLabels, type Labels } from './labels.ts';
 import { applyLowFx } from './lowfx.ts';
-import { PALETTE, createLumberScene } from './scene.ts';
+import { loadLumberModels } from './models.ts';
+import { PALETTE, createLumberScene, type LumberScene } from './scene.ts';
 import { CASH_ZONE, LumberSim, UNLOCKS, type SimEvent } from './sim.ts';
 
 const BOARD = 'earnings';
@@ -92,9 +93,10 @@ loading(0.05);
 // --- engine + scene ------------------------------------------------------------------------------
 const { app } = createApp({ canvas: ui.canvas, ...(LOWFX ? { maxPixelRatio: 1, antialias: false } : {}) });
 if (LOWFX) applyLowFx(app);
-const scene = createLumberScene(app, { shadows: !LOWFX });
-const labels = createLabels(ui.labels, scene);
-loading(0.5);
+// The scene and its labels are built in boot(), once the models have loaded.
+let scene!: LumberScene;
+let labels!: Labels;
+loading(0.15);
 
 // --- services --------------------------------------------------------------------------------------
 const save = createSave<Progress>(
@@ -150,7 +152,7 @@ const lifecycle = createLifecycle(rally, app, {
     await save.flush();
   },
   onLowMemory: () => {
-    scene.trim();
+    scene?.trim();
     audio.close();
   },
 });
@@ -359,6 +361,9 @@ const telemetryTimer = setInterval(() => rally.telemetry.report('lumber', collec
 async function boot() {
   // The save is not on the critical path: `createSave` reapplies updates made before it resolves. Render first.
   const saved = save.load().catch(() => save.data);
+  const models = await loadLumberModels(app, (f) => loading(0.15 + f * 0.65));
+  scene = createLumberScene(app, models, { shadows: !LOWFX });
+  labels = createLabels(ui.labels, scene);
   app.start();
   newShift();
   loading(0.9);
@@ -386,7 +391,8 @@ boot().catch((err) => {
   console.error(err);
   rally.reportError(err);
   ui.loading.hidden = true;
-  if (sim.phase === 'ready') newShift();
+  // Without a scene (the models did not load) there is nothing to show; the host has the error.
+  if (scene && sim.phase === 'ready') newShift();
 });
 
 // Dev-only probe for the Playwright e2e (stripped from production builds).
