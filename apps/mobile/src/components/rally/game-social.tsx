@@ -165,13 +165,13 @@ export function GameFriendsHere({ gameId, launcher, live }: { gameId: string; la
  */
 export function GameRating({ gameId }: { gameId: string }) {
   const votes = useGameVotes(gameId);
-  const vote = useVoteGame(gameId);
+  const vote = useVoteGame();
   if (votes.isLoading) return <GameRatingSkeleton />;
   const s = votes.data;
   if (!s) return null;
   const pct = likedPercent(s);
   if (pct === null && !s.canVote) return null;
-  return <RatingCard summary={s} percent={pct} onVote={(liked) => vote.mutate(liked)} />;
+  return <RatingCard summary={s} percent={pct} onVote={(liked) => vote.mutate({ gameId, liked })} />;
 }
 
 export function RatingCard({
