@@ -3,7 +3,7 @@ import { Accelerometer } from 'expo-sensors';
 import { usePathname } from 'expo-router';
 import { ImageOffIcon, SendIcon } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, View, type ModalProps } from 'react-native';
+import { ActivityIndicator, AppState, View } from 'react-native';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { Switch } from '@/components/ui/switch';
@@ -30,15 +30,7 @@ import { usePalette } from '@/lib/use-palette';
 import { BottomSheet } from './bottom-sheet';
 import { ErrorText } from './form-field';
 import { Image } from './image';
-
-/** Every orientation: the sheet can rise over a landscape-locked game. */
-const ALL_ORIENTATIONS: ModalProps['supportedOrientations'] = [
-  'portrait',
-  'portrait-upside-down',
-  'landscape',
-  'landscape-left',
-  'landscape-right',
-];
+import { SHEET_ORIENTATIONS } from '@/game-host/orientation';
 
 /** Height of the screenshot preview; its width follows the screen's aspect ratio (capped for landscape). */
 const PREVIEW_HEIGHT = 112;
@@ -85,7 +77,7 @@ export function BugReportSheet({
       onClose={sending ? () => {} : onClose}
       title="Report a bug"
       description="What went wrong? The screen and recent logs come along."
-      supportedOrientations={ALL_ORIENTATIONS}
+      supportedOrientations={SHEET_ORIENTATIONS}
     >
       <View className="gap-4">
         <Textarea

@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { usePathname } from 'expo-router';
 import { CheckIcon } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
-import { AccessibilityInfo, View, type ModalProps } from 'react-native';
+import { AccessibilityInfo, View } from 'react-native';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { Skeleton, SkeletonText } from '@/components/ui/skeleton';
@@ -20,9 +20,7 @@ import { BottomSheet } from './bottom-sheet';
 import { PlayerName } from './cosmetics';
 import { FriendRequestBanner } from './friend-request-banner';
 import { ProfileAvatar } from './profile-avatar';
-
-/** Every orientation: the sheet can rise over a landscape-locked game (iOS would otherwise force portrait). */
-const ALL_ORIENTATIONS: ModalProps['supportedOrientations'] = ['portrait', 'portrait-upside-down', 'landscape', 'landscape-left', 'landscape-right'];
+import { SHEET_ORIENTATIONS } from '@/game-host/orientation';
 
 /**
  * Wait after a native modal transition before presenting (UIKit refuses to present from a controller that is still
@@ -55,7 +53,7 @@ export function FriendRequestSheet({
       onClose={onLater}
       title="Friend request"
       description={profile ? requestLine(profile.username) : 'Someone wants to be your friend'}
-      supportedOrientations={ALL_ORIENTATIONS}
+      supportedOrientations={SHEET_ORIENTATIONS}
       register={false}
     >
       <View className="gap-4">

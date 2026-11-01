@@ -33,6 +33,7 @@ import {
   type MenuButtonPrefs,
 } from './menu-button-model';
 import { MENU_BUTTON_SIZE } from './settings';
+import { useScreenToFrame } from '@/lib/viewport';
 
 /**
  * The game menu's button over a running game: a cog on a dark glass disc (premium, monochrome: 88 % opaque, a crisp
@@ -235,7 +236,9 @@ export const MenuButton = memo(function MenuButton(props: MenuButtonProps) {
   // --- Gestures (React Native's responder system) ------------------------------------------------------------------
   // Not gesture-handler: its root view, nested over the game's WebView, never received touches on iOS (Expo Go).
   // The core responder system works over any native view. Moves set shared values from JS (Reanimated draws them);
-  // velocities arrive in px/ms and the model works in px/s.
+  // velocities arrive in px/ms and the model works in px/s. Movement arrives in screen axes: `toFrame` turns it into
+  // the game frame's (an iPhone shows a landscape game turned a quarter, game-frame.tsx).
+  const toFrame = useScreenToFrame();
 
   const press = useCallback(
     (on: boolean) => pressed.set(withTiming(on ? 1 : 0, { duration: on ? 90 : 160, reduceMotion: NEVER })),
@@ -270,8 +273,9 @@ export const MenuButton = memo(function MenuButton(props: MenuButtonProps) {
           lifted.set(motion.get() ? withSpring(1, SPRING) : 1);
         }
         const b = area.get();
-        rawX = startX.get() + g.dx;
-        rawY = startY.get() + g.dy;
+        const d = toFrame(g.dx, g.dy);
+        rawX = startX.get() + d.dx;
+        rawY = startY.get() + d.dy;
         x.set(rubberBand(rawX, b.minX, b.maxX));
         y.set(rubberBand(rawY, b.minY, b.maxY));
         const arm = rawX < b.minX - TUCK_PULL || rawX > b.maxX + TUCK_PULL ? 1 : 0;
@@ -288,7 +292,8 @@ export const MenuButton = memo(function MenuButton(props: MenuButtonProps) {
         }
         dragging = false;
         settle();
-        drop(rawX, rawY, g.vx * 1000, g.vy * 1000);
+        const v = toFrame(g.vx, g.vy);
+        drop(rawX, rawY, v.dx * 1000, v.dy * 1000);
       },
       onPanResponderTerminate: () => {
         press(false);
@@ -298,7 +303,7 @@ export const MenuButton = memo(function MenuButton(props: MenuButtonProps) {
         drop(rawX, rawY, 0, 0);
       },
     });
-  }, [area, armed, lifted, motion, startX, startY, x, y, press, open, armTick, drop]);
+  }, [area, armed, lifted, motion, startX, startY, x, y, press, open, armTick, drop, toFrame]);
 
   const tabResponder = useMemo(() => {
     let dragging = false;
@@ -319,11 +324,12 @@ export const MenuButton = memo(function MenuButton(props: MenuButtonProps) {
           press(false);
         }
         const b = area.get();
+        const d = toFrame(g.dx, g.dy);
         // Along the edge, inside the area; away from it with resistance (a pull past TAB_PULL_OUT brings it out).
-        const top = tabStart.get() + g.dy;
+        const top = tabStart.get() + d.dy;
         const discTop = top + TAB_HEIGHT / 2 - SIZE / 2;
         tabTop.set(top + (clamp(discTop, b.minY, b.maxY) - discTop));
-        tabPull.set(rubberBand(Math.max(0, g.dx * -side.get()), 0, 0));
+        tabPull.set(rubberBand(Math.max(0, d.dx * -side.get()), 0, 0));
       },
       onPanResponderRelease: (_e, g) => {
         press(false);
@@ -333,7 +339,7 @@ export const MenuButton = memo(function MenuButton(props: MenuButtonProps) {
         }
         dragging = false;
         tabPull.set(motion.get() ? withSpring(0, SPRING) : 0);
-        dropTab(g.dx, tabTop.get() - tabStart.get(), g.vx * 1000);
+        dropTab(toFrame(g.dx, g.dy).dx, tabTop.get() - tabStart.get(), toFrame(g.vx, g.vy).dx * 1000);
       },
       onPanResponderTerminate: () => {
         press(false);
@@ -341,7 +347,7 @@ export const MenuButton = memo(function MenuButton(props: MenuButtonProps) {
         tabPull.set(0);
       },
     });
-  }, [area, motion, side, tabPull, tabStart, tabTop, press, untuck, dropTab]);
+  }, [area, motion, side, tabPull, tabStart, tabTop, press, untuck, dropTab, toFrame]);
 
   // --- Looks -------------------------------------------------------------------------------------------------------
 

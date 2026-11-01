@@ -18,7 +18,7 @@ import { BANNER_MS, bannerDragOffset, bannerSwipeDismisses } from '@/lib/friend-
 import { bannerCountdown, friendRequestQueue } from '@/lib/social-realtime';
 import { requestLine, type QueuedRequest, type RequestProfile } from '@/lib/social-realtime-model';
 import { ProfileAvatar } from './profile-avatar';
-import { useViewport } from '@/lib/viewport';
+import { useScreenToFrame, useViewport } from '@/lib/viewport';
 
 /** How far a swiped-away banner travels before it leaves the queue. */
 const SWIPE_OUT = -140;
@@ -101,14 +101,19 @@ function BannerCard({
   };
 
   // Swipe up to dismiss. Capture on a clear vertical move, so a drag never ends as a tap on the card or Accept.
+  // Movement arrives in screen axes; over a game turned inside the app, "up" is the frame's (game-frame.tsx).
+  const toFrame = useScreenToFrame();
   const [pan] = useState(() =>
     PanResponder.create({
-      onMoveShouldSetPanResponderCapture: (_e, g) => Math.abs(g.dy) > 6 && Math.abs(g.dy) > Math.abs(g.dx),
+      onMoveShouldSetPanResponderCapture: (_e, g) => {
+        const d = toFrame(g.dx, g.dy);
+        return Math.abs(d.dy) > 6 && Math.abs(d.dy) > Math.abs(d.dx);
+      },
       onPanResponderGrant: () => hold(),
-      onPanResponderMove: (_e, g) => drag.set(bannerDragOffset(g.dy)),
+      onPanResponderMove: (_e, g) => drag.set(bannerDragOffset(toFrame(g.dx, g.dy).dy)),
       onPanResponderTerminationRequest: () => false,
       onPanResponderRelease: (_e, g) => {
-        if (bannerSwipeDismisses(g.dy, g.vy)) {
+        if (bannerSwipeDismisses(toFrame(g.dx, g.dy).dy, toFrame(g.vx, g.vy).dy)) {
           bannerCountdown.stop(requestKey);
           if (reducedMotion) {
             friendRequestQueue.dismiss(requestKey);

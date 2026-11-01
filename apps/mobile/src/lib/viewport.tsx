@@ -1,13 +1,19 @@
-import { useCallback, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { StyleSheet, Text, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
-import { useSafeAreaInsets, type EdgeInsets } from 'react-native-safe-area-context';
+import {
+  SafeAreaFrameContext,
+  SafeAreaInsetsContext,
+  useSafeAreaInsets,
+  type EdgeInsets,
+} from 'react-native-safe-area-context';
 import { isTablet } from '@/game-host/orientation';
+import { screenToFrame, type Turn } from '@/game-host/orientation-model';
 import { usePrefs } from './prefs';
 
 /**
- * The screen: the window's size and the safe-area insets of the nearest SafeAreaProvider. The play route has its own
- * provider (it is a native full-screen modal, turned on its own; the root's provider sits under it and never sees the
- * game's orientation), so the game host reads the insets of the screen it is actually on.
+ * The screen: the window's size and the safe-area insets of the nearest SafeAreaProvider; inside a game, the game's
+ * frame (which an iPhone may show turned a quarter, game-host/game-frame.tsx). The play route has its own provider (a
+ * native full-screen modal; the root's provider sits under it), so the game host reads the screen it is actually on.
  *
  * Measuring the root view instead (the previous approach) went wrong on iPhone: when the shell turned, the root view
  * stayed one rotation behind the window while the window size was always right. Phones now keep the shell in portrait
@@ -20,10 +26,64 @@ export interface Viewport {
   insets: EdgeInsets;
 }
 
+/**
+ * Inside a game's frame (game-host/game-frame.tsx): the frame's own size and insets, its quarter turn when an iPhone
+ * shows a landscape game turned inside the portrait app, and the screen it sits on. Null everywhere else.
+ */
+export const ScreenFrameContext = createContext<(Viewport & { turn: Turn; screen: Viewport }) | null>(null);
+
 export function useViewport(): Viewport {
-  const { width, height } = useWindowDimensions();
+  const window = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  return { width, height, insets };
+  const frame = useContext(ScreenFrameContext);
+  if (frame) return frame;
+  return { width: window.width, height: window.height, insets };
+}
+
+/**
+ * How far the surrounding game frame is turned (0 outside a game, or when it is not turned). Touch movement arrives in
+ * screen axes: code that drags things by `dx`/`dy` converts with `screenToFrame` (game-host/orientation-model.ts).
+ */
+export function useScreenTurn(): Turn {
+  return useContext(ScreenFrameContext)?.turn ?? 0;
+}
+
+/**
+ * The content of a native layer over a game (a React Native Modal, such as a bottom sheet): iOS presents it upright on
+ * the screen, never turned with the game's frame, so inside it the screen's own size and insets apply again.
+ */
+export function UnturnedLayer({ children }: { children: ReactNode }) {
+  const frame = useContext(ScreenFrameContext);
+  // The contexts, not the hooks: those throw without a provider, and outside a game this only passes them through.
+  const insets = useContext(SafeAreaInsetsContext);
+  const safeFrame = useContext(SafeAreaFrameContext);
+  const screen = frame?.screen;
+  const rect = useMemo(
+    () => (screen ? { x: 0, y: 0, width: screen.width, height: screen.height } : safeFrame),
+    [screen, safeFrame],
+  );
+  return (
+    <ScreenFrameContext.Provider value={null}>
+      <SafeAreaFrameContext.Provider value={rect}>
+        <SafeAreaInsetsContext.Provider value={screen ? screen.insets : insets}>
+          {children}
+        </SafeAreaInsetsContext.Provider>
+      </SafeAreaFrameContext.Provider>
+    </ScreenFrameContext.Provider>
+  );
+}
+
+/**
+ * A stable function turning a screen-axes movement (a responder's `dx`/`dy`, `vx`/`vy`, or a `pageX`/`pageY`
+ * difference) into the surrounding frame's axes; the identity outside a turned game frame.
+ */
+export function useScreenToFrame(): (dx: number, dy: number) => { dx: number; dy: number } {
+  const turn = useScreenTurn();
+  const latest = useRef(turn);
+  useEffect(() => {
+    latest.current = turn;
+  }, [turn]);
+  return useCallback((dx: number, dy: number) => screenToFrame(dx, dy, latest.current), []);
 }
 
 /**
