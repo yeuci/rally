@@ -34,10 +34,10 @@ test('toRecentPlayers: rows → people, most recent first, unknown friendship as
   assert.deepEqual(toRecentPlayers(null), []);
 });
 
-test('recentPlayerDetail: game, shared matches when more than one, when', () => {
+test('recentPlayerDetail: game, when, then shared matches when more than one', () => {
   const ago = () => '2 h ago';
   assert.equal(recentPlayerDetail({ gameTitle: 'Sumo', matches: 1, playedAt: 'x' }, ago), 'Sumo · 2 h ago');
-  assert.equal(recentPlayerDetail({ gameTitle: 'Sumo', matches: 3, playedAt: 'x' }, ago), 'Sumo · 3 matches · 2 h ago');
+  assert.equal(recentPlayerDetail({ gameTitle: 'Sumo', matches: 3, playedAt: 'x' }, ago), 'Sumo · 2 h ago · 3 matches');
   assert.equal(
     recentPlayerDetail({ gameTitle: null, matches: 1, playedAt: 'x' }, () => ''),
     'A match',

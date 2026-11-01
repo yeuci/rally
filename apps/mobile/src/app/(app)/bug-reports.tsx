@@ -112,7 +112,7 @@ function BugReportList({ reports }: { reports: BugReportSummary[] }) {
               <Text className="shrink grow text-[15px] font-semibold leading-5" numberOfLines={2}>
                 {bugReportTitle(r)}
               </Text>
-              <Text variant="muted" className="text-[13px]">
+              <Text variant="muted" className="shrink-0 text-[13px]" numberOfLines={1}>
                 {timeAgo(r.createdAt)}
               </Text>
             </View>

@@ -615,9 +615,12 @@ export function toRecentPlayers(
     .sort((a, b) => (Date.parse(b.playedAt) || 0) - (Date.parse(a.playedAt) || 0));
 }
 
-/** The row's detail after the @username: "Sumo · 2 h ago", "Sumo · 3 matches · 2 h ago". `ago` is lib/format `timeAgo`. */
+/**
+ * The row's second line: "Sumo · 2 h ago", "Sumo · 2 h ago · 3 matches" (the game and when first, so a narrow row cuts
+ * the count, not the time). `ago` is lib/format `timeAgo`.
+ */
 export function recentPlayerDetail(p: Pick<RecentPlayer, 'gameTitle' | 'matches' | 'playedAt'>, ago: (iso: string) => string): string {
-  return [p.gameTitle || 'A match', p.matches > 1 ? `${p.matches} matches` : null, ago(p.playedAt) || null]
+  return [p.gameTitle || 'A match', ago(p.playedAt) || null, p.matches > 1 ? `${p.matches} matches` : null]
     .filter(Boolean)
     .join(' · ');
 }

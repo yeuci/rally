@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
+import { TapPressable } from '@/components/ui/tap-pressable';
 import { Text } from '@/components/ui/text';
 import { useSession } from '@/lib/auth/session';
 import { useGame } from '@/lib/catalog';
@@ -79,17 +80,17 @@ export function VotePromptSheet({
 
 function VoteChoice({ icon, label, onPress }: { icon: typeof ThumbsUpIcon; label: string; onPress: () => void }) {
   return (
-    <Button
-      variant="outline"
-      className="h-auto flex-1 flex-col gap-2 rounded-2xl py-4"
-      onPress={onPress}
+    <TapPressable
+      accessibilityRole="button"
       accessibilityLabel={label}
+      onPress={onPress}
+      className="border-input bg-card active:bg-accent flex-1 items-center gap-2 rounded-2xl border py-4"
     >
       <View className="bg-muted size-12 items-center justify-center rounded-full">
         <Icon as={icon} className="text-foreground size-6" />
       </View>
       <Text className="text-[15px] font-semibold">{label}</Text>
-    </Button>
+    </TapPressable>
   );
 }
 

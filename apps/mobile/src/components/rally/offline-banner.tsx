@@ -10,10 +10,17 @@ import { useOffline } from '@/lib/network';
 import { isGameScreen } from '@/lib/rejoin';
 
 /**
- * "You're offline": a slim pill just under the status bar, over every screen, while the device has no connection
- * (lib/network.ts: no network, or one without internet, for 1.5 s). Inverted (foreground on background) so it reads on
- * any screen in both themes. Touch-transparent, so the header buttons under it keep working. Not over a running game:
- * the game's own menu shows the connection there. Mounted once, in the root layout.
+ * Where the pill sits below the top of the safe area: under the status bar and the navigation bar (the dashboard's top
+ * bar and the Android header are 64 pt, the iOS header 44), like a "new posts" pill, so it never covers a title, the
+ * greeting or a header button; content scrolls under it.
+ */
+const BELOW_TOP_BAR = 64 + 6;
+
+/**
+ * "You're offline": a slim pill under the status bar (and the navigation bar), over every screen, while the device has
+ * no connection (lib/network.ts: no network, or one without internet, for 1.5 s). Inverted (foreground on background)
+ * so it reads on any screen in both themes. Touch-transparent. Not over a running game: the game's own menu shows the
+ * connection there. Mounted once, in the root layout.
  */
 export function OfflineBanner() {
   const offline = useOffline();
@@ -33,11 +40,11 @@ export function OfflinePill() {
       entering={FadeInUp.duration(220).reduceMotion(ReduceMotion.System)}
       exiting={FadeOutUp.duration(180).reduceMotion(ReduceMotion.System)}
       className="absolute left-0 right-0 items-center"
-      style={{ top: insets.top + 4, zIndex: 1000, elevation: 1000 }}
+      style={{ top: insets.top + BELOW_TOP_BAR, zIndex: 1000, elevation: 1000 }}
       pointerEvents="none"
     >
       <View
-        className="bg-foreground h-7 flex-row items-center gap-1.5 rounded-full px-3"
+        className="bg-foreground h-8 flex-row items-center gap-1.5 rounded-full px-3.5 shadow-md shadow-black/30"
         accessibilityRole="alert"
         accessibilityLiveRegion="polite"
         accessibilityLabel="You're offline"

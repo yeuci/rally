@@ -9,7 +9,7 @@ import { SectionHeader } from './section-header';
 /**
  * Friends screen, "Recently played with": people you shared counted multiplayer matches with in the last 14 days
  * (`recently_played_with`; the server leaves out guests, blocks, bans and players whose "Games played" is hidden from
- * you), most recent first: "@sloth · Sumo · 2 h ago" and the compact friendship button (Add / Requested / Accept /
+ * you), most recent first: "Sumo · 2 h ago" under the name and the compact friendship button (Add / Requested / Accept /
  * Friends, optimistic through `useFriendshipAction`). A tap on a row opens the profile. Hidden when there is nobody
  * (or the list cannot be loaded: it is a suggestion, not the screen's content).
  */
@@ -32,7 +32,7 @@ export function RecentlyPlayedWith({ people, loading }: { people: RecentPlayer[]
         render={(p) => (
           <PersonRow
             person={p}
-            detail={recentPlayerDetail(p, (iso) => timeAgo(iso))}
+            subtitle={recentPlayerDetail(p, (iso) => timeAgo(iso))}
             accessory={<FriendButtons userId={p.userId} name={`@${p.username}`} status={p.friendship} mode="compact" />}
           />
         )}
