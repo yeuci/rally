@@ -231,6 +231,15 @@ export const GameEventSchemas = {
     name: z.string().max(64),
     values: z.record(z.string(), z.union([z.number(), z.string(), z.boolean()])),
   }),
+  /**
+   * The game's connection to its server, for the host's ping bars (game menu) and its standard "Reconnecting…" /
+   * "Connection lost" banner over the game. Send on every state change, and about every 2 s with the latest
+   * round-trip time while connected.
+   */
+  'net.status': z.object({
+    state: z.enum(['connected', 'reconnecting', 'disconnected']),
+    rttMs: z.number().nonnegative().max(60_000).optional(),
+  }),
   /** Who is in the match now, for the game menu's People list. Send on join and when it changes. */
   'menu.players': z.object({ players: z.array(MenuPlayerSchema).max(16) }),
   /** Non-fatal error inside the game bundle. */

@@ -44,6 +44,16 @@ export const PlayerSettingsSchema = z.object({
   graphics: GraphicsQuality,
   /** Off: the game should not call `haptics()` (the host also drops them). */
   haptics: z.boolean(),
+  /**
+   * Touch controls, honoured by every game with on-screen sticks: swap the sides (left-handed), scale and opacity of
+   * the sticks, and aim assist for games that aim.
+   */
+  controls: z.object({
+    swapSticks: z.boolean(),
+    stickSize: z.number().min(0.75).max(1.5),
+    stickOpacity: z.number().min(0.2).max(1),
+    aimAssist: z.boolean(),
+  }),
   /** The game's own settings (declared with `menu.define`), by key: saved values, else the declared defaults. */
   game: z.record(z.string(), GameSettingValue),
 });

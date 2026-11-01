@@ -100,7 +100,13 @@ test('launch context: settings and the menu button are optional (older hosts), v
   const full = {
     ...base,
     device: { ...base.device, menuButton: { x: 12, y: 12, width: 40, height: 40 } },
-    settings: { volume: { master: 1, music: 0.5, effects: 1 }, graphics: 'medium', haptics: true, game: { a: true } },
+    settings: {
+      volume: { master: 1, music: 0.5, effects: 1 },
+      graphics: 'medium',
+      haptics: true,
+      controls: { swapSticks: true, stickSize: 1.2, stickOpacity: 0.5, aimAssist: false },
+      game: { a: true },
+    },
   };
   assert.ok(LaunchContextSchema.safeParse(full).success);
   assert.equal(
@@ -110,6 +116,16 @@ test('launch context: settings and the menu button are optional (older hosts), v
   assert.ok(HostEventSchemas.menu.safeParse({ open: true }).success);
   assert.ok(HostEventSchemas.settingsChanged.safeParse(full.settings).success);
   assert.ok(GameEventSchemas['menu.players'].safeParse({ players: [{ name: 'alice', you: true }] }).success);
+  assert.equal(
+    LaunchContextSchema.safeParse({
+      ...full,
+      settings: { ...full.settings, controls: { ...full.settings.controls, stickSize: 3 } },
+    }).success,
+    false,
+  );
+  assert.ok(GameEventSchemas['net.status'].safeParse({ state: 'reconnecting' }).success);
+  assert.ok(GameEventSchemas['net.status'].safeParse({ state: 'connected', rttMs: 48 }).success);
+  assert.equal(GameEventSchemas['net.status'].safeParse({ state: 'lagging' }).success, false);
 });
 
 test('manifest applies defaults and validates players', () => {
