@@ -64,7 +64,7 @@ export function useUpdateProfile() {
   });
 }
 
-/** Absolute URL for an `avatar_url` value (bucket-relative defaults are served from the public `avatars` bucket). */
+/** Absolute URL for an `avatar_url` value (bucket-relative defaults and photos: the public `avatars` bucket). */
 export function resolveAvatarUrl(value: string | null | undefined): string | null {
   return resolveAvatarPath(value, supabase.storage.from('avatars').getPublicUrl('').data.publicUrl);
 }

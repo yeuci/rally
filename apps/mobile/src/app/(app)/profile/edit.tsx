@@ -3,10 +3,10 @@ import { UserXIcon } from 'lucide-react-native';
 import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, View, type LayoutChangeEvent, type ScrollViewInstance } from 'react-native';
+import { AvatarPicker, AvatarPickerSkeleton } from '@/components/rally/avatar-picker';
 import { EmptyState, RetryButton } from '@/components/rally/empty-state';
 import { SectionHeader } from '@/components/rally/section-header';
 import { ErrorText, FormField } from '@/components/rally/form-field';
-import { ProfileAvatar, ProfileAvatarSkeleton } from '@/components/rally/profile-avatar';
 import { Segmented } from '@/components/rally/segmented';
 import { UsernameField } from '@/components/rally/username-field';
 import { Button } from '@/components/ui/button';
@@ -110,9 +110,8 @@ function EditProfileForm({ profile, privacy }: { profile: Profile; privacy: Priv
         contentContainerStyle={[column, { paddingBottom: insets.bottom + 24 }]}
         keyboardShouldPersistTaps="handled"
       >
-        <View className="items-center">
-          <ProfileAvatar profile={{ ...profile, display_name: displayName || null, username }} size="xl" ring />
-        </View>
+        {/* Choose photo / Take photo and the defaults apply at once (lib/profile-photo.ts); Save covers the rest. */}
+        <AvatarPicker profile={profile} preview={{ ...profile, display_name: displayName || null, username }} />
         <FormField id="display-name" label="Display name" hint={`${displayName.length}/${DISPLAY_NAME_MAX}`}>
           <Input
             aria-labelledby="display-name"
@@ -192,9 +191,7 @@ function EditProfileSkeleton() {
       contentContainerClassName="gap-5 pt-6"
       contentContainerStyle={[column, { paddingBottom: insets.bottom + 24 }]}
     >
-      <View className="items-center">
-        <ProfileAvatarSkeleton size="xl" ring />
-      </View>
+      <AvatarPickerSkeleton />
       {field(96, 48)}
       {field(72, 48)}
       {field(28, 96)}
