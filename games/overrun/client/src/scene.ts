@@ -31,18 +31,22 @@ import {
   ZOMBIES,
   type Vec2,
 } from '@rally/game-overrun-server';
-import { createDecalCanvas, type DecalCanvas } from './decals.ts';
 import {
-  BoxBatch,
-  ZOMBIE_LOOKS,
-  barrelModel,
-  hex,
-  mineModel,
-  pickupModel,
-  zombieModel,
-  zombieVariant,
-  type Rgb,
-} from './models.ts';
+  CHARACTER_SCALE,
+  ZOMBIE_COLORS,
+  createSurvivor,
+  hordeMaterial,
+  recolored,
+  toLinear,
+  zombieClipSeconds,
+  zombieFrame,
+  type Models,
+  type PropName,
+  type Survivor,
+  type ZombieClip,
+} from './characters.ts';
+import { createDecalCanvas, type DecalCanvas } from './decals.ts';
+import { BoxBatch, hex, mineModel, pickupModel, zombieVariant, type Rgb } from './models.ts';
 
 /**
  * Rendering only. Simulation coordinates (x right, y down the screen) map to world (x, 0, y); the camera looks down
@@ -148,8 +152,6 @@ function glow(color: Color, opts: { additive?: boolean } = {}): StandardMaterial
   m.update();
   return m;
 }
-
-const col = (c: Rgb) => new Color(c[0] / 255, c[1] / 255, c[2] / 255);
 
 /** The yard's floor: concrete slabs, paint lines and stains, drawn once into a canvas texture. */
 function floorCanvas(): HTMLCanvasElement {
@@ -285,25 +287,89 @@ function levelModel(): BoxBatch {
 
 interface PlayerRig {
   root: Entity;
-  legs: Entity;
-  legL: Entity;
-  legR: Entity;
-  torso: Entity;
-  gun: Entity;
+  survivor: Survivor;
+  pistol: Entity;
+  shotgun: Entity;
   ring: Entity;
-  phase: number;
   slot: number;
+  me: boolean;
   visible: boolean;
-  downT: number;
+  down: boolean;
+  /** Muzzle flashes seen at this player (each kicks the gun arm). */
+  shots: number;
 }
 
 interface Instanced {
-  mesh: Mesh;
   mi: MeshInstance;
   data: Float32Array;
   vb: VertexBuffer;
   count: number;
+  capacity: number;
 }
+
+/** A zombie's animation, kept between frames by id. */
+interface ZombieAnim {
+  x: number;
+  y: number;
+  facing: number;
+  variant: number;
+  clip: ZombieClip;
+  /** Seconds into `clip`. */
+  t: number;
+  /** Scene clock when last drawn. */
+  last: number;
+  seen: boolean;
+}
+
+/** A zombie that just died: it plays its death on the floor, lies there a moment, then sinks away. */
+interface Corpse {
+  x: number;
+  y: number;
+  facing: number;
+  variant: number;
+  age: number;
+}
+
+/**
+ * Zombie looks (zombieVariant): three shamblers, the brute, the spitter. Recolours are sRGB, by the pack's material
+ * names (the pipeline baked materials into vertex colours).
+ */
+const ZOMBIE_LOOKS: readonly {
+  base: 'zombie-male' | 'zombie-female';
+  colors: Record<string, string>;
+  scale: number;
+}[] = [
+  { base: 'zombie-male', colors: {}, scale: 1 },
+  { base: 'zombie-female', colors: {}, scale: 1 },
+  { base: 'zombie-male', colors: { Clothes: '#7a2626', DarkClothes: '#4a1616', Pants: '#3a3a48' }, scale: 1 },
+  {
+    base: 'zombie-male',
+    colors: { Skin: '#5a7650', Clothes: '#3a2a48', DarkClothes: '#22182c', Pants: '#22222a' },
+    scale: 1.6,
+  },
+  { base: 'zombie-female', colors: { Skin: '#a8c83a', Clothes: '#56701f', DarkClothes: '#38401a' }, scale: 1 },
+];
+/**
+ * Ground speed (units/s at scale 1) at which the walk / run clips' feet don't slide (measured on the planted foot; the
+ * survivors' run is the same clip). Walkers at 2.1 units/s play the walk twice as fast, the cap.
+ */
+const WALK_STRIDE = 1.05;
+const RUN_STRIDE = 3.7;
+const MAX_CORPSES = 40;
+/** A corpse lies still this long after its death, then sinks this long, as deep as it lies high (model units). */
+const CORPSE_HOLD = 0.6;
+const CORPSE_SINK = 0.6;
+const CORPSE_HEIGHT = 1.05;
+/**
+ * The guns in the right fist (bone space of the pack's rig): their grip at the middle of the fist, the barrel level
+ * and straight ahead of the body while the arms hold the aim frame of Shoot_OneHanded (the forearm points 13° inward).
+ */
+const GUN_POS: [number, number, number] = [-0.02, 0.177, 0.064];
+const GUN_ROT: [number, number, number] = [82, -2.2, 76.3];
+const PISTOL_LENGTH = 0.46;
+const SHOTGUN_LENGTH = 1;
+/** Ammo crates (models.ts pickupModel, 0.62 across) at about 0.47. */
+const AMMO_SCALE = 0.75;
 
 interface Effect {
   e: Entity;
@@ -321,6 +387,7 @@ interface Effect {
 export function createOverrunScene(
   app: Application,
   onResize: (fn: (w: number, h: number) => void) => void,
+  models: Models,
   { shadows = true, effects = true }: OverrunSceneOptions = {},
 ): OverrunScene {
   const device = app.graphicsDevice;
@@ -418,91 +485,125 @@ export function createOverrunScene(
   }
 
   // --- players --------------------------------------------------------------------------------------------
-  const skin = material(col(hex('#e8b58c')));
-  const pants = material(col(hex('#2f3441')));
-  const gunMat = material(col(hex('#24262b')), { gloss: 0.5 });
-  const shirts = PALETTE.map((c) => material(col(hex(c)), { gloss: 0.3 }));
   const ringMat = glow(new Color(1, 1, 1), { additive: false });
   ringMat.opacity = 0.55;
   ringMat.update();
+  // Teammates stand on a disc in their colour (as in the HUD), you on the white one: dark figures in a dark yard.
+  const teamMats = PALETTE.map((c) => {
+    const [r, g, b] = hex(c);
+    const m = glow(new Color(r / 255, g / 255, b / 255), { additive: false });
+    m.opacity = 0.35;
+    m.update();
+    return m;
+  });
   const players = new Map<string, PlayerRig>();
-  const part = (
-    parent: Entity,
-    mat: StandardMaterial,
-    x: number,
-    y: number,
-    z: number,
-    sx: number,
-    sy: number,
-    sz: number,
-  ) => {
-    const e = new Entity();
-    e.addComponent('render', { type: 'box', material: mat, castShadows: true, receiveShadows: true });
-    e.setLocalScale(sx, sy, sz);
-    e.setLocalPosition(x, y, z);
-    parent.addChild(e);
+  // The pack's guns are near black: lit lighter (gunmetal) so that they read against the floor from above.
+  const gunMat = material(new Color(2.6, 2.6, 2.6), { vertex: true, gloss: 0.45 });
+  /** A gun `length` units long in the hand, held at `grip` (a point of the model: x along the barrel, y up). */
+  const handProp = (hand: Entity, name: PropName, length: number, grip: [number, number]) => {
+    const mesh = models.props[name];
+    const k = length / (2 * Math.max(mesh.aabb.halfExtents.x, mesh.aabb.halfExtents.z)) / CHARACTER_SCALE;
+    const e = new Entity(name);
+    e.addComponent('render', {
+      meshInstances: [new MeshInstance(mesh, gunMat)],
+      castShadows: true,
+      receiveShadows: false,
+    });
+    e.setLocalScale(k, k, k);
+    e.setLocalEulerAngles(...GUN_ROT);
+    const at = e
+      .getLocalRotation()
+      .transformVector(new Vec3(grip[0], grip[1], 0))
+      .mulScalar(-k);
+    e.setLocalPosition(at.add(new Vec3(...GUN_POS)));
+    e.enabled = false;
+    hand.addChild(e);
     return e;
   };
   function makePlayer(slot: number): PlayerRig {
-    const root = new Entity('player');
+    const survivor = createSurvivor(app, models, slot, hex(PALETTE[slot % PALETTE.length]!), vertexMat);
+    const root = survivor.root;
     const ring = new Entity('ring');
-    ring.addComponent('render', { type: 'cylinder', material: ringMat, castShadows: false });
+    ring.addComponent('render', { type: 'cylinder', material: teamMats[slot % teamMats.length]!, castShadows: false });
     ring.setLocalScale(1.25, 0.02, 1.25);
     ring.setLocalPosition(0, 0.015, 0);
-    ring.enabled = false;
     root.addChild(ring);
-    const legs = new Entity('legs');
-    root.addChild(legs);
-    const legL = new Entity('legL');
-    legL.setLocalPosition(-0.13, 0.62, 0);
-    legs.addChild(legL);
-    part(legL, pants, 0, -0.31, 0, 0.18, 0.62, 0.2);
-    const legR = new Entity('legR');
-    legR.setLocalPosition(0.13, 0.62, 0);
-    legs.addChild(legR);
-    part(legR, pants, 0, -0.31, 0, 0.18, 0.62, 0.2);
-    const torso = new Entity('torso');
-    root.addChild(torso);
-    const shirt = shirts[slot % shirts.length]!;
-    part(torso, shirt, 0, 0.94, 0, 0.5, 0.6, 0.3);
-    part(torso, skin, 0, 1.42, 0, 0.32, 0.32, 0.32);
-    part(torso, shirt, 0, 1.6, 0, 0.36, 0.08, 0.36); // cap
-    part(torso, skin, -0.3, 1.04, 0.22, 0.13, 0.13, 0.46);
-    part(torso, skin, 0.3, 1.04, 0.22, 0.13, 0.13, 0.46);
-    const gun = part(torso, gunMat, 0.12, 1.06, 0.55, 0.1, 0.12, 0.42);
+    // Bigger than life, like the hands that hold them: a gun has to read at a glance from the camera's height.
+    const pistol = handProp(survivor.hand, 'pistol-1', PISTOL_LENGTH, [-0.07, -0.15]);
+    const shotgun = handProp(survivor.hand, 'shotgun-1', SHOTGUN_LENGTH, [0.25, -0.12]);
     app.root.addChild(root);
-    return { root, legs, legL, legR, torso, gun, ring, phase: 0, slot, visible: true, downT: 0 };
+    return { root, survivor, pistol, shotgun, ring, slot, me: false, visible: true, down: false, shots: 0 };
   }
 
-  // --- zombies (hardware instancing) -----------------------------------------------------------------------
+  // --- zombies: hardware instancing, each instance posed from the baked bone texture ------------------------
   const instFormat = VertexFormat.getDefaultInstancingFormat(device);
-  const variants: Instanced[] = ZOMBIE_LOOKS.map((look) => {
-    const mesh = zombieModel(look).mesh(device);
-    const data = new Float32Array(MAX_ALIVE_ZOMBIES * 2 * 16);
-    const vb = new VertexBuffer(device, instFormat, MAX_ALIVE_ZOMBIES * 2, { usage: BUFFER_DYNAMIC, data });
-    const mi = new MeshInstance(mesh, vertexMat);
-    mi.setInstancing(vb, false);
-    mi.instancingCount = 0;
-    const e = new Entity('horde');
-    e.addComponent('render', { meshInstances: [mi], castShadows: shadows, receiveShadows: true });
-    app.root.addChild(e);
-    return { mesh, mi, data, vb, count: 0 };
+  const hordeMat = hordeMaterial(vertexMat, models.bones);
+  const flashMat = hordeMaterial(glow(new Color(1, 0.95, 0.9), { additive: false }), models.bones);
+  const lookMeshes = ZOMBIE_LOOKS.map((look) => {
+    const replace: Record<string, Rgb> = {};
+    for (const [name, c] of Object.entries(look.colors)) replace[name] = toLinear(hex(c));
+    const base = look.base === 'zombie-male' ? models.zombies.male : models.zombies.female;
+    const mesh = recolored(app, base.mesh, ZOMBIE_COLORS[look.base], replace);
+    mesh.incRefCount(); // shared by the look's instanced draws for the scene's lifetime
+    return { mesh, skin: base.skin };
   });
-  // Zombies that were just hit are drawn white by a small pool of plain entities instead.
-  const flashMat = glow(new Color(1, 0.95, 0.9), { additive: false });
-  const flashPool: { e: Entity; variant: number }[] = [];
+  const horde = (mat: StandardMaterial, capacity: number, castShadows: boolean): Instanced[] =>
+    lookMeshes.map(({ mesh, skin }) => {
+      const data = new Float32Array(capacity * 16);
+      const vb = new VertexBuffer(device, instFormat, capacity, { usage: BUFFER_DYNAMIC, data });
+      const mi = new MeshInstance(mesh, mat);
+      // The skin only makes PlayCanvas bind the bone attributes (HORDE_TRANSFORM_VS reads the poses itself).
+      mi.skinInstance = skin;
+      mi.setInstancing(vb, false);
+      mi.instancingCount = 0;
+      const e = new Entity('horde');
+      e.addComponent('render', { meshInstances: [mi], castShadows, receiveShadows: true });
+      app.root.addChild(e);
+      return { mi, data, vb, count: 0, capacity };
+    });
+  const variants = horde(hordeMat, MAX_ALIVE_ZOMBIES * 2 + MAX_CORPSES, shadows);
+  // Zombies that were just hit are drawn white (same poses, an unlit material).
+  const flashed = horde(flashMat, MAX_FLASHED, false);
   let flashUsed = 0;
+  const anims = new Map<number, ZombieAnim>();
+  const corpses: Corpse[] = [];
+  let lastEnd = 0;
   const mat4 = new Mat4();
   const quat = new Quat();
   const pos = new Vec3();
   const scl = new Vec3(1, 1, 1);
   let clock = 0;
   let drawn = 0;
+  function put(inst: Instanced, x: number, h: number, y: number, facing: number, scale: number, frame: number) {
+    if (inst.count >= inst.capacity) return;
+    pos.set(x, h, y);
+    quat.setFromEulerAngles(0, (facing * 180) / Math.PI, 0);
+    scl.set(scale, scale, scale);
+    mat4.setTRS(pos, quat, scl);
+    inst.data.set(mat4.data, inst.count * 16);
+    inst.data[inst.count * 16 + 3] = frame; // instance_line1.w: the pose
+    inst.count++;
+  }
+  function nearestPlayer(x: number, y: number): number {
+    let best = Infinity;
+    for (const r of players.values()) {
+      if (!r.visible || r.down) continue;
+      const p = r.root.getPosition();
+      best = Math.min(best, Math.hypot(p.x - x, p.z - y));
+    }
+    return best;
+  }
 
   // --- props: barrels, mines, pickups, globs ---------------------------------------------------------------
-  const barrelMesh = barrelModel().mesh(device);
   const mineMesh = mineModel().mesh(device);
-  const pickupMeshes = [0, 1, 2, 3, 4].map((k) => pickupModel(k).mesh(device));
+  const ammoMeshes = [1, 2, 3, 4].map((kind) => pickupModel(kind).mesh(device));
+  /** The med kit, or a little ammo crate for the uzi, shotgun, barrels or mines (striped in the weapon's colour). */
+  const pickupEntity = (kind: number): Entity => {
+    if (kind === 0) return propEntity('firstaidkit', 0.62);
+    const e = meshEntity(ammoMeshes[kind - 1] ?? ammoMeshes[0]!);
+    e.setLocalScale(AMMO_SCALE, AMMO_SCALE, AMMO_SCALE);
+    return e;
+  };
   const mineLightOn = glow(new Color(1, 0.15, 0.1), { additive: false });
   const mineLightOff = material(new Color(0.3, 0.05, 0.05));
   const globMat = glow(new Color(0.6, 0.95, 0.2), { additive: false });
@@ -517,6 +618,24 @@ export function createOverrunScene(
     warn?: Entity;
   }
   const props = new Map<string, Prop>();
+  /** A Survival-pack prop standing on the floor, `size` units across its longest side. */
+  const propEntity = (name: PropName, size: number) => {
+    const mesh = models.props[name];
+    const { center, halfExtents: h } = mesh.aabb;
+    const k = size / (2 * Math.max(h.x, h.y, h.z));
+    const model = new Entity('model');
+    model.addComponent('render', {
+      meshInstances: [new MeshInstance(mesh, vertexMat)],
+      castShadows: true,
+      receiveShadows: true,
+    });
+    model.setLocalScale(k, k, k);
+    model.setLocalPosition(-center.x * k, (h.y - center.y) * k, -center.z * k);
+    const e = new Entity(name);
+    e.addChild(model);
+    app.root.addChild(e);
+    return e;
+  };
   const meshEntity = (mesh: Mesh, castShadows = true) => {
     const e = new Entity();
     e.addComponent('render', { meshInstances: [new MeshInstance(mesh, vertexMat)], castShadows, receiveShadows: true });
@@ -601,32 +720,21 @@ export function createOverrunScene(
       r.root.enabled = v.visible;
       r.visible = v.visible;
       if (!v.visible) return;
-      r.ring.enabled = v.me;
-      r.root.setPosition(v.x, 0, v.y);
-      const speed = Math.hypot(v.vx, v.vy);
-      const aimYaw = (Math.atan2(Math.cos(v.aim), Math.sin(v.aim)) * 180) / Math.PI;
-      if (v.down) {
-        r.downT = Math.min(1, r.downT + 0.08);
-        r.torso.setLocalEulerAngles(80 * r.downT, aimYaw, 0);
-        r.torso.setLocalPosition(0, -0.75 * r.downT, 0);
-        r.legs.enabled = false;
-      } else {
-        r.downT = 0;
-        r.torso.setLocalEulerAngles(0, aimYaw, 0);
-        r.torso.setLocalPosition(0, 0, 0);
-        r.legs.enabled = true;
-        const moveYaw = speed > 0.3 ? (Math.atan2(v.vx, v.vy) * 180) / Math.PI : aimYaw;
-        r.legs.setLocalEulerAngles(0, moveYaw, 0);
-        r.phase += speed * 0.05;
-        const swing = speed > 0.3 ? Math.sin(r.phase * 2.2) * 38 : 0;
-        r.legL.setLocalEulerAngles(swing, 0, 0);
-        r.legR.setLocalEulerAngles(-swing, 0, 0);
+      if (r.me !== v.me) {
+        r.me = v.me;
+        r.ring.render!.meshInstances[0]!.material = v.me ? ringMat : teamMats[r.slot % teamMats.length]!;
       }
+      r.root.setPosition(v.x, 0, v.y);
+      // Facing the aim (sim angle → yaw about +y; the models face +z). A downed player keeps the way they fell.
+      if (!v.down) r.root.setEulerAngles(0, (Math.atan2(Math.cos(v.aim), Math.sin(v.aim)) * 180) / Math.PI, 0);
+      const speed = Math.hypot(v.vx, v.vy);
+      const back = speed > 0.3 && (v.vx * Math.cos(v.aim) + v.vy * Math.sin(v.aim)) / speed < -0.2;
+      r.down = v.down;
+      r.survivor.update({ speed, back, down: v.down, shots: r.shots });
       const w = WEAPONS[v.weapon];
-      const long = w?.id === 'shotgun' ? 0.62 : w?.id === 'uzi' ? 0.36 : 0.3;
-      r.gun.setLocalScale(0.1, 0.12, long);
-      r.gun.setLocalPosition(0.12, 1.06, 0.4 + long / 2);
-      r.gun.enabled = w?.kind === 'gun';
+      const gun = w?.kind === 'gun' && !v.down;
+      r.pistol.enabled = gun && w.id !== 'shotgun';
+      r.shotgun.enabled = gun && w.id === 'shotgun';
     },
     removePlayer(id) {
       const r = players.get(id);
@@ -636,52 +744,74 @@ export function createOverrunScene(
     },
     beginZombies() {
       for (const v of variants) v.count = 0;
+      for (const v of flashed) v.count = 0;
       flashUsed = 0;
     },
     zombie(id, kind, x, y, facing, flash) {
       const variant = zombieVariant(kind, id);
-      // Shamble: a bob and a side-to-side sway, out of phase per zombie.
-      const ph = clock * (kind === 1 ? 4 : 6.5) + id * 1.7;
-      const sway = Math.sin(ph) * (kind === 1 ? 4 : 7);
-      pos.set(x, Math.abs(Math.cos(ph)) * 0.06, y);
-      quat.setFromEulerAngles(0, (facing * 180) / Math.PI, sway);
-      scl.set(1, 1, 1);
-      if (flash && flashUsed < MAX_FLASHED) {
-        let f = flashPool[flashUsed];
-        if (!f) {
-          const e = new Entity('flash');
-          e.addComponent('render', {
-            meshInstances: [new MeshInstance(variants[variant]!.mesh, flashMat)],
-            castShadows: false,
-          });
-          app.root.addChild(e);
-          f = { e, variant };
-          flashPool.push(f);
-        }
-        if (f.variant !== variant) {
-          f.e.render!.meshInstances = [new MeshInstance(variants[variant]!.mesh, flashMat)];
-          f.variant = variant;
-        }
-        f.e.enabled = true;
-        f.e.setPosition(pos);
-        f.e.setRotation(quat);
-        flashUsed++;
-        return;
+      let a = anims.get(id);
+      if (!a) {
+        // A new zombie starts its cycle somewhere different from its neighbours.
+        a = { x, y, facing, variant, clip: 'Walk', t: (id * 0.37) % 1.2, last: clock, seen: true };
+        anims.set(id, a);
       }
-      const v = variants[variant]!;
-      if (v.count >= MAX_ALIVE_ZOMBIES * 2) return;
-      mat4.setTRS(pos, quat, scl);
-      v.data.set(mat4.data, v.count * 16);
-      v.count++;
+      const dt = Math.min(0.25, clock - a.last);
+      const look = ZOMBIE_LOOKS[variant]!;
+      // While time stands still (a zombie's first frame, a pause, the art shots) its pose holds.
+      if (dt > 0) {
+        const speed = Math.hypot(x - a.x, y - a.y) / dt;
+        const clip: ZombieClip =
+          speed < 0.6 && nearestPlayer(x, y) < zombieRadius(kind) + 0.9
+            ? 'Punch'
+            : speed > 0.25
+              ? kind === 2
+                ? 'Run'
+                : 'Walk'
+              : 'Idle';
+        if (clip !== a.clip) {
+          a.clip = clip;
+          a.t = 0;
+        }
+        const stride = (clip === 'Walk' ? WALK_STRIDE : clip === 'Run' ? RUN_STRIDE : 0) * look.scale;
+        a.t += dt * (stride > 0 ? Math.max(0.5, Math.min(2, speed / stride)) : 1);
+      }
+      Object.assign(a, { x, y, facing, variant, last: clock, seen: true });
+      const target = flash && flashUsed < MAX_FLASHED ? flashed[variant]! : variants[variant]!;
+      if (target !== variants[variant]) flashUsed++;
+      put(target, x, 0, y, facing, CHARACTER_SCALE * look.scale, zombieFrame(a.clip, a.t));
     },
     endZombies() {
+      // Zombies gone since the last frame died (or the run reset): they fall where they stood.
+      for (const [id, a] of anims) {
+        if (a.seen) {
+          a.seen = false;
+          continue;
+        }
+        anims.delete(id);
+        if (corpses.length >= MAX_CORPSES) corpses.shift();
+        corpses.push({ x: a.x, y: a.y, facing: a.facing, variant: a.variant, age: 0 });
+      }
+      const frameDt = Math.min(0.25, clock - lastEnd);
+      lastEnd = clock;
+      const death = zombieClipSeconds('Death');
       drawn = flashUsed;
-      for (const v of variants) {
+      for (const v of variants) drawn += v.count;
+      for (let i = corpses.length - 1; i >= 0; i--) {
+        const c = corpses[i]!;
+        c.age += frameDt;
+        const sink = Math.max(0, c.age - death - CORPSE_HOLD) / CORPSE_SINK;
+        if (sink >= 1) {
+          corpses.splice(i, 1);
+          continue;
+        }
+        const scale = CHARACTER_SCALE * ZOMBIE_LOOKS[c.variant]!.scale;
+        const h = -sink * CORPSE_HEIGHT * scale;
+        put(variants[c.variant]!, c.x, h, c.y, c.facing, scale, zombieFrame('Death', c.age, false));
+      }
+      for (const v of [...variants, ...flashed]) {
         v.mi.instancingCount = v.count;
         if (v.count > 0) v.vb.unlock(0, v.count * 64);
-        drawn += v.count;
       }
-      for (let i = flashUsed; i < flashPool.length; i++) flashPool[i]!.e.enabled = false;
     },
     setProjectile(id, x, y, h, tx, ty) {
       const p = prop(`p${id}`, () => {
@@ -700,7 +830,7 @@ export function createOverrunScene(
     },
     setExplosive(id, kind, x, y, armed) {
       const p = prop(`e${id}`, () => {
-        const e = meshEntity(kind === 0 ? barrelMesh : mineMesh);
+        const e = kind === 0 ? propEntity('propanetank', 1.05) : meshEntity(mineMesh);
         let light: Entity | undefined;
         if (kind === 1) {
           light = new Entity('mine-light');
@@ -718,8 +848,9 @@ export function createOverrunScene(
       }
     },
     setPickup(id, kind, x, y) {
-      const p = prop(`k${id}`, () => ({ e: meshEntity(pickupMeshes[kind] ?? pickupMeshes[1]!), kind, seen: true }));
-      p.e.setPosition(x, 0.15 + Math.sin(clock * 3 + x) * 0.08, y);
+      const p = prop(`k${id}`, () => ({ e: pickupEntity(kind), kind, seen: true }));
+      // On the floor, turning (that it turns says it can be picked up).
+      p.e.setPosition(x, 0, y);
       p.e.setEulerAngles(0, clock * 90 + x * 40, 0);
     },
     prune() {
@@ -744,10 +875,28 @@ export function createOverrunScene(
       f.e.setLocalScale(f.size, f.size, len);
     },
     muzzle(x, y, angle, weapon) {
+      // Whoever stands there fired: their gun arm kicks.
+      let shooter: PlayerRig | null = null;
+      let best = 1.5;
+      for (const r of players.values()) {
+        const p = r.root.getPosition();
+        const d = Math.hypot(p.x - x, p.z - y);
+        if (d < best) {
+          best = d;
+          shooter = r;
+        }
+      }
+      if (shooter) shooter.shots++;
       const f = take(muzzles);
       start(f, 0.05);
-      const d = 0.75;
-      f.e.setPosition(x + Math.cos(angle) * d, 1.06, y + Math.sin(angle) * d);
+      // At the muzzle of the gun in the right hand: ahead and a little to the right of the body.
+      const d = weapon === 2 ? 1.25 : 0.95;
+      const side = 0.16;
+      f.e.setPosition(
+        x + Math.cos(angle) * d - Math.sin(angle) * side,
+        1.15,
+        y + Math.sin(angle) * d + Math.cos(angle) * side,
+      );
       f.size = weapon === 2 ? 0.75 : weapon === 1 ? 0.4 : 0.45;
       f.e.setLocalScale(f.size, f.size, f.size);
     },
@@ -811,7 +960,7 @@ export function createOverrunScene(
       const r = players.get(id);
       if (!r || !r.visible) return false;
       const p = r.root.getPosition();
-      tmp.set(p.x, r.downT > 0.5 ? 0.9 : 2.05, p.z);
+      tmp.set(p.x, r.down ? 0.9 : 2.05, p.z);
       camera.camera!.worldToScreen(tmp, ray0);
       out.x = ray0.x;
       out.y = ray0.y;
@@ -928,7 +1077,7 @@ export function createOverrunScene(
           f.e.enabled = false;
         }
       }
-      for (const f of flashPool.splice(0)) f.e.destroy();
+      corpses.length = 0;
     },
   };
 }

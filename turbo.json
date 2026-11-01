@@ -38,6 +38,9 @@
       "persistent": true
     },
     "@rally/game-sumo#typecheck": {
+      "dependsOn": [
+        "^build"
+      ],
       "inputs": [
         "$TURBO_DEFAULT$",
         "../scripts/**"
@@ -50,12 +53,30 @@
       ]
     },
     "@rally/game-overrun#typecheck": {
+      "dependsOn": [
+        "^build"
+      ],
       "inputs": [
         "$TURBO_DEFAULT$",
         "../scripts/**"
       ]
     },
     "@rally/game-overrun#lint": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "../scripts/**"
+      ]
+    },
+    "@rally/game-gunrun#typecheck": {
+      "dependsOn": [
+        "^build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "../scripts/**"
+      ]
+    },
+    "@rally/game-gunrun#lint": {
       "inputs": [
         "$TURBO_DEFAULT$",
         "../scripts/**"

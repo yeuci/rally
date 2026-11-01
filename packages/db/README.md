@@ -464,6 +464,18 @@ the `supabase_realtime` publication: `postgres_changes` neither filters DELETE e
 - Where `realtime.send` / `realtime.messages` do not exist (PGlite tests, a local stack without Realtime) the trigger
   sends nothing and the policy is skipped with a NOTICE. A failing send raises a WARNING and never fails the
   friendship change.
+- Coin awards use the same topic (`20261031000400_coins.sql`): an AFTER INSERT trigger on `coin_ledger`
+  (`private.broadcast_coin_award`) sends event `coins`, `{ type: 'coins', id, amount, reason, balance, game_id, note,
+  at }`, for every award (never for purchases), with the same no-op / WARNING behaviour.
+
+## Coins
+
+`20261031000400_coins.sql` (pinned by `test/coins.test.ts`; rules, tuning and the owner step in
+[docs/coins.md](../../docs/coins.md)): `coin_rules` (every amount and cap, tune with an UPDATE), `wallets` (balance
+≥ 0), the append-only `coin_ledger` (unique `(user_id, reason, ref)`), `shop_items` / `user_items` /
+`equipped_items`, and the RPCs `my_wallet`, `buy_item`, `equip_item`, `public_cosmetics`, `owns_game`. Coins are
+awarded only inside `server_record_match`, `submit_solo_score` and `unlock_achievement` (their answers are unchanged);
+every write goes through `private.apply_coins`, which locks the wallet row first.
 
 ## Default avatars
 

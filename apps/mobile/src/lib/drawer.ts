@@ -27,27 +27,32 @@ export function drawerSwipeEnabled(pathname: string): boolean {
   return pathname === '/';
 }
 
-export type DrawerItemKey = 'home' | 'browse' | 'search' | 'friends' | 'profile' | 'settings' | 'developer';
+export type DrawerItemKey = 'home' | 'browse' | 'search' | 'friends' | 'shop' | 'profile' | 'settings' | 'developer';
 
 export type DrawerItem = {
   key: DrawerItemKey;
   label: string;
   /** Count bubble (pending friend requests). */
   badge: string | null;
+  /** Muted value at the row's end (the coin balance on Shop). */
+  value?: string | null;
   /** Screen-reader hint where the destination is not obvious from the label. */
   hint?: string;
 };
 
 /**
- * Items top to bottom (Browse opens `/browse`, Settings `/settings`). Developer only when dev tools are on
- * (`config.devTools`). Sign out sits apart at the bottom of the panel.
+ * Items top to bottom (Browse opens `/browse`, Shop `/shop` with the coin balance, Settings `/settings`). Developer
+ * only when dev tools are on (`config.devTools`). Sign out sits apart at the bottom of the panel.
  */
 export function drawerItems({
   devTools,
   incomingRequests,
+  coins = null,
 }: {
   devTools: boolean;
   incomingRequests: string | null;
+  /** The formatted balance ("1,250"), null while unknown. */
+  coins?: string | null;
 }): DrawerItem[] {
   const items: DrawerItem[] = [
     { key: 'home', label: 'Home', badge: null },
@@ -59,6 +64,7 @@ export function drawerItems({
       badge: incomingRequests,
       hint: incomingRequests ? 'Opens your friend requests' : undefined,
     },
+    { key: 'shop', label: 'Shop', badge: null, value: coins, hint: coins ? `${coins} coins` : undefined },
     { key: 'profile', label: 'Profile', badge: null },
     { key: 'settings', label: 'Settings', badge: null },
   ];

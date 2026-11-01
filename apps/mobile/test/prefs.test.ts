@@ -13,6 +13,7 @@ test('stored preferences: defaults for missing, malformed or wrongly typed value
     haptics: true,
     friendAlerts: 'sheet',
     friendAlertsInGame: 'banner',
+    coinPopups: true,
   });
 });
 
@@ -75,5 +76,14 @@ test('friend alerts: anything else falls back per field, and other choices survi
     haptics: false,
     friendAlerts: 'sheet',
     friendAlertsInGame: 'banner',
+    coinPopups: true,
   });
+});
+
+test('coin popups: on by default, a stored boolean is kept, anything else falls back to on', () => {
+  assert.equal(parsePrefs(null).coinPopups, true);
+  assert.equal(parsePrefs('{"coinPopups":false}').coinPopups, false);
+  for (const bad of ['off', 0, null, 'false']) assert.equal(parsePrefs(JSON.stringify({ coinPopups: bad })).coinPopups, true, String(bad));
+  // A record from before coins existed keeps its choices and shows coin popups.
+  assert.deepEqual(parsePrefs('{"friendAlerts":"off","haptics":false}'), { ...DEFAULTS, friendAlerts: 'off', haptics: false, coinPopups: true });
 });

@@ -158,6 +158,7 @@ function BannerCard({
             className="min-h-11 shrink grow flex-row items-center gap-3 active:opacity-70"
           >
             <ProfileAvatar
+              userId={profile?.userId}
               profile={profile ? { username: profile.username, display_name: profile.displayName, avatar_url: profile.avatarUrl } : null}
               size="sm"
             />

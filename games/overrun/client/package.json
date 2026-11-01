@@ -12,18 +12,22 @@
     "test": "node --conditions=rally-source --experimental-strip-types --no-warnings=ExperimentalWarning --test test/*.test.ts",
     "test:e2e": "node test/e2e.cjs",
     "perf": "node test/perf.cjs",
-    "art": "node --experimental-strip-types --no-warnings=ExperimentalWarning ../scripts/art.ts"
+    "art": "node --experimental-strip-types --no-warnings=ExperimentalWarning ../scripts/art.ts",
+    "models": "node --experimental-strip-types --no-warnings=ExperimentalWarning ../scripts/models.ts"
   },
   "dependencies": {
     "@colyseus/sdk": "^0.18.8",
     "@rally/game-kit": "workspace:*",
     "@rally/game-overrun-server": "workspace:*",
     "@rally/sdk": "workspace:*",
+    "fflate": "^0.8.3",
     "playcanvas": "^2.23.3"
   },
   "devDependencies": {
+    "@gltf-transform/core": "^4.5.1",
     "@rally/dev-harness": "workspace:*",
     "@types/node": "^22.20.5",
+    "meshoptimizer": "^1.3.0",
     "typescript": "~6.0.3",
     "vite": "^8.3.5"
   }

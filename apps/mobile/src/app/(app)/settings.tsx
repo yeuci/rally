@@ -1,5 +1,6 @@
 import { router } from 'expo-router';
 import {
+  CoinsIcon,
   Gamepad2Icon,
   GaugeIcon,
   LifeBuoyIcon,
@@ -80,15 +81,15 @@ function ChoiceRow<T extends string>({
 /**
  * Settings (`/settings`, the drawer's Settings item and Profile's Settings row): Appearance (System / Dark / Light,
  * lib/prefs.ts → `Uniwind.setTheme`), Notifications (friend requests outside and inside games: Pop-up / Banner / Off,
- * lib/friend-alerts.ts), Feedback & motion (Haptics, `prefs.haptics` → lib/haptics.ts; Reduce motion is
- * the OS setting, shown, not owned), Games (Show FPS in games), Privacy (a summary, opens Edit profile scrolled to its
+ * lib/friend-alerts.ts; Coin popups: the "+25 coins" toast on or off, lib/coin-toast.ts), Feedback & motion
+ * (Haptics, `prefs.haptics` → lib/haptics.ts; Reduce motion is the OS setting, shown, not owned), Games (Show FPS in games), Privacy (a summary, opens Edit profile scrolled to its
  * Privacy section), Help & support, Sign out, and the app version. Device preferences live in lib/prefs.ts; privacy
  * is account data (`my_privacy`), edited on Edit profile.
  */
 export default function SettingsScreen() {
   const { insets } = useLayout();
   const column = useColumnPadding();
-  const { showFps, appearance, haptics, friendAlerts, friendAlertsInGame } = usePrefs();
+  const { showFps, appearance, haptics, friendAlerts, friendAlertsInGame, coinPopups } = usePrefs();
   const reduceMotion = useReduceMotionSetting();
   const profile = useProfile();
   const privacy = usePrivacy();
@@ -118,7 +119,7 @@ export default function SettingsScreen() {
 
       <SettingsGroup
         title="Notifications"
-        footer="A banner shows at the top for 5 seconds. With Off, requests still wait in Friends."
+        footer="A banner shows at the top for 5 seconds. With Off, requests still wait in Friends. Coin popups show what you just earned, in games too."
       >
         <ChoiceRow
           icon={UserPlusIcon}
@@ -134,6 +135,13 @@ export default function SettingsScreen() {
           options={ALERT_OPTIONS}
           value={friendAlertsInGame}
           onChange={(next) => prefs.update({ friendAlertsInGame: next })}
+        />
+        <Separator className="ml-16" />
+        <ToggleRow
+          icon={CoinsIcon}
+          label="Coin popups"
+          value={coinPopups}
+          onChange={(next) => prefs.update({ coinPopups: next })}
         />
       </SettingsGroup>
 

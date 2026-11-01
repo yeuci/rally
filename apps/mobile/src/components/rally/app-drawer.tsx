@@ -5,6 +5,7 @@ import {
   LogOutIcon,
   SearchIcon,
   SettingsIcon,
+  StoreIcon,
   UserIcon,
   UsersIcon,
   WrenchIcon,
@@ -20,6 +21,8 @@ import { TapPressable } from '@/components/ui/tap-pressable';
 import { Text } from '@/components/ui/text';
 import { config } from '@/config';
 import { DRAWER_EDGE_WIDTH, drawerItems, drawerSwipeEnabled, drawerWidth, type DrawerItemKey } from '@/lib/drawer';
+import { useWallet } from '@/lib/coins';
+import { formatCoins } from '@/lib/coins-model';
 import { useFriendRequests } from '@/lib/friends';
 import { useProfile } from '@/lib/profile';
 import { drawerGesture } from '@/lib/press-guard';
@@ -29,6 +32,8 @@ import { useLayout } from '@/lib/use-layout';
 import { usePalette } from '@/lib/use-palette';
 import { useSignOut } from '@/lib/use-sign-out';
 import { cn } from '@/lib/utils';
+import { CoinBalancePill } from './coins';
+import { PlayerName } from './cosmetics';
 import { LogoMark } from './logo';
 import { ProfileAvatar, ProfileAvatarSkeleton } from './profile-avatar';
 
@@ -37,6 +42,7 @@ const ICONS: Record<DrawerItemKey, LucideIcon> = {
   browse: LayoutGridIcon,
   search: SearchIcon,
   friends: UsersIcon,
+  shop: StoreIcon,
   profile: UserIcon,
   settings: SettingsIcon,
   developer: WrenchIcon,
@@ -48,6 +54,7 @@ const PATHS: Record<DrawerItemKey, string> = {
   browse: '/browse',
   search: '/search',
   friends: '/friends',
+  shop: '/shop',
   profile: '/profile',
   settings: '/settings',
   developer: '/dev',
@@ -103,13 +110,22 @@ export function AppDrawer({ children }: { children: ReactNode }) {
   );
 }
 
-/** Header (avatar, display name, @username → Profile), the items, then Sign out and the app version at the bottom. */
+/**
+ * Header (avatar, display name, @username → Profile, and the coin balance), the items (Shop shows the balance too),
+ * then Sign out and the app version at the bottom.
+ */
 function DrawerPanel({ pathname, onClose }: { pathname: string; onClose: () => void }) {
   const { insets } = useLayout();
   const profile = useProfile();
   const requests = useFriendRequests();
   const incoming = countBadge(requests.data?.incoming.length);
-  const items = drawerItems({ devTools: config.devTools, incomingRequests: incoming });
+  const wallet = useWallet();
+  const balance = wallet.data?.balance;
+  const items = drawerItems({
+    devTools: config.devTools,
+    incomingRequests: incoming,
+    coins: balance === undefined ? null : formatCoins(balance),
+  });
   const { signingOut, error: signOutError, signOut } = useSignOut();
   const p = profile.data;
 
@@ -129,6 +145,9 @@ function DrawerPanel({ pathname, onClose }: { pathname: string; onClose: () => v
         return;
       case 'friends':
         router.push({ pathname: '/friends', params: incoming ? { tab: 'requests' } : {} });
+        return;
+      case 'shop':
+        router.push('/shop');
         return;
       case 'profile':
         router.push('/profile');
@@ -165,9 +184,11 @@ function DrawerPanel({ pathname, onClose }: { pathname: string; onClose: () => v
           <View className="shrink grow">
             {p ? (
               <>
-                <Text className="text-sidebar-foreground text-[17px] font-bold leading-[22px]" numberOfLines={1}>
-                  {p.display_name || p.username}
-                </Text>
+                <PlayerName
+                  userId={p.id}
+                  name={p.display_name || p.username}
+                  className="text-sidebar-foreground text-[17px] font-bold leading-[22px]"
+                />
                 <Text className="text-muted-foreground text-[13px] leading-[18px]" numberOfLines={1}>
                   @{p.username}
                 </Text>
@@ -179,6 +200,8 @@ function DrawerPanel({ pathname, onClose }: { pathname: string; onClose: () => v
               </>
             )}
           </View>
+          {/* Shown only: the whole header opens Profile, and Shop is right below. */}
+          <CoinBalancePill balance={p ? balance : undefined} size="sm" />
         </TapPressable>
 
         <Separator className="bg-sidebar-border my-4" />
@@ -190,6 +213,7 @@ function DrawerPanel({ pathname, onClose }: { pathname: string; onClose: () => v
               icon={ICONS[item.key]}
               label={item.label}
               badge={item.badge}
+              value={item.value}
               hint={item.hint}
               active={PATHS[item.key] === pathname}
               onPress={() => open(item.key)}
@@ -222,6 +246,7 @@ function DrawerRow({
   icon,
   label,
   badge,
+  value,
   hint,
   active = false,
   disabled = false,
@@ -230,6 +255,7 @@ function DrawerRow({
   icon: LucideIcon;
   label: string;
   badge?: string | null;
+  value?: string | null;
   hint?: string;
   active?: boolean;
   disabled?: boolean;
@@ -256,6 +282,11 @@ function DrawerRow({
       >
         {label}
       </Text>
+      {value ? (
+        <Text className="text-muted-foreground text-[13px] font-medium" style={{ fontVariant: ['tabular-nums'] }} numberOfLines={1}>
+          {value}
+        </Text>
+      ) : null}
       {badge ? (
         <View className="bg-primary h-5 min-w-5 items-center justify-center rounded-full px-1.5">
           <Text className="text-primary-foreground text-[11px] font-bold leading-3">{badge}</Text>
