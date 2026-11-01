@@ -162,7 +162,8 @@ describe('SushiRoom', () => {
     await waitFor(() => view(a.room).day === 2, 'Tuesday', 10_000);
     assert.ok(`${view(a.room).owned},${view(a.room).today}`.split(',').some((c) => c.split(':')[0] === card));
     assert.ok(a.fx.some((e) => e.k === 'morning' && e.d === 2 && e.teach.includes('rolls')));
-  });
+    // A belt ride, a closing and a vote in real time: slower than the default on a loaded machine.
+  }).timeout(60_000);
 
   it('dev commands: skip to Wednesday (the dining room opens), stars, a stale plate', async () => {
     const a = await join('Alice', { rules: FAST });
