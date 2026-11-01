@@ -1,8 +1,11 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import {
+  BugIcon,
   CoinsIcon,
   Gamepad2Icon,
   GaugeIcon,
+  InboxIcon,
   LifeBuoyIcon,
   LogOutIcon,
   ShieldIcon,
@@ -22,6 +25,7 @@ import { Icon } from '@/components/ui/icon';
 import { Separator } from '@/components/ui/separator';
 import { Text } from '@/components/ui/text';
 import { config } from '@/config';
+import { startBugReport, useMyBugReports } from '@/lib/bug-report';
 import { tapHaptic } from '@/lib/haptics';
 import { prefs, usePrefs, type Appearance, type FriendAlertStyle } from '@/lib/prefs';
 import { usePrivacy } from '@/lib/privacy';
@@ -83,8 +87,9 @@ function ChoiceRow<T extends string>({
  * lib/prefs.ts → `Uniwind.setTheme`), Notifications (friend requests outside and inside games: Pop-up / Banner / Off,
  * lib/friend-alerts.ts; Coin popups: the "+25 coins" toast on or off, lib/coin-toast.ts), Feedback & motion
  * (Haptics, `prefs.haptics` → lib/haptics.ts; Reduce motion is the OS setting, shown, not owned), Games (Show FPS in games), Privacy (a summary, opens Edit profile scrolled to its
- * Privacy section), Help & support, Sign out, and the app version. Device preferences live in lib/prefs.ts; privacy
- * is account data (`my_privacy`), edited on Edit profile.
+ * Privacy section), Developer (dev builds and `EXPO_PUBLIC_BUG_REPORTS=1` only: report a bug, your bug reports),
+ * Help & support, Sign out, and the app version. Device preferences live in lib/prefs.ts; privacy is account data
+ * (`my_privacy`), edited on Edit profile.
  */
 export default function SettingsScreen() {
   const { insets } = useLayout();
@@ -188,6 +193,8 @@ export default function SettingsScreen() {
         ) : null}
       </View>
 
+      {config.bugReports ? <DeveloperSection /> : null}
+
       <View className="gap-2">
         <SettingsGroup>
           <SettingsRow
@@ -214,5 +221,30 @@ export default function SettingsScreen() {
         </Text>
       </View>
     </ScrollView>
+  );
+}
+
+/**
+ * Developer (playtest builds): "Report a bug" (the shake sheet, for when shaking is not handy) and your own reports
+ * (`/bug-reports`). See docs/bug-reports.md.
+ */
+function DeveloperSection() {
+  const qc = useQueryClient();
+  const reports = useMyBugReports();
+  const count = reports.data?.length;
+  return (
+    <SettingsGroup
+      title="Developer"
+      footer="Shake your phone on any screen to report a bug. A screenshot, the app version and recent logs go with your note."
+    >
+      <SettingsRow icon={BugIcon} label="Report a bug" onPress={() => void startBugReport(qc, '/settings')} />
+      <Separator className="ml-16" />
+      <SettingsRow
+        icon={InboxIcon}
+        label="Bug reports"
+        value={count ? String(count) : undefined}
+        onPress={() => router.push('/bug-reports')}
+      />
+    </SettingsGroup>
   );
 }

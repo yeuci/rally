@@ -4,6 +4,7 @@ import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
+import { BugReportHost } from '@/components/rally/bug-report-sheet';
 import { CoinToastHost } from '@/components/rally/coins';
 import { FriendRequestPrompt } from '@/components/rally/friend-request-sheet';
 import { RoomCodePill } from '@/components/rally/room-code-pill';
@@ -230,6 +231,8 @@ export default function PlayScreen() {
       {/* Coins awarded by the match (or a solo run) show over the game too, like the friend-request banner. */}
       <CoinToastHost />
       <FriendRequestPrompt placement="game" />
+      {/* Shake to report a bug over the game (playtest builds); the shell's host is under this modal on iOS. */}
+      <BugReportHost placement="game" />
     </View>
   );
 }

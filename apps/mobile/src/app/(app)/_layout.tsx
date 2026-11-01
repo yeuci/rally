@@ -62,6 +62,7 @@ export default function AppLayout() {
         <Stack.Screen name="game/[id]/rooms" options={{ title: 'Rooms' }} />
         <Stack.Screen name="shop" options={{ title: 'Shop' }} />
         <Stack.Screen name="coins" options={{ title: 'Coin history' }} />
+        <Stack.Screen name="bug-reports" options={{ title: 'Bug reports' }} />
       </Stack>
       {/* Over the stack: the toast ("That match has ended") and the rejoin sheet (a match left within its grace,
           m3-phase2 §4; a modal, so it also covers the drawer). Not over a running game: the play route is a native
