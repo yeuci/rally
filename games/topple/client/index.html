@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#bfe6f2" />
+    <title>Topple</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <canvas id="stage" aria-label="Topple game"></canvas>
+    <div id="hud" aria-live="polite">
+      <div id="players" class="players"></div>
+      <div id="turn" class="turn" hidden>
+        <div id="turn-name" class="turn-name"></div>
+        <div id="turn-sub" class="turn-sub"></div>
+        <div class="timer"><i id="timer-bar"></i></div>
+      </div>
+      <div id="big" class="big-text"></div>
+      <div id="controls" class="controls" hidden>
+        <div class="row">
+          <button id="view-left" class="round" type="button" aria-label="Turn the view left">⟲</button>
+          <button id="rotate" class="pill" type="button">Turn</button>
+          <button id="flip" class="pill" type="button">Flip</button>
+          <button id="view-right" class="round" type="button" aria-label="Turn the view right">⟳</button>
+        </div>
+        <button id="drop" class="drop" type="button">Drop</button>
+        <div class="hint">Drag to move the piece</div>
+      </div>
+
+      <section id="setup" class="card setup" hidden>
+        <div class="title">Topple</div>
+        <div class="sub">Take turns stacking. Knock it over and you're out.</div>
+        <div id="seats" class="seats"></div>
+        <button id="add-seat" class="ghost" type="button">+ Add a seat</button>
+        <div id="modes" class="modes"></div>
+        <button id="start" class="primary" type="button">Start</button>
+      </section>
+
+      <section id="over" class="card" hidden>
+        <div id="over-title" class="title">You win!</div>
+        <div id="over-stars" class="stars-row"></div>
+        <ol id="over-places" class="places"></ol>
+        <div id="over-stats" class="stats"></div>
+        <div id="over-mode" class="newmode" hidden></div>
+        <div id="over-board" class="board">Leaderboard …</div>
+        <div id="over-unlocked" class="unlocked" hidden></div>
+        <button id="again" class="primary" type="button">Play again</button>
+        <button id="change" class="ghost" type="button">Change players</button>
+      </section>
+
+      <div id="paused" class="veil" hidden><div class="veil-title">Paused</div></div>
+      <div id="loading" class="veil solid">
+        <div class="veil-title">Topple</div>
+        <div class="loadbar"><i id="loading-bar"></i></div>
+      </div>
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

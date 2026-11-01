@@ -78,6 +78,9 @@ jobs:
       - name: Stack
         run: pnpm --filter @rally/game-stack test:e2e
 
+      - name: Topple
+        run: pnpm --filter @rally/game-topple test:e2e
+
       - name: Sumo (two players, real game server)
         run: pnpm --filter @rally/game-sumo test:e2e
 
