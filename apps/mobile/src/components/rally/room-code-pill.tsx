@@ -2,11 +2,11 @@ import { ShareIcon } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { Pressable, Share, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { tapHaptic } from '@/lib/haptics';
 import { formatJoinCode, ROOM_CODE_PILL_MS, roomCodeShareMessage, spokenJoinCode } from '@/lib/join-code-input';
+import { useViewport } from '@/lib/viewport';
 
 /**
  * "Room code K7M-2PQ · Share" over a running multiplayer game (play route), centred under the safe area: shown when
@@ -15,7 +15,7 @@ import { formatJoinCode, ROOM_CODE_PILL_MS, roomCodeShareMessage, spokenJoinCode
  * the code so a different room shows it again.
  */
 export function RoomCodePill({ code, gameTitle }: { code: string; gameTitle: string }) {
-  const insets = useSafeAreaInsets();
+  const { insets } = useViewport();
   const [visible, setVisible] = useState(true);
 
   useEffect(() => {

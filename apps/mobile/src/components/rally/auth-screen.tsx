@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, View, useWindowDimensions } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
 import { Text } from '@/components/ui/text';
 import { columnPadding } from '@/lib/layout';
 import { LogoMark } from './logo';
+import { useViewport } from '@/lib/viewport';
 
 /**
  * Shared shell for the signed-out screens: keyboard-aware scroll, safe areas, the mark, title + lede. The header
@@ -11,8 +11,7 @@ import { LogoMark } from './logo';
  * Landscape / tablet: a centred column of at most 560 pt inside the safe area, so forms never run edge to edge.
  */
 export function AuthScreen({ title, lede, children, footer }: { title?: string; lede?: string; children: ReactNode; footer?: ReactNode }) {
-  const insets = useSafeAreaInsets();
-  const { width, height } = useWindowDimensions();
+  const { width, height, insets } = useViewport();
   const column = columnPadding(width, insets, 560, 24);
   const header = width > height ? 44 : 60;
   return (

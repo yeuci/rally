@@ -1,7 +1,7 @@
 import { Image as ExpoImage } from 'expo-image';
 import { RotateCwIcon, XIcon } from 'lucide-react-native';
 import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Pressable, StyleSheet, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
+import { Pressable, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import Animated, {
   Easing,
   FadeIn,
@@ -17,7 +17,6 @@ import Animated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { LogoMark } from '@/components/rally/logo';
 import { Icon } from '@/components/ui/icon';
@@ -25,6 +24,7 @@ import { Text } from '@/components/ui/text';
 import { BRAND } from '@/lib/brand';
 import { useReduceMotionSetting } from '@/lib/use-reduce-motion';
 import { problemCopy } from './loading-copy';
+import { useViewport } from '@/lib/viewport';
 
 /**
  * The game's loading screen, Roblox-style: the game's own art (cover, else its first screenshot) blurred full-bleed
@@ -77,8 +77,7 @@ export function GameLoadingScreen({
   onLeave,
   devNote,
 }: GameLoadingScreenProps) {
-  const insets = useSafeAreaInsets();
-  const { width, height } = useWindowDimensions();
+  const { width, height, insets } = useViewport();
   const reduceMotion = useReduceMotion();
   const [canLeave, setCanLeave] = useState(false);
   useEffect(() => {
@@ -192,8 +191,7 @@ export function GameProblemScreen({
   onBack,
   showError,
 }: GameProblemScreenProps) {
-  const insets = useSafeAreaInsets();
-  const { width, height } = useWindowDimensions();
+  const { width, height, insets } = useViewport();
   const copy = problemCopy(phase, error, title);
   const compact = height < 480;
   const column = Math.min(width > height ? 440 : 340, width - insets.left - insets.right - 48);

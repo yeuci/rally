@@ -19,6 +19,7 @@ import { installConsoleCapture, logBuffer } from '@/lib/log-buffer';
 import '@/lib/prefs';
 import { queryClient } from '@/lib/query-client';
 import { NAV_THEME } from '@/lib/theme';
+import { ViewportProvider } from '@/lib/viewport';
 
 export { ErrorBoundary } from 'expo-router';
 
@@ -50,34 +51,36 @@ export default function RootLayout() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider value={nav}>
-        <StatusBar style={theme === 'light' ? 'dark' : 'light'} />
-        <Stack
-          screenOptions={{
-            headerStyle: { backgroundColor: nav.colors.background },
-            headerTintColor: nav.colors.text,
-            headerShadowVisible: false,
-            headerBackButtonDisplayMode: 'minimal',
-            contentStyle: { backgroundColor: nav.colors.background },
-          }}
-        >
-          {/* The gate itself lives in each group's layout as a <Redirect>: Stack.Protected on the root `/`
+      <ViewportProvider>
+        <ThemeProvider value={nav}>
+          <StatusBar style={theme === 'light' ? 'dark' : 'light'} />
+          <Stack
+            screenOptions={{
+              headerStyle: { backgroundColor: nav.colors.background },
+              headerTintColor: nav.colors.text,
+              headerShadowVisible: false,
+              headerBackButtonDisplayMode: 'minimal',
+              contentStyle: { backgroundColor: nav.colors.background },
+            }}
+          >
+            {/* The gate itself lives in each group's layout as a <Redirect>: Stack.Protected on the root `/`
               route leaves the router with nothing to fall back to and renders "Unmatched Route". */}
-          <Stack.Screen name="(app)" options={{ headerShown: false }} />
-          <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-          <Stack.Screen name="auth/callback" options={{ title: '', headerShown: false, gestureEnabled: false }} />
-          <Stack.Screen name="auth/reset-password" options={{ title: 'New password' }} />
-          <Stack.Protected guard={config.devTools}>
-            <Stack.Screen name="dev" options={{ headerShown: false }} />
-          </Stack.Protected>
-        </Stack>
-        <PortalHost />
-        {/* "You're offline" under the status bar on every screen but a running game. */}
-        <OfflineBanner />
-        {/* Shake to report a bug (playtest builds); the play route mounts the in-game host. */}
-        <BugReportHost placement="shell" />
-        {intro && <IntroOverlay />}
-      </ThemeProvider>
+            <Stack.Screen name="(app)" options={{ headerShown: false }} />
+            <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+            <Stack.Screen name="auth/callback" options={{ title: '', headerShown: false, gestureEnabled: false }} />
+            <Stack.Screen name="auth/reset-password" options={{ title: 'New password' }} />
+            <Stack.Protected guard={config.devTools}>
+              <Stack.Screen name="dev" options={{ headerShown: false }} />
+            </Stack.Protected>
+          </Stack>
+          <PortalHost />
+          {/* "You're offline" under the status bar on every screen but a running game. */}
+          <OfflineBanner />
+          {/* Shake to report a bug (playtest builds); the play route mounts the in-game host. */}
+          <BugReportHost placement="shell" />
+          {intro && <IntroOverlay />}
+        </ThemeProvider>
+      </ViewportProvider>
     </QueryClientProvider>
   );
 }
