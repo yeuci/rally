@@ -39,6 +39,7 @@ import { coinKeys, useWallet } from '@/lib/coins';
 import { formatCoins } from '@/lib/coins-model';
 import { useFriendRequests, usePublicGames } from '@/lib/friends';
 import { usePublicStats } from '@/lib/game-progress';
+import { useMyProgress } from '@/lib/levels';
 import { useProfile } from '@/lib/profile';
 import { formatScore } from '@/lib/progress-format';
 import { countBadge } from '@/lib/social';
@@ -64,6 +65,7 @@ export default function ProfileScreen() {
   const incoming = countBadge(requests.data?.incoming.length);
   const wallet = useWallet();
   const balance = wallet.data?.balance;
+  const level = useMyProgress();
   const qc = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
 
@@ -76,6 +78,7 @@ export default function ProfileScreen() {
         games.refetch(),
         requests.refetch(),
         wallet.refetch(),
+        level.refetch(),
         qc.invalidateQueries({ queryKey: coinKeys.cosmeticsAll() }),
       ]);
     } finally {
@@ -103,7 +106,7 @@ export default function ProfileScreen() {
       {/* Centred on the window from its live width (absolute: measured from the container's edge, not its padding). */}
       <Glow size={glow} style={{ top: -glow / 2, left: width / 2 - glow / 2 }} />
 
-      <ProfileHeader profile={p}>
+      <ProfileHeader profile={p} progress={p ? level.data : undefined}>
         <View className="flex-row items-center gap-2">
           <Button variant="outline" size="sm" className="rounded-full px-4" onPress={() => router.push('/profile/edit')} disabled={!p}>
             <Icon as={PencilIcon} className="size-3.5" />

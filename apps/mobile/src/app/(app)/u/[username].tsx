@@ -20,6 +20,7 @@ import { timeAgo } from '@/lib/format';
 import { useFriendship, useFriendshipAction, usePublicFriends, usePublicGames, usePublicPresence } from '@/lib/friends';
 import { usePublicProfile, usePublicStats, useUserAchievements, type UnlockedAchievement } from '@/lib/game-progress';
 import { GUTTER } from '@/lib/layout';
+import { usePlayerLevel } from '@/lib/levels';
 import { useProfile } from '@/lib/profile';
 import { formatScore, sameUsername } from '@/lib/progress-format';
 import { blockAction, confirmCopy, presenceLine } from '@/lib/social';
@@ -49,6 +50,7 @@ export default function PublicProfileScreen() {
   const games = usePublicGames(p?.id);
   const friends = usePublicFriends(p?.id);
   const unlocked = useUserAchievements(p?.id);
+  const level = usePlayerLevel(p?.id);
   const focused = useIsFocused();
   const presence = usePublicPresence(p?.id, focused);
   const action = useFriendshipAction();
@@ -73,6 +75,7 @@ export default function PublicProfileScreen() {
         friends.refetch(),
         unlocked.refetch(),
         presence.refetch(),
+        level.refetch(),
       ]);
     } finally {
       setRefreshing(false);
@@ -162,7 +165,7 @@ export default function PublicProfileScreen() {
   const seeAllFriends = () => p && router.push({ pathname: '/friends', params: { username: p.username } });
   const statusLine = blocked ? null : presenceLine(presence.data);
   const identity = (
-    <ProfileHeader profile={p}>
+    <ProfileHeader profile={p} progress={blocked ? null : level.data}>
       {statusLine ? (
         <View className="-mt-1 flex-row items-center gap-1.5" accessible accessibilityLabel={`${handle}: ${statusLine}`}>
           <PresenceDot />

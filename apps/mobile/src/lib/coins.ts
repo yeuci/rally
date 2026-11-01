@@ -20,6 +20,7 @@ import {
   type ShopItem,
   type WalletSummary,
 } from '@/lib/coins-model';
+import { xpByLedgerId } from '@/lib/levels-model';
 import { prefs } from '@/lib/prefs';
 import { supabase } from '@/lib/supabase';
 
@@ -54,7 +55,8 @@ export function handleCoinBroadcast(qc: QueryClient, uid: string, payload: unkno
   if (!award) return;
   qc.setQueryData<WalletSummary>(coinKeys.wallet(uid), (w) => (w ? { ...w, balance: Math.max(w.balance, award.balance) } : w));
   invalidateCoins(qc, uid);
-  if (prefs.get().coinPopups) pushCoinAward(award);
+  // Level-up coins are shown by the level-up celebration (lib/levels.ts), not as a second toast.
+  if (prefs.get().coinPopups && award.reason !== 'level') pushCoinAward(award);
 }
 
 /** `my_wallet()`: balance, lifetime earnings and today's progress toward the caps. */
@@ -85,25 +87,39 @@ export function useCoinRules() {
   });
 }
 
-/** The caller's coin history, newest first, a page at a time (keyset on the ledger id). */
+/** A coin history row with the XP that came with the same award (null when none). */
+export type HistoryEntry = LedgerEntry & { xp: number | null };
+
+/**
+ * The caller's coin history, newest first, a page at a time (keyset on the ledger id), each row with the XP awarded
+ * alongside it (`xp_ledger`, same reason and ref; 20261101000100_progress.sql). Without the XP (an older database, a
+ * failed read) the history still loads.
+ */
 export function useCoinHistory() {
   const { userId } = useSession();
   return useInfiniteQuery({
     queryKey: coinKeys.history(userId),
     enabled: !!userId,
     initialPageParam: undefined as number | undefined,
-    getNextPageParam: (last: LedgerEntry[]) => nextHistoryCursor(last),
-    queryFn: async ({ pageParam }): Promise<LedgerEntry[]> => {
+    getNextPageParam: (last: HistoryEntry[]) => nextHistoryCursor(last),
+    queryFn: async ({ pageParam }): Promise<HistoryEntry[]> => {
       let q = supabase
         .from('coin_ledger')
-        .select('id, amount, reason, note, game_id, balance_after, created_at')
+        .select('id, amount, reason, ref, note, game_id, balance_after, created_at')
         .eq('user_id', userId!)
         .order('id', { ascending: false })
         .limit(HISTORY_PAGE);
       if (pageParam !== undefined) q = q.lt('id', pageParam);
       const { data, error } = await q;
       if (error) throw error;
-      return toLedgerEntries(data);
+      const entries = toLedgerEntries(data);
+      const refs = [...new Set(data.filter((r) => r.amount > 0).map((r) => r.ref))];
+      let xp = new Map<number, number>();
+      if (refs.length > 0) {
+        const x = await supabase.from('xp_ledger').select('reason, ref, amount').eq('user_id', userId!).in('ref', refs);
+        if (!x.error) xp = xpByLedgerId(data, x.data);
+      }
+      return entries.map((e) => ({ ...e, xp: xp.get(e.id) ?? null }));
     },
   });
 }
