@@ -13,7 +13,9 @@ import {
   Vec3,
 } from 'playcanvas';
 import { roundedBox } from './meshes.ts';
-import { PEDESTAL_DEPTH, PEDESTAL_HALF, PIECES, type PieceKind, type ToppleSim } from './sim.ts';
+import { MODELS, type Models } from './models.ts';
+import { type PersonState, makePerson, oneShot, play, resetPerson } from './people.ts';
+import { PEDESTAL_DEPTH, PEDESTAL_HALF, PIECES, type PieceKind, type SimEvent, type ToppleSim } from './sim.ts';
 
 const hex = (h: string) => {
   const n = parseInt(h.slice(1), 16);
@@ -35,7 +37,14 @@ const PALETTE = {
   leaves: '#5cb85c',
   leaves2: '#79c96a',
   trunk: '#7a5133',
+  out: '#9a9a9a',
+  skins: ['#f1c7a1', '#8d5524', '#ffdbac', '#e0ac69', '#c68642', '#d9a273'],
 } as const;
+
+/** The players stand in a ring this far from the tower's axis, round the pedestal's base. */
+const RING = 3.05;
+/** The camera's starting yaw: seats are laid out from it, so seat 0 starts in view. */
+const START_YAW = 0.6;
 
 /** Visual corner radius of piece boxes (the colliders use a slightly smaller one). */
 const ROUND = 0.05;
@@ -143,11 +152,14 @@ export interface ToppleScene {
   /** A short camera shake (topples). */
   shake(amount: number): void;
   project(x: number, y: number, z: number, out: { x: number; y: number }): void;
+  /** A sim event the players react to (a topple). */
+  event(e: SimEvent): void;
   trim(): void;
   readonly entityCount: number;
 }
 
-export function createToppleScene(app: Application, opts: { shadows?: boolean } = {}): ToppleScene {
+/** `models`: the players (see models.ts). `shadows: false` for the dev-only low-render mode (see lowfx.ts). */
+export function createToppleScene(app: Application, models: Models, opts: { shadows?: boolean } = {}): ToppleScene {
   device = app.graphicsDevice;
   app.scene.ambientLight = new Color(0.5, 0.52, 0.58);
 
@@ -220,7 +232,72 @@ export function createToppleScene(app: Application, opts: { shadows?: boolean } 
     shadows: false,
   });
 
-  let yaw = 0.6;
+  // The players: one character per seat round the pedestal, on a disc in their seat colour. Whoever's turn it is
+  // points up at the tower; a toppler slumps and sits out the rest of the match; the winner cheers.
+  const peopleRoot = new Entity('people');
+  world.addChild(peopleRoot);
+  const people = MODELS.characters.map((name, i) => {
+    const color = SEAT_COLORS[i % SEAT_COLORS.length]!;
+    const person = makePerson(app, models, peopleRoot, name, color, PALETTE.skins[i % PALETTE.skins.length]!);
+    const disc = prim(peopleRoot, 'cylinder', color, [0, 0, 0], [1, 0.04, 1], { opacity: 0.9, shadows: false });
+    return { person, disc, color, out: false, seats: 0 };
+  });
+  /** Who knocked the tower over (sitting down already, before the sim marks them out). */
+  let toppler = -1;
+  let shownSim: ToppleSim | null = null;
+
+  function placePeople(n: number) {
+    people.forEach((v, i) => {
+      if (i >= n) return;
+      const a = START_YAW + ((i + 0.5) * Math.PI * 2) / n;
+      const x = Math.sin(a) * RING;
+      const z = Math.cos(a) * RING;
+      v.person.root.setLocalPosition(x, floorY, z);
+      // Face the tower (characters look down +z).
+      v.person.root.setLocalEulerAngles(0, ((a + Math.PI) * 180) / Math.PI, 0);
+      v.disc.setLocalPosition(x, floorY + 0.02, z);
+      v.seats = n;
+    });
+  }
+
+  function syncPeople(sim: ToppleSim) {
+    if (sim !== shownSim) {
+      // A new match: everyone back up.
+      shownSim = sim;
+      toppler = -1;
+      for (const v of people) {
+        resetPerson(v.person);
+        v.out = false;
+        v.disc.render!.material = mat(v.color, 0.9);
+      }
+    }
+    const n = sim.players.length;
+    people.forEach((v, i) => {
+      const on = i < n;
+      v.person.root.enabled = v.disc.enabled = on;
+      if (!on) return;
+      if (v.seats !== n) placePeople(n);
+      const p = sim.players[i]!;
+      const down = !p.alive || (sim.phase === 'crash' && i === toppler);
+      const turn = sim.phase === 'aim' && sim.current === i && !down;
+      const want: PersonState = down
+        ? 'Sit'
+        : sim.phase === 'over' && sim.winner === i
+          ? 'Victory'
+          : turn
+            ? 'Point'
+            : 'Idle';
+      play(v.person, want, time);
+      if (!p.alive && !v.out) {
+        v.out = true;
+        v.disc.render!.material = mat(PALETTE.out, 0.9);
+      }
+      const r = turn ? 1.25 + Math.sin(time * 6) * 0.08 : 1;
+      v.disc.setLocalScale(r, 0.04, r);
+    });
+  }
+
+  let yaw = START_YAW;
   let wantYaw = yaw;
   let focusY = 0.8;
   let dist = 11;
@@ -254,7 +331,7 @@ export function createToppleScene(app: Application, opts: { shadows?: boolean } 
       return (2 * dist * Math.tan(vfov / 2)) / Math.max(1, cssH);
     },
     get entityCount() {
-      return views.size * 3 + 120;
+      return views.size * 3 + 160;
     },
     reset() {
       for (const e of views.values()) e.destroy();
@@ -307,6 +384,8 @@ export function createToppleScene(app: Application, opts: { shadows?: boolean } 
         target.setLocalPosition(h.pos.x, 0.012, h.pos.z);
       }
 
+      syncPeople(sim);
+
       // Camera: orbit, rise with the tower, shake on topples.
       const k = dt > 0 ? 1 - Math.exp(-dt * 4) : 1;
       yaw += (wantYaw - yaw) * (dt > 0 ? 1 - Math.exp(-dt * 8) : 1);
@@ -327,6 +406,17 @@ export function createToppleScene(app: Application, opts: { shadows?: boolean } 
     },
     orbit(delta) {
       wantYaw += delta;
+    },
+    event(e) {
+      if (e.type !== 'topple') return;
+      // The toppler slumps (then sits out); everyone else still in flinches at the crash.
+      toppler = e.player;
+      shownSim?.players.forEach((p, i) => {
+        if (!p.alive) return;
+        const v = people[i]!;
+        if (i === e.player) oneShot(v.person, models, 'Defeat', time);
+        else oneShot(v.person, models, 'Flinch', time, 1.2);
+      });
     },
     shake(amount) {
       shakeAmp = Math.min(0.5, Math.max(shakeAmp, amount));

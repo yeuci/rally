@@ -14,7 +14,8 @@ import {
 } from '@rally/game-kit';
 import { rally } from '@rally/sdk';
 import { applyLowFx } from './lowfx.ts';
-import { SEAT_COLORS, createToppleScene } from './scene.ts';
+import { loadToppleModels } from './models.ts';
+import { SEAT_COLORS, type ToppleScene, createToppleScene } from './scene.ts';
 import { PIECES, TURN_SECONDS, ToppleSim, initPhysics, type BotLevel, type Seat, type SimEvent } from './sim.ts';
 
 const BOARD = 'tower';
@@ -104,8 +105,9 @@ loading(0.05);
 // --- engine + scene ------------------------------------------------------------------------------
 const { app } = createApp({ canvas: ui.canvas, ...(LOWFX ? { maxPixelRatio: 1, antialias: false } : {}) });
 if (LOWFX) applyLowFx(app);
-const scene = createToppleScene(app, { shadows: !LOWFX });
-loading(0.3);
+// The scene needs the players' models, so boot() builds it once they have loaded.
+let scene!: ToppleScene;
+loading(0.1);
 
 // --- services --------------------------------------------------------------------------------------
 const save = createSave<Progress>(
@@ -159,7 +161,7 @@ const lifecycle = createLifecycle(rally, app, {
     await save.flush();
   },
   onLowMemory: () => {
-    scene.trim();
+    scene?.trim();
     audio.close();
   },
 });
@@ -309,6 +311,7 @@ function onEvent(e: SimEvent) {
       break;
     case 'topple':
       scene.shake(0.35);
+      scene.event(e);
       announce('TOPPLED!', `${s.players[e.player]!.name} knocked it over`, 1800);
       audio.blip(140, 600, { type: 'sawtooth', slideTo: 50, gain: 0.3 });
       audio.blip(90, 700, { type: 'square', slideTo: 40, gain: 0.15, delayMs: 120 });
@@ -446,11 +449,11 @@ ui.flip.addEventListener('pointerdown', press(flipPiece));
 ui.drop.addEventListener('pointerdown', press(dropPiece));
 ui.viewLeft.addEventListener('pointerdown', (e) => {
   e.preventDefault();
-  scene.orbit(Math.PI / 4);
+  scene?.orbit(Math.PI / 4);
 });
 ui.viewRight.addEventListener('pointerdown', (e) => {
   e.preventDefault();
-  scene.orbit(-Math.PI / 4);
+  scene?.orbit(-Math.PI / 4);
 });
 window.addEventListener('keydown', (e) => {
   if (e.repeat || !sim || lifecycle.isPaused) return;
@@ -500,7 +503,7 @@ function collect() {
     best: save.data.best,
     played: save.data.played,
     paused: lifecycle.isPaused,
-    entities: scene.entityCount,
+    entities: scene?.entityCount ?? 0,
     dpr: round(gd.maxPixelRatio, 2),
     width: gd.width,
     height: gd.height,
@@ -517,7 +520,9 @@ let idle: ToppleSim;
 async function boot() {
   const saved = save.load().catch(() => save.data);
   await initPhysics();
-  loading(0.7);
+  loading(0.3);
+  const models = await loadToppleModels(app, (f) => loading(0.3 + f * 0.5));
+  scene = createToppleScene(app, models, { shadows: !LOWFX });
   idle = new ToppleSim(toSeats(['human', 'normal']), 1);
   app.start();
   showSetup();

@@ -488,6 +488,9 @@ importers:
       '@rally/dev-harness':
         specifier: workspace:*
         version: link:../../../tooling/dev-harness
+      '@rally/model-pipeline':
+        specifier: workspace:*
+        version: link:../../../tooling/model-pipeline
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
