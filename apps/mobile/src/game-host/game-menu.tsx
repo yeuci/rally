@@ -13,9 +13,8 @@ import {
   XIcon,
 } from 'lucide-react-native';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { BackHandler, Pressable, ScrollView, Share, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { BackHandler, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, ReduceMotion } from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScopedTheme } from 'uniwind';
 import { FriendButtons } from '@/components/rally/friend-button';
 import { LogoMark } from '@/components/rally/logo';
@@ -40,6 +39,7 @@ import {
   type NetStatus,
   type SettingsPatch,
 } from './settings';
+import { useViewport } from '@/lib/viewport';
 
 /**
  * The host's game menu, Roblox-style: a dark translucent panel over the dimmed game with pill tabs (People when the
@@ -89,8 +89,7 @@ const GRAPHICS_LABEL: Record<GraphicsChoice, string> = { auto: 'Auto', low: 'Low
 export function GameMenu(props: GameMenuProps) {
   const { title, iconUri, menu, settings, leaving, roomCode, net, onResume, onLeave, onChange, initialTab } = props;
   const { buttonTucked = false, onButtonTuckedChange } = props;
-  const insets = useSafeAreaInsets();
-  const { width, height } = useWindowDimensions();
+  const { width, height, insets } = useViewport();
   const landscape = width > height;
   const multiplayer = menu.players.length > 0 || !!roomCode;
   const [tab, setTab] = useState<Tab>(initialTab ?? (multiplayer && menu.players.length > 1 ? 'people' : 'settings'));

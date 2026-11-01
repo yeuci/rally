@@ -12,8 +12,7 @@ import {
   WrenchIcon,
 } from 'lucide-react-native';
 import { useState } from 'react';
-import { RefreshControl, ScrollView, View, useWindowDimensions } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { RefreshControl, ScrollView, View } from 'react-native';
 import { CoinBalancePill } from '@/components/rally/coins';
 import { ErrorText } from '@/components/rally/form-field';
 import { Glow } from '@/components/rally/glow';
@@ -47,10 +46,10 @@ import { openSupportMail } from '@/lib/support';
 import { usePalette } from '@/lib/use-palette';
 import { useColumnPadding } from '@/lib/use-layout';
 import { useSignOut } from '@/lib/use-sign-out';
+import { useViewport } from '@/lib/viewport';
 
 export default function ProfileScreen() {
-  const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
+  const { width, insets } = useViewport();
   // Landscape / tablet: a centred column (≤ 600 pt) inside the safe area instead of edge-to-edge rows.
   const column = useColumnPadding();
   const glow = Math.min(width, 700) * 1.1;

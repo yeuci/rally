@@ -2,7 +2,6 @@ import { router } from 'expo-router';
 import { Gamepad2Icon, MoonStarIcon, PlayIcon, SunIcon } from 'lucide-react-native';
 import { useState } from 'react';
 import { ActivityIndicator, ScrollView, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUniwind } from 'uniwind';
 import { ErrorText } from '@/components/rally/form-field';
 import { Segmented } from '@/components/rally/segmented';
@@ -20,6 +19,7 @@ import { ROOM_ID_RE, joinTargetParams, targetForCode, type JoinTarget } from '@/
 import { prefs } from '@/lib/prefs';
 import { useColumnPadding } from '@/lib/use-layout';
 import { usePalette } from '@/lib/use-palette';
+import { useViewport } from '@/lib/viewport';
 
 const JOIN_MODES: readonly { value: DevJoinMode; label: string }[] = [
   { value: 'quick', label: 'Quick' },
@@ -46,7 +46,7 @@ function lookupMessage(err: unknown): string {
  */
 export default function DeveloperLauncher() {
   const { settings, lastRun } = useLaunchStore();
-  const insets = useSafeAreaInsets();
+  const { insets } = useViewport();
   const column = useColumnPadding(640);
   const { theme } = useUniwind();
   const palette = usePalette();

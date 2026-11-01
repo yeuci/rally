@@ -1,10 +1,10 @@
 import { useEffect, useId, type ComponentProps, type ReactNode } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, View } from 'react-native';
 import Animated, { ReduceMotion, SlideInDown } from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@/components/ui/text';
 import { setSheetOpen } from '@/lib/open-sheets';
 import { cn } from '@/lib/utils';
+import { useViewport } from '@/lib/viewport';
 
 /**
  * A sheet that rises from the bottom edge over a dimmed backdrop (the join-code and rejoin sheets). React Native's
@@ -35,7 +35,7 @@ export function BottomSheet({
   /** Count in lib/open-sheets.ts while open (a sheet that waits for the others passes false). */
   register?: boolean;
 }) {
-  const insets = useSafeAreaInsets();
+  const { insets } = useViewport();
   const id = useId();
   const registered = open && register;
   useEffect(() => {
