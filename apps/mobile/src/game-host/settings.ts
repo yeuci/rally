@@ -200,7 +200,7 @@ export function netBars(net: NetStatus): {
 }
 
 /** Size of the host's game-menu button over the game (points = CSS px of the page). */
-export const MENU_BUTTON_SIZE = 36;
+export const MENU_BUTTON_SIZE = 40;
 
 /** Where the menu button sits: top-left, inside the safe area. Also handed to the game (`device.menuButton`). */
 export function menuButtonRect(insets: { top: number; left: number }): Rect {

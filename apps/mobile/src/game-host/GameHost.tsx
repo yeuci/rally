@@ -3,20 +3,29 @@ import * as Crypto from 'expo-crypto';
 import * as Haptics from 'expo-haptics';
 import { useKeepAwake } from 'expo-keep-awake';
 import * as ScreenOrientation from 'expo-screen-orientation';
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { AppState, BackHandler, PixelRatio, Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@/components/ui/text';
 import { GameHostController, type DeviceInfo, type GameHostResult, type HapticKind } from './controller';
 import { fetchEntryDocument, type EntryDocument } from './entry';
 import { usePrefs } from '@/lib/prefs';
-import { GameMenu, GameMenuButton } from './game-menu';
+import { GameMenu } from './game-menu';
+import { MenuButton } from './menu-button';
+import {
+  DEFAULT_MENU_BUTTON_PREFS,
+  buttonBounds,
+  setTucked,
+  type ButtonOrientation,
+  type MenuButtonPrefs,
+  type MenuButtonStore,
+} from './menu-button-model';
 import { NetBanner } from './net-banner';
 import type { MatchmakingTarget } from './handlers';
 import { buildInjectedScript } from './injected';
 import { GameLoadingScreen, GameProblemScreen } from './loading-screen';
 import { autoGraphics, menuButtonRect, type GameSettingsStore } from './settings';
-import { gameSettingsStore } from '@/lib/game-settings';
+import { gameSettingsStore, menuButtonStore } from '@/lib/game-settings';
 import type { PlaySessionService } from './play-session';
 import type { ProgressStore } from './progress';
 import type { SaveStore } from './saves';
@@ -44,6 +53,8 @@ export interface GameHostProps {
   capabilities?: readonly string[];
   /** The game menu's settings store; default AsyncStorage (platform settings once per device, game settings per game). */
   settingsStore?: GameSettingsStore | null;
+  /** Where the menu button was moved or tucked, per game; default AsyncStorage. Null remembers nothing. */
+  buttonStore?: MenuButtonStore | null;
   /** Identity handed to the game in `ready()`; only after the 4.7.3 consent sheet was accepted. */
   user: LaunchContext['user'];
   intent: LaunchIntent;
@@ -103,9 +114,32 @@ function playHaptic(kind: HapticKind): void {
  *
  * While the game loads (`phase === 'loading'`, which includes the hold after `ready()` for games that send loading
  * labels) the loading screen covers the WebView (loading-screen.tsx); it fades out when the game is shown. Crashes and
- * load failures get the same backdrop with Reload / Back. The close button only shows over a running game.
+ * load failures get the same backdrop with Reload / Back. The menu button only shows over a running game.
  */
 const ORIGIN_WHITELIST = ['*'];
+
+/** The menu button's remembered place for this game: loaded once (null until then), saved on every change. */
+function useMenuButtonPrefs(store: MenuButtonStore | null, gameId: string) {
+  const [prefs, setPrefs] = useState<MenuButtonPrefs | null>(store ? null : DEFAULT_MENU_BUTTON_PREFS);
+  useEffect(() => {
+    if (!store) return;
+    let cancelled = false;
+    void store.load(gameId).then((loaded) => {
+      if (!cancelled) setPrefs(loaded);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [store, gameId]);
+  const change = useCallback(
+    (next: MenuButtonPrefs) => {
+      setPrefs(next);
+      void store?.save(gameId, next);
+    },
+    [store, gameId],
+  );
+  return [prefs, change] as const;
+}
 
 export function GameHost(props: GameHostProps) {
   useKeepAwake();
@@ -153,6 +187,18 @@ export function GameHost(props: GameHostProps) {
   );
   const view = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   const webviewRef = useRef<WebViewHandle>(null);
+
+  // The menu button can be dragged anywhere and tucked to a side (menu-button.tsx); the game is only told the default.
+  const [buttonStore] = useState(() => (props.buttonStore === undefined ? menuButtonStore : props.buttonStore));
+  const [buttonPrefs, setButtonPrefs] = useMenuButtonPrefs(buttonStore, props.game.id);
+  const buttonOrientation: ButtonOrientation = width > height ? 'landscape' : 'portrait';
+  const onButtonTucked = useCallback(
+    (tucked: boolean) => {
+      if (!buttonPrefs) return;
+      setButtonPrefs(setTucked(buttonPrefs, buttonOrientation, tucked, buttonBounds(width, height, insets)));
+    },
+    [buttonPrefs, setButtonPrefs, buttonOrientation, width, height, insets],
+  );
 
   // The entry document is downloaded and verified here, then given to the WebView as html + baseUrl (see entry.ts:
   // Supabase serves HTML as text/plain). Re-fetched on every "Reload" (`view.attempt`).
@@ -329,17 +375,31 @@ export function GameHost(props: GameHostProps) {
         />
       )}
 
-      {/* The game menu's button over a running game (top-left, safe area; the game keeps its HUD out of it). The
-          loading screen has its own "Leave", the problem screens their "Back". */}
-      {view.phase === 'ready' && !view.menuOpen && <GameMenuButton rect={menuButton} onPress={controller.openMenu} />}
-
-      {/* Reconnecting / Connection lost, from the game's net.status (top-centre, clear of the menu button). */}
+      {/* Reconnecting / Connection lost, from the game's net.status (top-centre, clear of the default button spot;
+          the button draws over it if the player moved it there). */}
       {view.phase === 'ready' && (
         <NetBanner
           net={view.net}
           top={menuButton.y}
           inset={menuButton.x + menuButton.width + 12}
           onLeave={controller.leave}
+        />
+      )}
+
+      {/* The game menu's button over a running game: top-left by default (the game keeps its HUD out of that rect),
+          movable and tuckable by the player. Hidden while the menu is open. The loading screen has its own "Leave",
+          the problem screens their "Back". */}
+      {view.phase === 'ready' && buttonPrefs !== null && (
+        <MenuButton
+          width={width}
+          height={height}
+          insets={insets}
+          orientation={buttonOrientation}
+          prefs={buttonPrefs}
+          onPrefsChange={setButtonPrefs}
+          onOpen={controller.openMenu}
+          hidden={view.menuOpen}
+          haptics={view.settings.platform.haptics}
         />
       )}
 
@@ -355,6 +415,8 @@ export function GameHost(props: GameHostProps) {
           onResume={controller.closeMenu}
           onLeave={controller.leave}
           onChange={controller.changeSettings}
+          buttonTucked={buttonPrefs?.tucked ?? false}
+          onButtonTuckedChange={buttonPrefs ? onButtonTucked : undefined}
         />
       )}
     </View>

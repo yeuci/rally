@@ -77,6 +77,9 @@ export interface GameMenuProps {
   net?: NetStatus | null;
   /** The tab to open on; default People in a match with others, else Settings. */
   initialTab?: GameMenuTab;
+  /** "Tuck menu button to the side" (menu-button.tsx); the switch is hidden without a handler. */
+  buttonTucked?: boolean;
+  onButtonTuckedChange?: (tucked: boolean) => void;
 }
 
 export type GameMenuTab = Tab;
@@ -85,6 +88,7 @@ const GRAPHICS_LABEL: Record<GraphicsChoice, string> = { auto: 'Auto', low: 'Low
 
 export function GameMenu(props: GameMenuProps) {
   const { title, iconUri, menu, settings, leaving, roomCode, net, onResume, onLeave, onChange, initialTab } = props;
+  const { buttonTucked = false, onButtonTuckedChange } = props;
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const landscape = width > height;
@@ -184,7 +188,14 @@ export function GameMenu(props: GameMenuProps) {
               showsVerticalScrollIndicator={false}
             >
               {shownTab === 'settings' ? (
-                <SettingsTab title={name} menu={menu} settings={settings} onChange={onChange} />
+                <SettingsTab
+                  title={name}
+                  menu={menu}
+                  settings={settings}
+                  onChange={onChange}
+                  buttonTucked={buttonTucked}
+                  onButtonTuckedChange={onButtonTuckedChange}
+                />
               ) : shownTab === 'help' ? (
                 <HelpTab menu={menu} />
               ) : peek ? (
@@ -220,32 +231,6 @@ export function GameMenu(props: GameMenuProps) {
         </View>
       </View>
     </ScopedTheme>
-  );
-}
-
-/** The game-menu button over a running game: the Rally mark in a translucent dark circle (top-left, safe area). */
-export function GameMenuButton({
-  rect,
-  onPress,
-}: {
-  rect: { x: number; y: number; width: number; height: number };
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="Game menu"
-      accessibilityHint="Settings, how to play, and leave"
-      onPress={onPress}
-      hitSlop={10}
-      style={({ pressed }) => [
-        styles.menuButton,
-        { left: rect.x, top: rect.y, width: rect.width, height: rect.height, borderRadius: rect.width / 2 },
-        pressed && styles.pressed,
-      ]}
-    >
-      <LogoMark size={Math.round(rect.width * 0.62)} color={WHITE} />
-    </Pressable>
   );
 }
 
@@ -339,11 +324,15 @@ function SettingsTab({
   menu,
   settings,
   onChange,
+  buttonTucked,
+  onButtonTuckedChange,
 }: {
   title: string;
   menu: MenuView;
   settings: SettingsView;
   onChange: (patch: SettingsPatch, final: boolean) => void;
+  buttonTucked: boolean;
+  onButtonTuckedChange?: (tucked: boolean) => void;
 }) {
   const { platform } = settings;
   const volume = (key: keyof typeof platform.volume, label: string) => (
@@ -419,6 +408,16 @@ function SettingsTab({
           onChange={(v) => onChange({ haptics: v }, true)}
         />
       </Section>
+      {onButtonTuckedChange ? (
+        <Section title="Menu button">
+          <ToggleRow
+            label="Tuck menu button to the side"
+            caption="A slim tab on the edge; tap it to bring the button back. Drag the button to move it."
+            value={buttonTucked}
+            onChange={onButtonTuckedChange}
+          />
+        </Section>
+      ) : null}
       {menu.settings.length > 0 ? (
         <Section title={title}>
           {menu.settings.map((s) => (
@@ -880,12 +879,4 @@ const styles = StyleSheet.create({
   peekHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   empty: { paddingVertical: 24, alignItems: 'center', gap: 4 },
   emptyTitle: { fontSize: 16, lineHeight: 22, fontWeight: '700' },
-  menuButton: {
-    position: 'absolute',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.42)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.22)',
-  },
 });

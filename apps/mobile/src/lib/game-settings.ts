@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useSyncExternalStore } from 'react';
+import { createMenuButtonStore, type MenuButtonStore } from '@/game-host/menu-button-model';
 import {
   DEFAULT_PLATFORM_SETTINGS,
   PLATFORM_SETTINGS_KEY,
@@ -51,6 +52,9 @@ export const gameSettingsStore: GameSettingsStore = {
   },
   saveGame: (gameId, values) => disk.saveGame(gameId, values),
 };
+
+/** Where each game's menu button sits (moved, tucked), per orientation: GameHost's default. */
+export const menuButtonStore: MenuButtonStore = createMenuButtonStore(AsyncStorage);
 
 const get = () => cached ?? DEFAULT_PLATFORM_SETTINGS;
 const subscribe = (fn: () => void) => {

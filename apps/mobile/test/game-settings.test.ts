@@ -118,8 +118,8 @@ test('player settings: Auto resolved, volumes patched and clamped', () => {
 });
 
 test('menu button: top-left inside the safe area, never closer than 12 pt to the edge', () => {
-  assert.deepEqual(menuButtonRect({ top: 47, left: 0 }), { x: 12, y: 51, width: 36, height: 36 });
-  assert.deepEqual(menuButtonRect({ top: 0, left: 47 }), { x: 51, y: 12, width: 36, height: 36 });
+  assert.deepEqual(menuButtonRect({ top: 47, left: 0 }), { x: 12, y: 51, width: 40, height: 40 });
+  assert.deepEqual(menuButtonRect({ top: 0, left: 47 }), { x: 51, y: 12, width: 40, height: 40 });
 });
 
 test('store: platform settings once per device, game values per game id', async () => {
