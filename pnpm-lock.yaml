@@ -47,6 +47,9 @@ importers:
       '@rally/game-gunrun-server':
         specifier: workspace:*
         version: link:../../games/gunrun/server
+      '@rally/game-northdale-server':
+        specifier: workspace:*
+        version: link:../../games/northdale/server
       '@rally/game-overrun-server':
         specifier: workspace:*
         version: link:../../games/overrun/server
@@ -323,6 +326,52 @@ importers:
         version: 8.3.5(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)
 
   games/gunrun/server:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.5
+        version: 22.20.5
+      typescript:
+        specifier: ~6.0.3
+        version: 6.0.3
+
+  games/northdale/client:
+    dependencies:
+      '@colyseus/sdk':
+        specifier: ^0.18.8
+        version: 0.18.8(@colyseus/core@0.18.23)(typescript@6.0.3)(zod@4.6.7)
+      '@rally/game-kit':
+        specifier: workspace:*
+        version: link:../../../packages/game-kit
+      '@rally/game-northdale-server':
+        specifier: workspace:*
+        version: link:../server
+      '@rally/sdk':
+        specifier: workspace:*
+        version: link:../../../packages/sdk
+      playcanvas:
+        specifier: ^2.23.3
+        version: 2.23.3
+    devDependencies:
+      '@gltf-transform/core':
+        specifier: ^4.5.1
+        version: 4.5.1
+      '@rally/dev-harness':
+        specifier: workspace:*
+        version: link:../../../tooling/dev-harness
+      '@rally/model-pipeline':
+        specifier: workspace:*
+        version: link:../../../tooling/model-pipeline
+      '@types/node':
+        specifier: ^22.20.5
+        version: 22.20.5
+      typescript:
+        specifier: ~6.0.3
+        version: 6.0.3
+      vite:
+        specifier: ^8.3.5
+        version: 8.3.5(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)
+
+  games/northdale/server:
     devDependencies:
       '@types/node':
         specifier: ^22.20.5
