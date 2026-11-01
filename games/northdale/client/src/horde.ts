@@ -118,7 +118,8 @@ export function zombieFrame(
  */
 export function chooseZombieAnim(kind: number, speed: number, nearTarget: boolean, windup: boolean): ZombieAnim {
   if (windup) return kind === ZombieKind.brute ? 'Wave' : 'Punch';
-  if (kind === ZombieKind.crawler) return speed > 0.2 ? 'Crawl' : 'Idle';
+  // The crawler's other clips stand it up: it crawls even at rest (slowly writhing) and when hit.
+  if (kind === ZombieKind.crawler) return 'Crawl';
   if (speed < 0.5 && nearTarget) return 'Punch';
   if (speed > 1.7) return 'Run_Arms';
   return speed > 0.2 ? 'Walk' : 'Idle';
@@ -331,13 +332,14 @@ export function createHorde(app: Application, models: Models, base: StandardMate
           a.facing += d * Math.min(1, dt * 10);
         }
         const windup = clock < a.windupUntil;
-        const clip: ZombieAnim = clock < a.hitUntil ? 'HitReact' : chooseZombieAnim(kind, speed, nearTarget, windup);
+        const hit = clock < a.hitUntil && kind !== ZombieKind.crawler;
+        const clip: ZombieAnim = hit ? 'HitReact' : chooseZombieAnim(kind, speed, nearTarget, windup);
         if (clip !== a.clip) {
           a.clip = clip;
           a.t = 0;
         }
         const stride = (STRIDE[clip] ?? 0) * spec.scale;
-        a.t += dt * (stride > 0 ? Math.max(0.6, Math.min(2.2, speed / stride)) : 1);
+        a.t += dt * (stride <= 0 ? 1 : speed < 0.2 ? 0.25 : Math.max(0.6, Math.min(2.2, speed / stride)));
       }
       Object.assign(a, { x, y, last: clock, seen: true, kind });
       const flash = clock < a.hitUntil - 0.45 && flashUsed < MAX_FLASHED;

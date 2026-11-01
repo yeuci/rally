@@ -11,6 +11,7 @@ import {
   PART_SPOTS,
   SAFE,
   TOWN_HALF,
+  ESCAPE_FROM_NIGHT,
   TRUCK_FUEL,
   TRUCK_SCRAP,
   TRUCK_WHEELS,
@@ -237,11 +238,15 @@ export function createHud(): Hud {
         `<b>🚚 Truck</b><span class="${st.wheels >= TRUCK_WHEELS ? 'done' : ''}">🛞 ${st.wheels}/${TRUCK_WHEELS}</span>` +
         `<span class="${st.fuel >= TRUCK_FUEL ? 'done' : ''}">🛢️ ${st.fuel}/${TRUCK_FUEL}</span>` +
         `<span class="${st.truckScrap >= TRUCK_SCRAP ? 'done' : ''}">🔩 ${st.truckScrap}/${TRUCK_SCRAP}</span>` +
-        (st.wheels >= TRUCK_WHEELS && st.fuel >= TRUCK_FUEL && st.truckScrap >= TRUCK_SCRAP
-          ? st.night >= 4
-            ? '<em>Ready: start it!</em>'
-            : `<em>Ready from night 4</em>`
-          : '');
+        (st.phase === 'holdout'
+          ? '<em>Warming up: hold out!</em>'
+          : st.phase === 'escape'
+            ? '<em>On the road!</em>'
+            : st.wheels >= TRUCK_WHEELS && st.fuel >= TRUCK_FUEL && st.truckScrap >= TRUCK_SCRAP
+              ? st.night >= ESCAPE_FROM_NIGHT
+                ? '<em>Ready: start it!</em>'
+                : `<em>Ready from night ${ESCAPE_FROM_NIGHT}</em>`
+              : '');
       if (truck !== lastTruck) {
         truckEl.innerHTML = truck;
         lastTruck = truck;

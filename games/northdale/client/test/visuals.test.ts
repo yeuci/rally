@@ -73,6 +73,7 @@ test('zombie clips: what each kind plays exists in its file; frames loop or hold
   assert.equal(chooseZombieAnim(ZombieKind.basic, 3, false, false), 'Run_Arms', 'night runners');
   assert.equal(chooseZombieAnim(ZombieKind.basic, 0.1, true, false), 'Punch', 'biting');
   assert.equal(chooseZombieAnim(ZombieKind.crawler, 3, false, false), 'Crawl');
+  assert.equal(chooseZombieAnim(ZombieKind.crawler, 0, true, false), 'Crawl', 'its other clips stand it up');
   assert.equal(chooseZombieAnim(ZombieKind.brute, 0, false, true), 'Wave', 'the rock wind-up');
   const clips = new Map(MODELS.zombies[0]!.clips.map((c) => [c.name, c]));
   const walk = clips.get('Walk')!;

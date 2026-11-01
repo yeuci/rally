@@ -54,10 +54,11 @@ const EVENING: Sky = {
 const NIGHT: Sky = {
   night: 1,
   sun: [0.5, 0.6, 0.95],
-  sunIntensity: 0.32,
+  // Bright enough moonlight to read the street on a phone; the fog still swallows anything far away.
+  sunIntensity: 0.45,
   sunPitch: 60,
   sunYaw: 140,
-  ambient: [0.1, 0.12, 0.2],
+  ambient: [0.14, 0.16, 0.26],
   fog: [0.03, 0.04, 0.08],
   fogStart: 26,
   fogEnd: 54,
@@ -70,7 +71,7 @@ const BLOOD: Sky = {
   sunIntensity: 0.45,
   sunPitch: 55,
   sunYaw: 140,
-  ambient: [0.2, 0.06, 0.07],
+  ambient: [0.26, 0.08, 0.09],
   fog: [0.14, 0.02, 0.03],
   fogStart: 24,
   fogEnd: 50,

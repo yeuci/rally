@@ -1,4 +1,4 @@
-import { hexRgb, toLinear, type Rgb } from '@rally/game-kit';
+import { hexRgb, readMeshData, toLinear, type MeshData, type Rgb } from '@rally/game-kit';
 import {
   BLEND_ADDITIVEALPHA,
   BLEND_NORMAL,
@@ -24,6 +24,7 @@ import {
   GOO_RADIUS,
   Item,
   PALETTE,
+  PROP_BOUNDS,
   ROCK_RADIUS,
   SAFE_CENTER,
   SOCKETS,
@@ -169,6 +170,29 @@ const rgb = (hex: string) => {
   return new Color(r / 255, g / 255, b / 255);
 };
 const lin = (hex: string): Rgb => toLinear(hexRgb(hex));
+
+/** The truck's lamps, one glow part in the pack: warm headlights at the nose (+z), red lamps at the back. */
+function truckLights(device: GraphicsDevice, g: MeshData): Mesh {
+  const front: number[] = [];
+  const back: number[] = [];
+  for (let t = 0; t < g.count; t += 3) {
+    const z = (g.positions[t * 3 + 2]! + g.positions[t * 3 + 5]! + g.positions[t * 3 + 8]!) / 3;
+    (z > 0 ? front : back).push(t, t + 1, t + 2);
+  }
+  const subset = (ids: number[]): MeshData => ({
+    count: ids.length,
+    positions: Float32Array.from(
+      ids.flatMap((i) => [g.positions[i * 3]!, g.positions[i * 3 + 1]!, g.positions[i * 3 + 2]!]),
+    ),
+    normals: Float32Array.from(ids.flatMap((i) => [g.normals[i * 3]!, g.normals[i * 3 + 1]!, g.normals[i * 3 + 2]!])),
+    colors: new Uint8Array(ids.length * 4),
+    uvs: null,
+  });
+  const b = new Batch();
+  b.add(subset(front), new Mat4(), [255, 236, 190]);
+  b.add(subset(back), new Mat4(), [255, 34, 24]);
+  return b.build(device)!;
+}
 
 function canvasTexture(device: GraphicsDevice, size: number, draw: (g: CanvasRenderingContext2D, s: number) => void) {
   const c = document.createElement('canvas');
@@ -366,12 +390,13 @@ export function createNorthdaleScene(
       castShadows: false,
     });
     truck.addChild(body);
-    const lightsMat = glow(new Color(1, 0.95, 0.75), { additive: false });
+    const lightsMat = glow(new Color(1, 1, 1), { additive: false });
+    lightsMat.emissiveVertexColor = true;
     lightsMat.emissiveIntensity = 0;
     lightsMat.update();
     const lights = new Entity('truck-lights');
     lights.addComponent('render', {
-      meshInstances: [new MeshInstance(models.props.Vehicle_Truck_Armored.glow!.mesh, lightsMat)],
+      meshInstances: [new MeshInstance(truckLights(device, models.props.Vehicle_Truck_Armored.glow!.data), lightsMat)],
       castShadows: false,
     });
     truck.addChild(lights);
@@ -615,15 +640,23 @@ export function createNorthdaleScene(
   const arcs = pool(6, () => effectEntity('plane', glow(new Color(1, 1, 0.92), { map: ringTex, opacity: 0.8 })));
   const rings = pool(6, () => effectEntity('plane', glow(new Color(1, 0.25, 0.15), { map: ringTex, opacity: 0.9 })));
   const dusts = pool(6, () => effectEntity('sphere', material(new Color(0.55, 0.5, 0.45))));
-  const decalMeshes = (['Blood_1', 'Blood_2', 'Blood_3'] as const).map((n) => models.props[n].mesh);
+  const BLOOD = ['Blood_1', 'Blood_2', 'Blood_3'] as const;
   const bloodMat = material(new Color(1, 1, 1), { vertex: true, gloss: 0.6 });
-  const decals: { e: Entity; age: number; live: boolean; size: number }[] = [];
+  // A faint red of its own, so a splat still reads as blood (not a black hole) at night.
+  bloodMat.emissive = new Color(0.16, 0.01, 0.01);
+  bloodMat.update();
+  const decals: { e: Entity; age: number; live: boolean; size: number; extent: number }[] = [];
   for (let i = 0; i < MAX_DECALS; i++) {
+    const name = BLOOD[i % 3]!;
     const e = new Entity('blood');
-    e.addComponent('render', { meshInstances: [new MeshInstance(decalMeshes[i % 3]!, bloodMat)], castShadows: false });
+    e.addComponent('render', {
+      meshInstances: [new MeshInstance(models.props[name].mesh, bloodMat)],
+      castShadows: false,
+    });
     e.enabled = false;
     app.root.addChild(e);
-    decals.push({ e, age: 0, live: false, size: 1 });
+    const [x0, z0, x1, z1] = PROP_BOUNDS[name];
+    decals.push({ e, age: 0, live: false, size: 1, extent: Math.max(x1 - x0, z1 - z0) });
   }
   let decalNext = 0;
   const take = (list: Effect[]) => {
@@ -898,7 +931,8 @@ export function createNorthdaleScene(
         const d = decals[decalNext++ % decals.length]!;
         d.live = true;
         d.age = 0;
-        d.size = 0.55 + Math.random() * 0.35;
+        // A splat 0.9–1.4 units across, whichever of the three meshes it is.
+        d.size = (0.9 + Math.random() * 0.5) / d.extent;
         d.e.enabled = true;
         d.e.setPosition(x, 0.13 + (decalNext % 7) * 0.002, y);
         d.e.setEulerAngles(0, Math.random() * 360, 0);
@@ -1127,10 +1161,9 @@ export function createNorthdaleScene(
 function readWeapon(mesh: Mesh) {
   return readMeshDataCached(mesh);
 }
-const weaponData = new WeakMap<Mesh, ReturnType<typeof readMeshDataImpl>>();
+const weaponData = new WeakMap<Mesh, MeshData>();
 function readMeshDataCached(mesh: Mesh) {
   let d = weaponData.get(mesh);
-  if (!d) weaponData.set(mesh, (d = readMeshDataImpl(mesh)));
+  if (!d) weaponData.set(mesh, (d = readMeshData(mesh)));
   return d;
 }
-import { readMeshData as readMeshDataImpl } from '@rally/game-kit';

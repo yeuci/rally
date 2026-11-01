@@ -71,7 +71,8 @@ const COLORS = {
   glass: lin('#1b2330'),
   lit: ['#ffd27a', '#ffe2a0', '#ffc861', '#a8d4ff'].map(lin),
   vent: lin('#5b5e66'),
-  footing: lin('#1c1d21'),
+  // Block lots between the buildings (gravel and old concrete).
+  footing: lin('#4a4846'),
   cinder: lin('#9b968d'),
   cinderLine: lin('#6d6962'),
 };
@@ -432,13 +433,12 @@ export function buildTown(app: Application, models: Models, opts: { lowfx: boole
       const w = 0.8 + rand() * 1.2;
       r.walls.box(cx - w / 2, b.h, cz - w / 2, cx + w / 2, b.h + 0.6 + rand() * 0.6, cz + w / 2, COLORS.vent);
     }
-    // Windows on the faces the camera can see (south, east, west): rows of panes, some lit.
+    // Windows on the south face, the one the camera looks at: rows of panes, some lit. (The east and west faces stay
+    // blank: seen edge-on at the side of the screen, their panes stretch into long slivers of light.)
     const floorH = 3;
     const pane = { w: 1.0, h: 1.25 };
     const faces: { a: [number, number]; b: [number, number]; n: [number, number] }[] = [
       { a: [b.x0, b.y1], b: [b.x1, b.y1], n: [0, 1] },
-      { a: [b.x1, b.y1], b: [b.x1, b.y0], n: [1, 0] },
-      { a: [b.x0, b.y0], b: [b.x0, b.y1], n: [-1, 0] },
     ];
     for (const f of faces) {
       const len = Math.hypot(f.b[0] - f.a[0], f.b[1] - f.a[1]);
