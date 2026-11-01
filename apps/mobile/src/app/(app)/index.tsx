@@ -15,6 +15,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 import { useUniwind } from 'uniwind';
 import { BrowseAllRow, CategoryRow } from '@/components/rally/category-card';
 import { LaunchConsentDialog } from '@/components/rally/consent-dialog';
+import { DailyChallenges } from '@/components/rally/daily-challenges';
 import { DashboardHero, DashboardHeroSkeleton } from '@/components/rally/dashboard-hero';
 import { DashboardTopBar, TOP_BAR_ROW } from '@/components/rally/dashboard-top-bar';
 import { EmptyState } from '@/components/rally/empty-state';
@@ -221,6 +222,7 @@ export default function Dashboard() {
                 liveFor={liveFor}
                 subtitleFor={(g) => timeAgo(lastPlayed.get(g.id))}
               />
+              <DailyChallenges inset />
               <TileRow
                 title="New on Rally"
                 games={newest.data}

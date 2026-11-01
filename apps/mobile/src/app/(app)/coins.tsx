@@ -9,6 +9,8 @@ import {
   ShoppingBagIcon,
   SparklesIcon,
   StoreIcon,
+  TargetIcon,
+  TrendingUpIcon,
   TrophyIcon,
   UserRoundIcon,
   type LucideIcon,
@@ -16,6 +18,7 @@ import {
 import { useState } from 'react';
 import { ActivityIndicator, RefreshControl, ScrollView, View, type TextStyle } from 'react-native';
 import { CoinAmount } from '@/components/rally/coins';
+import { DailyChallenges } from '@/components/rally/daily-challenges';
 import { EmptyState, RetryButton } from '@/components/rally/empty-state';
 import { SectionHeader } from '@/components/rally/section-header';
 import { Button } from '@/components/ui/button';
@@ -24,9 +27,10 @@ import { Separator } from '@/components/ui/separator';
 import { Skeleton, SkeletonText } from '@/components/ui/skeleton';
 import { TapPressable } from '@/components/ui/tap-pressable';
 import { Text } from '@/components/ui/text';
-import { useCoinHistory, useWallet } from '@/lib/coins';
-import { coinsLabel, formatCoins, ledgerTitle, signedCoins, type CoinReason, type LedgerEntry } from '@/lib/coins-model';
+import { useCoinHistory, useWallet, type HistoryEntry } from '@/lib/coins';
+import { coinsLabel, formatCoins, ledgerTitle, signedCoins, type CoinReason } from '@/lib/coins-model';
 import { timeAgo } from '@/lib/format';
+import { xpLabel } from '@/lib/levels-model';
 import { useColumnPadding, useLayout } from '@/lib/use-layout';
 import { usePalette } from '@/lib/use-palette';
 import { cn } from '@/lib/utils';
@@ -42,12 +46,15 @@ const REASON_ICONS: Record<CoinReason, LucideIcon> = {
   daily: CalendarCheckIcon,
   purchase: ShoppingBagIcon,
   adjustment: SparklesIcon,
+  level: TrendingUpIcon,
+  challenge: TargetIcon,
 };
 
 /**
- * Coin history (`/coins`, from the shop and the profile): the balance and lifetime earnings, then every change newest
- * first (`coin_ledger`, own rows only): what it was for ("Win · Sumo", "Purchase · Ember", "Daily bonus"), when, and
- * the signed amount. 30 rows at a time with "Show more". Rows about a game open its page.
+ * Coin history (`/coins`, from the shop and the profile): the balance and lifetime earnings, the Daily challenges card,
+ * then every change newest first (`coin_ledger`, own rows only): what it was for ("Win · Sumo", "Purchase · Ember",
+ * "Daily bonus", "Level up · Level 5"), when, the signed amount and the XP that came with it ("+10 XP"). 30 rows at a
+ * time with "Show more". Rows about a game open its page.
  */
 export default function CoinHistoryScreen() {
   const { insets } = useLayout();
@@ -86,6 +93,8 @@ export default function CoinHistoryScreen() {
         <Summary label="Balance" amount={wallet.data?.balance} />
         <Summary label="Earned in total" amount={wallet.data?.lifetime_earned} />
       </View>
+
+      <DailyChallenges />
 
       <View className="gap-3">
         <SectionHeader title="History" className="px-0" />
@@ -158,8 +167,11 @@ function Summary({ label, amount }: { label: string; amount: number | undefined 
   );
 }
 
-/** Icon tile, "Win" over "Sumo · 2 h ago", the signed amount (gold for awards). Rows tied to a game open it. */
-function LedgerRow({ entry: e }: { entry: LedgerEntry }) {
+/**
+ * Icon tile, "Win" over "Sumo · 2 h ago", the signed amount (gold for awards) with the XP of the same award under it.
+ * Rows tied to a game open it.
+ */
+function LedgerRow({ entry: e }: { entry: HistoryEntry }) {
   const { title, detail } = ledgerTitle(e);
   const when = timeAgo(e.createdAt);
   const meta = [detail, when].filter(Boolean).join(' · ');
@@ -179,12 +191,19 @@ function LedgerRow({ entry: e }: { entry: LedgerEntry }) {
           </Text>
         ) : null}
       </View>
-      <Text className={cn('text-[15px] font-bold', e.amount > 0 ? 'text-gold' : 'text-foreground')} style={TABULAR}>
-        {amount}
-      </Text>
+      <View className="items-end">
+        <Text className={cn('text-[15px] font-bold leading-5', e.amount > 0 ? 'text-gold' : 'text-foreground')} style={TABULAR}>
+          {amount}
+        </Text>
+        {e.xp ? (
+          <Text className="text-muted-foreground text-[12px] font-semibold leading-4" style={TABULAR}>
+            {xpLabel(e.xp)}
+          </Text>
+        ) : null}
+      </View>
     </>
   );
-  const a11y = `${title}${detail ? `, ${detail}` : ''}, ${e.amount > 0 ? 'plus' : 'minus'} ${coinsLabel(Math.abs(e.amount))}${when ? `, ${when}` : ''}, balance ${formatCoins(e.balanceAfter)}`;
+  const a11y = `${title}${detail ? `, ${detail}` : ''}, ${e.amount > 0 ? 'plus' : 'minus'} ${coinsLabel(Math.abs(e.amount))}${e.xp ? ` and ${e.xp} XP` : ''}${when ? `, ${when}` : ''}, balance ${formatCoins(e.balanceAfter)}`;
   return e.gameId ? (
     <TapPressable
       accessibilityRole="button"

@@ -1,6 +1,7 @@
 import type { Json } from "./types.ts";
 
 export * from "./types.ts";
+export * from "./progress.ts";
 
 /**
  * The profile columns clients may select (column-level grant in 20261029000400_m1_review_fixes.sql).
@@ -116,8 +117,21 @@ export const MAX_SERVER_VISITS_PER_CALL = 1000 as const;
 
 // ---- Coins (20261031000400_coins.sql; docs/coins.md) --------------------------------------------------------------
 
-/** `coin_ledger.reason`. Earn reasons are positive; `purchase` is negative; `adjustment` (support) either sign. */
-export type CoinReason = "match" | "win" | "podium" | "achievement" | "solo" | "daily" | "purchase" | "adjustment";
+/**
+ * `coin_ledger.reason`. Earn reasons are positive; `purchase` is negative; `adjustment` (support) either sign.
+ * `level` (ref = the level reached) and `challenge` (ref = the daily challenge id) come from 20261101000100_progress.sql.
+ */
+export type CoinReason =
+  | "match"
+  | "win"
+  | "podium"
+  | "achievement"
+  | "solo"
+  | "daily"
+  | "purchase"
+  | "adjustment"
+  | "level"
+  | "challenge";
 
 /** `coin_rules.key`: every amount, cap and threshold of the economy (tune with an UPDATE, no migration). */
 export type CoinRuleKey =
