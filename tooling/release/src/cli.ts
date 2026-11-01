@@ -24,6 +24,7 @@ import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
 import { createClient } from '@supabase/supabase-js';
 import {
+  blockingChanges,
   describePlan,
   planGames,
   serverNeedsDeploy,
@@ -117,8 +118,12 @@ function deployTarget(): { ssh: string; url: string } {
 async function checkMain(): Promise<{ behind: number; pullLine: string | null }> {
   const branch = await git('rev-parse', '--abbrev-ref', 'HEAD');
   if (branch !== 'main') throw new Stop(`You're on '${branch}'. Releases go out from main: git checkout main`);
-  const dirty = await git('status', '--porcelain', '--untracked-files=no');
-  if (dirty) throw new Stop(`main has uncommitted changes; commit or discard them first:\n${dirty}`);
+  const dirty = blockingChanges(await git('status', '--porcelain', '--untracked-files=no'));
+  if (dirty.length > 0) {
+    throw new Stop(
+      `main has uncommitted changes; commit or discard them first (git checkout -- <file>):\n${dirty.join('\n')}`,
+    );
+  }
   await run('git', ['fetch', '--quiet', 'origin', 'main']);
   const ahead = Number(await git('rev-list', '--count', 'origin/main..HEAD'));
   if (ahead > 0) {

@@ -3,6 +3,31 @@
  * publish, and how to say it. `cli.ts` gathers the facts (git, the box, Supabase) and runs the steps.
  */
 
+/**
+ * Tracked files that tools rewrite on their own (uniwind regenerates its types every time Metro starts, with the
+ * platform's line endings): a local change to one of them never blocks a release.
+ */
+export const GENERATED_FILES = new Set(['apps/mobile/uniwind-types.d.ts']);
+
+/**
+ * The paths in `git status --porcelain` output that block a release: every changed tracked file except the
+ * generated ones. Tolerates a trimmed first line (" M a" read as "M a") and renames ("R  old -> new").
+ */
+export function blockingChanges(porcelain: string, generated: ReadonlySet<string> = GENERATED_FILES): string[] {
+  return porcelain
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) =>
+      line
+        .replace(/^[A-Z?!]{1,2}\s+/, '')
+        .split(' -> ')
+        .pop()!
+        .replace(/^"|"$/g, ''),
+    )
+    .filter((path) => !generated.has(path));
+}
+
 /** Games that never ship from `pnpm ship` (the bridge test game is published by hand, if ever). */
 export const NEVER_SHIPPED = new Set(['spike']);
 

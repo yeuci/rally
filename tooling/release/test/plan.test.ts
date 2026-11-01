@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { describePlan, planGames, serverNeedsDeploy, type LiveGame } from '../src/plan.ts';
+import { blockingChanges, describePlan, planGames, serverNeedsDeploy, type LiveGame } from '../src/plan.ts';
 
 const SHA = 'a'.repeat(40);
 const DIRS = ['apps/game-server', 'games/sushi/server', 'games/sumo/server'];
@@ -101,4 +101,13 @@ test('describePlan: one line per step, games with what happens to them', () => {
     '  game      Gun Run (gunrun): publish 0.1.2 (new game, listed for players)',
   ]);
   assert.deepEqual(describePlan({ pulled: null, db: false, server: null, games: [] }), ['  games     none']);
+});
+
+test('blockingChanges: generated files never block; trimmed first lines and renames parse', () => {
+  assert.deepEqual(blockingChanges(''), []);
+  assert.deepEqual(blockingChanges('M apps/mobile/uniwind-types.d.ts'), [], 'the trimmed first line of " M <file>"');
+  assert.deepEqual(blockingChanges(' M apps/mobile/uniwind-types.d.ts\nMM games/sumo/game.json'), [
+    'games/sumo/game.json',
+  ]);
+  assert.deepEqual(blockingChanges('R  old.ts -> new.ts\n D gone.ts'), ['new.ts', 'gone.ts']);
 });
