@@ -95,7 +95,14 @@ export const RequestSchemas = {
     result: z.null(),
   },
   'ui.loading': {
-    params: z.object({ progress: z.number().min(0).max(1) }),
+    /**
+     * Boot progress for the host's loading screen. `label` says, in a few plain words, what is loading right now
+     * ("Downloading characters", "Building the kitchen", "Connecting to the server"); the host shows it under the bar.
+     * A game that sends labels keeps the host's loading screen up after `ready()` until it sends `progress: 1`
+     * (playable: models loaded AND the match joined), so the whole boot is one screen; one that never does is
+     * revealed at `ready()` as before.
+     */
+    params: z.object({ progress: z.number().min(0).max(1), label: z.string().trim().min(1).max(60).optional() }),
     result: z.null(),
   },
   haptics: {

@@ -27,6 +27,18 @@ test('ping params schema', () => {
   assert.equal(RequestSchemas.ping.params.safeParse({}).success, false);
 });
 
+test('ui.loading params: progress 0..1 and an optional short label', () => {
+  const params = RequestSchemas['ui.loading'].params;
+  assert.ok(params.safeParse({ progress: 0.5 }).success);
+  assert.deepEqual(params.parse({ progress: 1, label: '  Connecting to the server ' }), {
+    progress: 1,
+    label: 'Connecting to the server',
+  });
+  assert.equal(params.safeParse({ progress: 1.5 }).success, false);
+  assert.equal(params.safeParse({ progress: 0.5, label: '' }).success, false);
+  assert.equal(params.safeParse({ progress: 0.5, label: 'x'.repeat(61) }).success, false);
+});
+
 test('manifest applies defaults and validates players', () => {
   const m = GameManifestSchema.parse({
     id: 'spike',
@@ -40,10 +52,7 @@ test('manifest applies defaults and validates players', () => {
   assert.equal(m.entry, 'index.html');
   assert.equal(m.orientation, 'any');
   assert.deepEqual(m.capabilities, []);
-  assert.equal(
-    GameManifestSchema.safeParse({ ...m, players: { min: 4, max: 2 } }).success,
-    false,
-  );
+  assert.equal(GameManifestSchema.safeParse({ ...m, players: { min: 4, max: 2 } }).success, false);
 });
 
 test('manifest leaderboards: optional mode best | total (omitted = best in the database)', () => {
@@ -162,7 +171,8 @@ test('manifest art: icon, cover and screenshots take absolute URLs or local path
   }
   assert.equal(GameManifestSchema.safeParse({ ...base, screenshots: ['../a.png'] }).success, false);
   assert.equal(
-    GameManifestSchema.safeParse({ ...base, screenshots: Array.from({ length: 17 }, (_, i) => `art/${i}.png`) }).success,
+    GameManifestSchema.safeParse({ ...base, screenshots: Array.from({ length: 17 }, (_, i) => `art/${i}.png`) })
+      .success,
     false,
   );
 

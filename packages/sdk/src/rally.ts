@@ -94,7 +94,14 @@ export class Rally {
   };
 
   readonly ui = {
-    loading: (progress: number) => this.client.request('ui.loading', { progress }),
+    /**
+     * Report boot progress (0..1) to the host's loading screen, with a short user-facing `label` for what is loading
+     * now ("Downloading characters", "Connecting to the server"). Once a game has sent a label, the host keeps its
+     * loading screen up past `ready()` until `progress` reaches 1, so send 1 when the game is playable (or showing its
+     * own error / menu UI).
+     */
+    loading: (progress: number, label?: string) =>
+      this.client.request('ui.loading', label === undefined ? { progress } : { progress, label }),
   };
 
   readonly telemetry = {
