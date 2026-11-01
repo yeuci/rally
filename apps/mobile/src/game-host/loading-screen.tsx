@@ -23,7 +23,6 @@ import { LogoMark, useSvgId } from '@/components/rally/logo';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { BRAND } from '@/lib/brand';
-import { useBoxSize } from '@/lib/use-layout';
 import { useReduceMotionSetting } from '@/lib/use-reduce-motion';
 import { problemCopy } from './loading-copy';
 
@@ -278,7 +277,8 @@ function TopBar({ insets, children }: { insets: { top: number; left: number; rig
 
 /**
  * Full-bleed background: the brand gradient, the game's art blurred over it (fading in once loaded), and a dark scrim
- * for white type. Every SVG is redrawn at its measured size (keyed), so a rotation never leaves a stale bitmap.
+ * for white type. The SVG layers are sized in percent (their gradients in bounding-box units), never from a measured
+ * box: the game locks its orientation right after this mounts, and a measured size stayed portrait-wide for a moment.
  */
 export const GameBackdrop = memo(function GameBackdrop({
   artUri,
@@ -287,12 +287,9 @@ export const GameBackdrop = memo(function GameBackdrop({
   artUri?: string | null;
   dim?: boolean;
 }) {
-  const box = useBoxSize();
-  const w = box.size?.width ?? 0;
-  const h = box.size?.height ?? 0;
   return (
-    <View style={StyleSheet.absoluteFill} onLayout={box.onLayout} pointerEvents="none">
-      {box.size ? <BrandGradient key={`g${box.key}`} width={w} height={h} /> : null}
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      <BrandGradient />
       {artUri ? (
         <ExpoImage
           source={{ uri: artUri }}
@@ -303,17 +300,17 @@ export const GameBackdrop = memo(function GameBackdrop({
           accessibilityIgnoresInvertColors
         />
       ) : null}
-      {box.size ? <Scrim key={`s${box.key}`} width={w} height={h} strong={dim} photo={!!artUri} /> : null}
+      <Scrim strong={dim} photo={!!artUri} />
     </View>
   );
 });
 
 /** Near-black to charcoal with a soft light behind the title: the brand's monochrome, for games without art yet. */
-function BrandGradient({ width, height }: { width: number; height: number }) {
+function BrandGradient() {
   const bg = useSvgId('loading-bg');
   const glow = useSvgId('loading-glow');
   return (
-    <Svg style={StyleSheet.absoluteFill} width={width} height={height}>
+    <Svg style={StyleSheet.absoluteFill} width="100%" height="100%">
       <Defs>
         <LinearGradient id={bg} x1="0" y1="0" x2="1" y2="1">
           <Stop offset={0} stopColor="#262626" />
@@ -325,19 +322,19 @@ function BrandGradient({ width, height }: { width: number; height: number }) {
           <Stop offset={1} stopColor={WHITE} stopOpacity={0} />
         </RadialGradient>
       </Defs>
-      <Rect x={0} y={0} width={width} height={height} fill={`url(#${bg})`} />
-      <Rect x={0} y={0} width={width} height={height} fill={`url(#${glow})`} />
+      <Rect x={0} y={0} width="100%" height="100%" fill={`url(#${bg})`} />
+      <Rect x={0} y={0} width="100%" height="100%" fill={`url(#${glow})`} />
     </Svg>
   );
 }
 
 /** Black shade: deeper under the logo and at the bottom, lighter in the middle where the title and bar sit. */
-function Scrim({ width, height, strong, photo }: { width: number; height: number; strong: boolean; photo: boolean }) {
+function Scrim({ strong, photo }: { strong: boolean; photo: boolean }) {
   const id = useSvgId('loading-scrim');
   // Bright art (a lit arena in the middle of a dark cover) still needs white type to read: a flat dim, then the edges.
   const base = strong ? 0.52 : photo ? 0.4 : 0;
   return (
-    <Svg style={StyleSheet.absoluteFill} width={width} height={height}>
+    <Svg style={StyleSheet.absoluteFill} width="100%" height="100%">
       <Defs>
         <LinearGradient id={id} x1="0" y1="0" x2="0" y2="1">
           <Stop offset={0} stopColor="#000000" stopOpacity={0.45} />
@@ -346,8 +343,8 @@ function Scrim({ width, height, strong, photo }: { width: number; height: number
           <Stop offset={1} stopColor="#000000" stopOpacity={0.55} />
         </LinearGradient>
       </Defs>
-      {base > 0 ? <Rect x={0} y={0} width={width} height={height} fill="#000000" opacity={base} /> : null}
-      <Rect x={0} y={0} width={width} height={height} fill={`url(#${id})`} />
+      {base > 0 ? <Rect x={0} y={0} width="100%" height="100%" fill="#000000" opacity={base} /> : null}
+      <Rect x={0} y={0} width="100%" height="100%" fill={`url(#${id})`} />
     </Svg>
   );
 }

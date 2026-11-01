@@ -13,6 +13,7 @@ import { config, toWsUrl } from '@/config';
 import { HostError } from '@/game-host/bridge';
 import { GameHost, type GameHostResult } from '@/game-host/GameHost';
 import { MATCH_ENDED_EXIT, type MatchmakingTarget } from '@/game-host/handlers';
+import { turnBackFromGame } from '@/game-host/orientation';
 import { pageBytesOf } from '@/game-host/loading-copy';
 import { createRejoinJournal } from '@/game-host/rejoin-journal';
 import { createSupabaseProgressStore } from '@/game-host/supabase-progress';
@@ -73,7 +74,12 @@ async function resolveFriend(friendId: string): Promise<FriendJoinTarget> {
   return target;
 }
 
-function leave(id: string) {
+/**
+ * Back to the game page: first turn the screen back to how the player held it before the game (a landscape game on a
+ * portrait phone), so the page underneath never lays out mid-rotation; GameHost frees the orientation once unmounted.
+ */
+async function leave(id: string) {
+  await turnBackFromGame();
   if (router.canGoBack()) router.back();
   else router.replace({ pathname: '/game/[id]', params: { id } });
 }
@@ -157,7 +163,7 @@ export default function PlayScreen() {
       // Already leaving: the screen is unmounting (navigation away, sign-out).
       if (result.reason === 'unmount') return;
       if (result.reason === MATCH_ENDED_EXIT) showToast('That match has ended');
-      leave(id ?? '');
+      void leave(id ?? '');
     },
     [id, qc, userId, multiplayer],
   );
@@ -167,7 +173,7 @@ export default function PlayScreen() {
   useEffect(() => {
     if (!resumeEnded) return;
     showToast('That match has ended');
-    leave(id ?? '');
+    void leave(id ?? '');
   }, [resumeEnded, id]);
 
   if (plan.isLoading || consent.isLoading || profile.isLoading || resumeRecord.isLoading || resumeEnded) {
