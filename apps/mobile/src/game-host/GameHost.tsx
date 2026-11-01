@@ -24,6 +24,7 @@ import { NetBanner } from './net-banner';
 import type { MatchmakingTarget } from './handlers';
 import { buildInjectedScript } from './injected';
 import { GameLoadingScreen, GameProblemScreen } from './loading-screen';
+import { lockForGame, releaseGameOrientation, turnBackFromGame } from './orientation';
 import { autoGraphics, menuButtonRect, type GameSettingsStore } from './settings';
 import { gameSettingsStore, menuButtonStore } from '@/lib/game-settings';
 import type { PlaySessionService } from './play-session';
@@ -246,7 +247,8 @@ export function GameHost(props: GameHostProps) {
     return () => controller.unmount();
   }, [controller]);
 
-  // Orientation lock per manifest.
+  // Orientation lock per manifest (remembering the shell's, see orientation.ts). On unmount the shell turns back (if
+  // the play route has not already) and follows the device again.
   useEffect(() => {
     const lock =
       orientation === 'landscape'
@@ -254,9 +256,9 @@ export function GameHost(props: GameHostProps) {
         : orientation === 'portrait'
           ? ScreenOrientation.OrientationLock.PORTRAIT_UP
           : null;
-    if (lock !== null) ScreenOrientation.lockAsync(lock).catch(() => {});
+    void lockForGame(lock);
     return () => {
-      ScreenOrientation.unlockAsync().catch(() => {});
+      void turnBackFromGame().then(releaseGameOrientation);
     };
   }, [orientation]);
 
