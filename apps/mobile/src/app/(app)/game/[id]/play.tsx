@@ -31,6 +31,7 @@ import { setInGame, setOnline } from '@/lib/presence';
 import { useProfile, resolveAvatarUrl } from '@/lib/profile';
 import { supabase } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
+import { notePlayed } from '@/lib/votes';
 
 /**
  * Full-screen play route. Only renders the host once the version is resolved, the app version is new enough and
@@ -144,6 +145,8 @@ export default function PlayScreen() {
   const onExit = useCallback(
     (result: GameHostResult) => {
       setOnline();
+      // "Did you enjoy <Game>?" once the game screen has closed, if a match happened (components/rally/vote-prompt.tsx).
+      notePlayed(id, result);
       if (id) {
         // Multiplayer: the room wrote stats, boards and unlocks (no play session to wait for).
         if (multiplayer) invalidateAfterPlay(qc, userId, id);
