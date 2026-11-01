@@ -105,6 +105,8 @@ export const REASON_LABELS: Record<CoinReason, string> = {
   daily: 'Daily bonus',
   purchase: 'Purchase',
   adjustment: 'Bonus',
+  level: 'Level up',
+  challenge: 'Daily challenge',
 };
 
 const REASONS = Object.keys(REASON_LABELS) as CoinReason[];

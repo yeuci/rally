@@ -28,6 +28,11 @@ export interface HarnessConfig {
   launch: HarnessLaunchOptions;
   /** Show the floating control panel. */
   panel: boolean;
+  /**
+   * The shell's loading screen, drawn by the harness too: the game's title and art (game.json `cover`, else its first
+   * screenshot; a local file is served by the plugin). Absent in older plugin builds.
+   */
+  loading?: { title: string; art: string | null };
 }
 
 declare global {

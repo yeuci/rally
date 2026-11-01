@@ -19,6 +19,8 @@ export interface AppHandle {
   app: Application;
   /** Re-apply the DPR cap and resize the canvas (called on resize / orientation change). */
   resize(): void;
+  /** Change the DPR cap live (the game menu's graphics quality) and resize. */
+  setMaxPixelRatio(cap: number): void;
   /** Subscribe to size changes after the canvas was resized. Returns an unsubscribe function. */
   onResize(fn: (width: number, height: number) => void): () => void;
   destroy(): void;
@@ -30,7 +32,8 @@ export interface AppHandle {
  * build its scene first and then call `app.start()`.
  */
 export function createApp(options: CreateAppOptions): AppHandle {
-  const { canvas, maxPixelRatio = MAX_PIXEL_RATIO, antialias = true, pointerDevices = false } = options;
+  const { canvas, antialias = true, pointerDevices = false } = options;
+  let maxPixelRatio = options.maxPixelRatio ?? MAX_PIXEL_RATIO;
   canvas.style.touchAction = 'none';
   canvas.style.userSelect = 'none';
   (canvas.style as CSSStyleDeclaration & { webkitTouchCallout?: string }).webkitTouchCallout = 'none';
@@ -74,6 +77,11 @@ export function createApp(options: CreateAppOptions): AppHandle {
   return {
     app,
     resize,
+    setMaxPixelRatio(cap) {
+      if (!(cap > 0) || cap === maxPixelRatio) return;
+      maxPixelRatio = cap;
+      resize();
+    },
     onResize(fn) {
       listeners.add(fn);
       return () => listeners.delete(fn);

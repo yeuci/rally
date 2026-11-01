@@ -13,13 +13,17 @@ import {
 } from 'playcanvas';
 import {
   fetchModel,
+  fetchModels,
   hexRgb,
   inflate,
   linearByte,
   modelUrl,
+  modelsFraction,
   readMeshData,
+  responseSize,
   setupAnimLayers,
   toLinear,
+  type DownloadProgress,
 } from '../src/models.ts';
 
 test('pipeline files are gunzipped unless the server already inflated them', async () => {
@@ -35,6 +39,62 @@ test('pipeline files are gunzipped unless the server already inflated them', asy
     })) as unknown as typeof fetch;
   assert.deepEqual(new Uint8Array(await fetchModel('m.glb.gz', fake(gz))), raw);
   await assert.rejects(fetchModel('m.glb.gz', fake(gz, false)), /HTTP 404/);
+});
+
+test('fetchModels: bytes across every file against their sizes; each file resolves inflated as soon as it is in', async () => {
+  const rawA = new TextEncoder().encode('A'.repeat(5000));
+  const rawB = new TextEncoder().encode('B'.repeat(9000));
+  const bodies: Record<string, Uint8Array> = {
+    'a.glb.gz': new Uint8Array(gzipSync(rawA)),
+    'b.glb.gz': new Uint8Array(gzipSync(rawB)),
+  };
+  const serve =
+    (headers: (len: number) => Record<string, string>) =>
+    async (url: string | URL | Request): Promise<Response> => {
+      const body = bodies[String(url)]!;
+      const half = Math.floor(body.byteLength / 2);
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(ctrl) {
+            ctrl.enqueue(body.slice(0, half));
+            ctrl.enqueue(body.slice(half));
+            ctrl.close();
+          },
+        }),
+        { headers: headers(body.byteLength) },
+      );
+    };
+  const sizes = bodies['a.glb.gz']!.byteLength + bodies['b.glb.gz']!.byteLength;
+
+  const seen: DownloadProgress[] = [];
+  const [a, b] = fetchModels(
+    ['a.glb.gz', 'b.glb.gz'],
+    (p) => seen.push(p),
+    serve((len) => ({ 'content-length': String(len) })) as typeof fetch,
+  );
+  assert.deepEqual(new Uint8Array(await a!), rawA);
+  assert.deepEqual(new Uint8Array(await b!), rawB);
+  const last = seen.at(-1)!;
+  assert.deepEqual(last, { loaded: sizes, total: sizes, done: 2, files: 2, fraction: 1 });
+  assert.ok(
+    seen.some((p) => p.total === sizes && p.fraction > 0 && p.fraction < 1),
+    'byte fractions while downloading',
+  );
+
+  // Compressed on the fly: no usable length until a file is in; the fraction counts files meanwhile.
+  const encoded: DownloadProgress[] = [];
+  await Promise.all(
+    fetchModels(
+      ['a.glb.gz', 'b.glb.gz'],
+      (p) => encoded.push(p),
+      serve((len) => ({ 'content-length': String(len), 'content-encoding': 'gzip' })) as typeof fetch,
+    ),
+  );
+  assert.ok(encoded.filter((p) => p.done === 0).every((p) => p.total === null && p.fraction === 0));
+  assert.equal(encoded.at(-1)!.total, sizes);
+  assert.equal(responseSize({ headers: new Headers() }), null);
+  assert.equal(modelsFraction(1, 0, 4), 0.85);
+  assert.equal(modelsFraction(1, 4, 4), 1);
 });
 
 test('model files are found by name in a Vite glob map', () => {

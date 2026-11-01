@@ -34,19 +34,33 @@ export interface TwinStickTouch {
 
 /** Pure tracker behind {@link createTwinStick} (no DOM; unit-tested). */
 export class TwinStickTracker {
-  readonly radius: number;
+  /** Finger travel for a full move: the base radius × `scale`. */
+  radius: number;
+  readonly baseRadius: number;
   readonly split: number;
   readonly aimDeadzonePx: number;
   readonly moveDeadzone: number;
+  /** Left-handed: the move stick on the right part of the screen, the aim stick on the left. */
+  swap = false;
   private moveTouch: TwinStickTouch | null = null;
   private aimTouch: TwinStickTouch | null = null;
   private lastAim: TwinStickVector | null = null;
 
   constructor(options: TwinStickOptions = {}) {
-    this.radius = options.radius ?? 56;
+    this.baseRadius = options.radius ?? 56;
+    this.radius = this.baseRadius;
     this.split = options.split ?? 0.5;
     this.aimDeadzonePx = options.aimDeadzonePx ?? 10;
     this.moveDeadzone = options.moveDeadzone ?? 0.08;
+  }
+
+  /**
+   * The player's touch controls (`settings.controls`): swap the sides (left-handed) and scale the sticks. Takes effect
+   * for the next finger; a stick being dragged keeps going.
+   */
+  configure(controls: { swapSticks: boolean; stickSize: number }): void {
+    this.swap = controls.swapSticks;
+    this.radius = this.baseRadius * Math.min(1.5, Math.max(0.75, controls.stickSize || 1));
   }
 
   /**
@@ -55,7 +69,8 @@ export class TwinStickTracker {
    */
   down(id: number, x: number, y: number, width: number): 'move' | 'aim' | null {
     if (this.owns(id)) return null;
-    const side = x < width * this.split ? 'move' : 'aim';
+    const left = this.swap ? x < width * (1 - this.split) : x < width * this.split;
+    const side = left !== this.swap ? 'move' : 'aim';
     const touch = { id, originX: x, originY: y, x, y };
     if (side === 'move') {
       if (this.moveTouch) return null;

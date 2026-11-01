@@ -48,6 +48,8 @@ export interface SumoScene {
   update(dt: number): void;
   /** Drop pooled effects (lowMemory). */
   trim(): void;
+  /** The game menu: shadows and hit effects (graphics quality, live) and the "Screen shake" setting. */
+  setQuality(q: { shadows: boolean; effects: boolean; shake: boolean }): void;
 }
 
 function material(color: Color, opts: { gloss?: number; emissive?: Color } = {}): StandardMaterial {
@@ -89,6 +91,9 @@ export function createSumoScene(
   { shadows = true, effects = true }: SumoSceneOptions = {},
 ): SumoScene {
   app.scene.ambientLight = new Color(0.42, 0.44, 0.52);
+  /** Hit flashes and shake (the game menu's graphics, live), and the "Screen shake" setting. */
+  let fx = effects;
+  let shakeOn = true;
 
   const camera = new Entity('camera');
   camera.addComponent('camera', { clearColor: BG, fov: 40, nearClip: 0.5, farClip: 200 });
@@ -260,7 +265,7 @@ export function createSumoScene(
       pucks.delete(id);
     },
     flash(x, y, strength) {
-      if (!effects) return;
+      if (!fx) return;
       if (flashes.length >= MAX_FLASHES) {
         const old = flashes.shift()!;
         old.e.destroy();
@@ -276,7 +281,7 @@ export function createSumoScene(
       flashes.push({ e, mat, age: 0, size: 1 + Math.min(strength, 14) * 0.18 });
     },
     shake(amount) {
-      if (!effects) return;
+      if (!fx || !shakeOn) return;
       shakeAmp = Math.min(0.9, Math.max(shakeAmp, amount));
     },
     labelAnchor(id, out) {
@@ -336,6 +341,12 @@ export function createSumoScene(
         f.mat.destroy();
       }
       flashes = [];
+    },
+    setQuality(q) {
+      sun.light!.castShadows = q.shadows;
+      fx = q.effects;
+      shakeOn = q.shake;
+      if (!fx || !shakeOn) shakeAmp = 0;
     },
   };
 }

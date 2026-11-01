@@ -1,19 +1,31 @@
 import type { LaunchContext, LaunchIntent } from '@rally/protocol';
 import * as Crypto from 'expo-crypto';
+import * as Haptics from 'expo-haptics';
 import { useKeepAwake } from 'expo-keep-awake';
 import * as ScreenOrientation from 'expo-screen-orientation';
-import { XIcon } from 'lucide-react-native';
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { ActivityIndicator, AppState, BackHandler, PixelRatio, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { AppState, BackHandler, PixelRatio, Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Button } from '@/components/ui/button';
-import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
-import { GameHostController, type DeviceInfo, type GameHostResult } from './controller';
+import { GameHostController, type DeviceInfo, type GameHostResult, type HapticKind } from './controller';
 import { fetchEntryDocument, type EntryDocument } from './entry';
 import { usePrefs } from '@/lib/prefs';
+import { GameMenu } from './game-menu';
+import { MenuButton } from './menu-button';
+import {
+  DEFAULT_MENU_BUTTON_PREFS,
+  buttonBounds,
+  setTucked,
+  type ButtonOrientation,
+  type MenuButtonPrefs,
+  type MenuButtonStore,
+} from './menu-button-model';
+import { NetBanner } from './net-banner';
 import type { MatchmakingTarget } from './handlers';
 import { buildInjectedScript } from './injected';
+import { GameLoadingScreen, GameProblemScreen } from './loading-screen';
+import { autoGraphics, menuButtonRect, type GameSettingsStore } from './settings';
+import { gameSettingsStore, menuButtonStore } from '@/lib/game-settings';
 import type { PlaySessionService } from './play-session';
 import type { ProgressStore } from './progress';
 import type { SaveStore } from './saves';
@@ -27,6 +39,22 @@ export interface GameHostProps {
   /** `game_versions.sha256`: the entry document is refused when it does not match. Null skips the check (Developer launcher). */
   entrySha256?: string | null;
   game: LaunchContext['game'];
+  /** Display name for the loading screen; null/absent (Developer launcher) shows none. */
+  title?: string | null;
+  /** The loading screen's background: the cover, else the first screenshot (`coverUriFor(game, 'feature')`). */
+  artUri?: string | null;
+  /** The game's icon, above the title on the loading screen. */
+  iconUri?: string | null;
+  /** Bytes of the page's own files (loading-copy.ts `pageBytesOf(manifest)`): "Downloading game files · 1.2 of 3.4 MB". */
+  pageBytes?: number | null;
+  /** The private room's join code, when known: the game menu's People tab offers Copy / Share. */
+  roomCode?: string | null;
+  /** `manifest.capabilities`: `haptics` lets the game's `haptics()` requests through (while the player has them on). */
+  capabilities?: readonly string[];
+  /** The game menu's settings store; default AsyncStorage (platform settings once per device, game settings per game). */
+  settingsStore?: GameSettingsStore | null;
+  /** Where the menu button was moved or tucked, per game; default AsyncStorage. Null remembers nothing. */
+  buttonStore?: MenuButtonStore | null;
   /** Identity handed to the game in `ready()`; only after the 4.7.3 consent sheet was accepted. */
   user: LaunchContext['user'];
   intent: LaunchIntent;
@@ -55,15 +83,63 @@ function newNonce(): string {
 
 const sha256Hex = (text: string) => Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, text);
 
+/** A game's `haptics()` request (games granted the capability, while the player has haptics on). */
+function playHaptic(kind: HapticKind): void {
+  const done =
+    kind === 'success' || kind === 'warning' || kind === 'error'
+      ? Haptics.notificationAsync(
+          kind === 'success'
+            ? Haptics.NotificationFeedbackType.Success
+            : kind === 'warning'
+              ? Haptics.NotificationFeedbackType.Warning
+              : Haptics.NotificationFeedbackType.Error,
+        )
+      : Haptics.impactAsync(
+          kind === 'light'
+            ? Haptics.ImpactFeedbackStyle.Light
+            : kind === 'medium'
+              ? Haptics.ImpactFeedbackStyle.Medium
+              : Haptics.ImpactFeedbackStyle.Heavy,
+        );
+  void done.catch(() => {});
+}
+
 /**
  * Full-screen game screen: WebView configured per architecture §2 plus the host side of the bridge.
  * Session state lives in a GameHostController created once per mount (key the component to relaunch); this
  * component only renders the controller's snapshot and forwards callbacks. Every session ends in exactly one
  * `onExit`, with `reason: 'unmount'` when the component unmounts first (the callee must not navigate then).
- * `bundleUrl`, `game`, `user`, `intent`, `resume`, `saves`, `progress`, `soloScores`, `playSessions` and
- * `matchmaking` (with its join target) are read at mount.
+ * `bundleUrl`, `game`, `title`, `pageBytes`, `user`, `intent`, `resume`, `saves`, `progress`, `soloScores`,
+ * `playSessions` and `matchmaking` (with its join target) are read at mount.
+ *
+ * While the game loads (`phase === 'loading'`, which includes the hold after `ready()` for games that send loading
+ * labels) the loading screen covers the WebView (loading-screen.tsx); it fades out when the game is shown. Crashes and
+ * load failures get the same backdrop with Reload / Back. The menu button only shows over a running game.
  */
 const ORIGIN_WHITELIST = ['*'];
+
+/** The menu button's remembered place for this game: loaded once (null until then), saved on every change. */
+function useMenuButtonPrefs(store: MenuButtonStore | null, gameId: string) {
+  const [prefs, setPrefs] = useState<MenuButtonPrefs | null>(store ? null : DEFAULT_MENU_BUTTON_PREFS);
+  useEffect(() => {
+    if (!store) return;
+    let cancelled = false;
+    void store.load(gameId).then((loaded) => {
+      if (!cancelled) setPrefs(loaded);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [store, gameId]);
+  const change = useCallback(
+    (next: MenuButtonPrefs) => {
+      setPrefs(next);
+      void store?.save(gameId, next);
+    },
+    [store, gameId],
+  );
+  return [prefs, change] as const;
+}
 
 export function GameHost(props: GameHostProps) {
   useKeepAwake();
@@ -71,14 +147,17 @@ export function GameHost(props: GameHostProps) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
 
+  // The game menu's button over the game; the game keeps its HUD out of this rect (`device.menuButton`).
+  const menuButton = useMemo(() => menuButtonRect({ top: insets.top, left: insets.left }), [insets.top, insets.left]);
   const device = useMemo<DeviceInfo>(
     () => ({
       safeArea: { top: insets.top, right: insets.right, bottom: insets.bottom, left: insets.left },
       orientation: width > height ? 'landscape' : 'portrait',
       pixelRatio: PixelRatio.get(),
       locale: Intl.DateTimeFormat().resolvedOptions().locale,
+      menuButton,
     }),
-    [insets.top, insets.right, insets.bottom, insets.left, width, height],
+    [insets.top, insets.right, insets.bottom, insets.left, width, height, menuButton],
   );
 
   const [controller] = useState(
@@ -86,6 +165,8 @@ export function GameHost(props: GameHostProps) {
       new GameHostController({
         bundleUrl: props.bundleUrl,
         game: props.game,
+        title: props.title ?? null,
+        pageBytes: props.pageBytes ?? null,
         user: props.user,
         intent: props.intent,
         resume: props.resume,
@@ -98,11 +179,26 @@ export function GameHost(props: GameHostProps) {
         onExit: props.onExit,
         onPlayRecorded: props.onPlayRecorded,
         createNonce: newNonce,
+        settingsStore: props.settingsStore === undefined ? gameSettingsStore : props.settingsStore,
+        autoGraphics: autoGraphics({ os: Platform.OS, version: Platform.Version, pixelRatio: PixelRatio.get() }),
+        playHaptic: props.capabilities?.includes('haptics') ? playHaptic : undefined,
         log: __DEV__ ? (m) => console.log(m) : undefined,
       }),
   );
   const view = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   const webviewRef = useRef<WebViewHandle>(null);
+
+  // The menu button can be dragged anywhere and tucked to a side (menu-button.tsx); the game is only told the default.
+  const [buttonStore] = useState(() => (props.buttonStore === undefined ? menuButtonStore : props.buttonStore));
+  const [buttonPrefs, setButtonPrefs] = useMenuButtonPrefs(buttonStore, props.game.id);
+  const buttonOrientation: ButtonOrientation = width > height ? 'landscape' : 'portrait';
+  const onButtonTucked = useCallback(
+    (tucked: boolean) => {
+      if (!buttonPrefs) return;
+      setButtonPrefs(setTucked(buttonPrefs, buttonOrientation, tucked, buttonBounds(width, height, insets)));
+    },
+    [buttonPrefs, setButtonPrefs, buttonOrientation, width, height, insets],
+  );
 
   // The entry document is downloaded and verified here, then given to the WebView as html + baseUrl (see entry.ts:
   // Supabase serves HTML as text/plain). Re-fetched on every "Reload" (`view.attempt`).
@@ -112,7 +208,14 @@ export function GameHost(props: GameHostProps) {
     const attempt = view.attempt;
     let cancelled = false;
     const abort = new AbortController();
-    fetchEntryDocument(bundleUrl, { expectedSha256: entrySha256 ?? null, digest: sha256Hex, signal: abort.signal })
+    fetchEntryDocument(bundleUrl, {
+      expectedSha256: entrySha256 ?? null,
+      digest: sha256Hex,
+      signal: abort.signal,
+      onProgress: (loaded, total) => {
+        if (!cancelled) controller.onEntryProgress(loaded, total);
+      },
+    })
       .then((doc) => {
         if (cancelled) return;
         controller.onEntryLoaded();
@@ -166,10 +269,11 @@ export function GameHost(props: GameHostProps) {
     return () => sub.remove();
   }, [controller]);
 
-  // Android back: first press asks the game to exit; a second press within 2 s force-exits.
+  // Android back: over the game it opens the game menu and closes it again (Leave is in the menu); while loading it
+  // leaves; while leaving it closes a game that ignores the exit request (controller.handleBack).
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      controller.requestExit();
+      controller.handleBack();
       return true;
     });
     return () => sub.remove();
@@ -234,7 +338,8 @@ export function GameHost(props: GameHostProps) {
         <View
           pointerEvents="none"
           className="absolute rounded-md bg-black/60 px-1.5 py-0.5"
-          style={{ top: insets.top + 6, left: insets.left + 6 }}
+          // Beside the game-menu button (top-left), never under it.
+          style={{ top: menuButton.y + 8, left: menuButton.x + menuButton.width + 8 }}
         >
           <Text className="font-mono text-[12px] font-semibold leading-4 text-white" style={styles.fps}>
             {view.fps} fps
@@ -243,51 +348,78 @@ export function GameHost(props: GameHostProps) {
       )}
 
       {view.phase === 'loading' && (
-        <View
-          className="bg-background absolute inset-0 items-center justify-center gap-3 p-6"
-          style={{ paddingTop: insets.top }}
-          pointerEvents="box-none"
-        >
-          <ActivityIndicator size="large" />
-          <Text variant="large">{view.status}</Text>
-          <View className="bg-muted h-1 w-56 overflow-hidden rounded-full">
-            <View className="bg-primary h-1" style={{ width: `${Math.round(view.progress * 100)}%` }} />
-          </View>
-          {__DEV__ && (
-            <Text variant="muted" numberOfLines={1}>
-              {bundleUrl}
-            </Text>
-          )}
-        </View>
+        <GameLoadingScreen
+          // Prefixed: the WebView beside it is keyed by the bare attempt number (React needs sibling keys unique).
+          key={`loading-${view.attempt}`}
+          title={props.title ?? null}
+          artUri={props.artUri}
+          iconUri={props.iconUri}
+          progress={view.progress}
+          status={view.status}
+          detail={view.detail}
+          onLeave={() => controller.requestExit()}
+          devNote={__DEV__ ? bundleUrl : null}
+        />
       )}
 
       {(view.phase === 'crashed' || view.phase === 'failed') && (
-        <View className="bg-background absolute inset-0 items-center justify-center gap-3 p-6">
-          <Text variant="h4">{view.phase === 'crashed' ? 'The game crashed' : 'The game failed to start'}</Text>
-          <Text variant="muted" className="text-center">
-            {view.error ?? 'unknown error'}
-          </Text>
-          <View className="mt-2 flex-row gap-3">
-            <Button onPress={() => controller.reload()}>
-              <Text>Reload</Text>
-            </Button>
-            <Button variant="secondary" onPress={() => controller.finish(view.phase)}>
-              <Text>Back</Text>
-            </Button>
-          </View>
-        </View>
+        <GameProblemScreen
+          key={`problem-${view.attempt}`}
+          title={props.title ?? null}
+          artUri={props.artUri}
+          iconUri={props.iconUri}
+          phase={view.phase}
+          error={view.error}
+          showError={__DEV__}
+          onReload={controller.reload}
+          onBack={() => controller.finish(view.phase)}
+        />
       )}
 
-      {/* Close affordance for iOS (no hardware back). Games draw under it; the HUD is top-left. */}
-      <Pressable
-        accessibilityLabel="Close game"
-        onPress={() => controller.requestExit()}
-        className="bg-card border-border absolute h-8 w-8 items-center justify-center rounded-full border"
-        style={{ top: Math.max(insets.top, 8), right: Math.max(insets.right, 8) }}
-        hitSlop={12}
-      >
-        <Icon as={XIcon} className="size-4" />
-      </Pressable>
+      {/* Reconnecting / Connection lost, from the game's net.status (top-centre, clear of the default button spot;
+          the button draws over it if the player moved it there). */}
+      {view.phase === 'ready' && (
+        <NetBanner
+          net={view.net}
+          top={menuButton.y}
+          inset={menuButton.x + menuButton.width + 12}
+          onLeave={controller.leave}
+        />
+      )}
+
+      {/* The game menu's button over a running game: top-left by default (the game keeps its HUD out of that rect),
+          movable and tuckable by the player. Hidden while the menu is open. The loading screen has its own "Leave",
+          the problem screens their "Back". */}
+      {view.phase === 'ready' && buttonPrefs !== null && (
+        <MenuButton
+          width={width}
+          height={height}
+          insets={insets}
+          orientation={buttonOrientation}
+          prefs={buttonPrefs}
+          onPrefsChange={setButtonPrefs}
+          onOpen={controller.openMenu}
+          hidden={view.menuOpen}
+          haptics={view.settings.platform.haptics}
+        />
+      )}
+
+      {view.phase === 'ready' && view.menuOpen && (
+        <GameMenu
+          title={props.title ?? null}
+          iconUri={props.iconUri}
+          menu={view.menu}
+          settings={view.settings}
+          leaving={view.leaving}
+          roomCode={props.roomCode ?? null}
+          net={view.net}
+          onResume={controller.closeMenu}
+          onLeave={controller.leave}
+          onChange={controller.changeSettings}
+          buttonTucked={buttonPrefs?.tucked ?? false}
+          onButtonTuckedChange={buttonPrefs ? onButtonTucked : undefined}
+        />
+      )}
     </View>
   );
 }

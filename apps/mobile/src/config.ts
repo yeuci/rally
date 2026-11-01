@@ -1,4 +1,5 @@
 import Constants from 'expo-constants';
+import { bugReportsEnabled } from '@/lib/bug-report-model';
 import { normalizeWebOrigin } from '@/lib/share';
 
 /** Build-time configuration. EXPO_PUBLIC_* variables are inlined by Metro. */
@@ -16,6 +17,11 @@ export const config = {
   spikeBundleUrl: process.env.EXPO_PUBLIC_SPIKE_BUNDLE_URL ?? 'http://localhost:5180/index.html',
   /** Developer launcher (M0 spike path). Always on in __DEV__; opt-in for internal preview builds. */
   devTools: __DEV__ || process.env.EXPO_PUBLIC_DEV_TOOLS === '1',
+  /**
+   * Shake to report a bug, the log buffer and Settings → Developer (docs/bug-reports.md). Always on in __DEV__; opt-in
+   * for playtest builds with EXPO_PUBLIC_BUG_REPORTS=1; off in store builds.
+   */
+  bugReports: bugReportsEnabled(__DEV__, process.env.EXPO_PUBLIC_BUG_REPORTS),
   supportEmail: process.env.EXPO_PUBLIC_SUPPORT_EMAIL ?? 'support@example.com',
   /** Compared against `games.min_app_version` / `manifest.minAppVersion`. */
   appVersion: Constants.expoConfig?.version ?? '0.0.0',

@@ -20,7 +20,7 @@ import {
   type SkinInstance,
   type StandardMaterial,
 } from 'playcanvas';
-import { gunzipSync } from 'fflate';
+import { fetchModels, modelsFraction, type DownloadProgress } from '@rally/game-kit';
 import { MODELS } from './models/meta.gen.ts';
 import type { Rgb } from './models.ts';
 
@@ -54,15 +54,10 @@ export interface Models {
   props: Record<PropName, Mesh>;
 }
 
-async function fetchBytes(file: string): Promise<ArrayBuffer> {
+function fileUrl(file: string): string {
   const url = FILES[`./models/${file}.gz`];
   if (!url) throw new Error(`model ${file} is not in the bundle`);
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`${file}: HTTP ${res.status}`);
-  const raw = new Uint8Array(await res.arrayBuffer());
-  // A server that sends the .gz with Content-Encoding: gzip has already inflated it.
-  const bytes = raw[0] === 0x1f && raw[1] === 0x8b ? gunzipSync(raw) : raw;
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  return url;
 }
 
 function container(app: Application, name: string, contents: ArrayBuffer): Promise<ContainerResource> {
@@ -87,23 +82,38 @@ function firstMesh(res: ContainerResource): Mesh {
   return mesh;
 }
 
-/** Load every model (in parallel); `progress` gets 0…1. */
-export async function loadModels(app: Application, progress: (f: number) => void = () => {}): Promise<Models> {
-  const names = [...MODELS.survivors, 'survivor-clips', 'zombie-male', 'zombie-female', 'zombie-bones'];
+/**
+ * Load every model (downloads in parallel, each parsed as soon as it is in). `progress` gets 0…1 over downloading and
+ * parsing, and the download bytes so far (for "1.2 of 3.4 MB" on the loading veil).
+ */
+export async function loadModels(
+  app: Application,
+  progress: (f: number, bytes: DownloadProgress) => void = () => {},
+): Promise<Models> {
+  const glbs = [...MODELS.survivors, 'survivor-clips', 'zombie-male', 'zombie-female'];
   const props: PropName[] = ['firstaidkit', 'propanetank', 'pistol-1', 'shotgun-1'];
-  let done = 0;
+  const files = [...glbs.map((n) => `${n}.glb`), 'zombie-bones.bin', ...props.map((n) => `${n}.glb`)];
+  let parsed = 0;
+  let bytes: DownloadProgress = { loaded: 0, total: null, done: 0, files: files.length, fraction: 0 };
+  const tell = () => progress(modelsFraction(bytes.fraction, parsed, files.length), bytes);
+  const downloads = fetchModels(files.map(fileUrl), (p) => {
+    bytes = p;
+    tell();
+  });
+  const download = (file: string) => downloads[files.indexOf(file)]!;
   const tick = <T>(p: Promise<T>) =>
     p.then((v) => {
-      progress(++done / (names.length + props.length));
+      parsed += 1;
+      tell();
       return v;
     });
-  const load = (name: string) => tick(fetchBytes(`${name}.glb`).then((b) => container(app, name, b)));
+  const load = (name: string) => tick(download(`${name}.glb`).then((b) => container(app, name, b)));
   const [survivors, clips, male, female, bones, ...propRes] = await Promise.all([
     Promise.all(MODELS.survivors.map(load)),
     load('survivor-clips'),
     load('zombie-male'),
     load('zombie-female'),
-    tick(fetchBytes('zombie-bones.bin')),
+    tick(download('zombie-bones.bin')),
     ...props.map(load),
   ]);
   const zombie = (res: ContainerResource): ZombieModel => {

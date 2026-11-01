@@ -108,6 +108,24 @@ async function waitJoined(page, who) {
     });
   }
   assert.equal(await probe(page, 'lowfx'), true, `${who}: ?lowfx=1 in effect`);
+  await assertBootScreen(page, who);
+}
+
+/**
+ * The host's loading screen (the harness draws the shell's) followed the game's labels (the models by the byte, the
+ * join) and went away once the game reported progress 1, after ready() (the hold contract).
+ */
+async function assertBootScreen(page, who) {
+  await page.waitForSelector('#rally-dev-harness >> [data-role="loading-overlay"]', {
+    state: 'detached',
+    timeout: 5_000,
+  });
+  await page.waitForSelector('#loading', { state: 'hidden', timeout: 5_000 });
+  const log = await page.textContent('#rally-dev-harness >> [data-role="log"]');
+  assert.match(log, /loading: Downloading characters and weapons/, `${who}: labelled model stage`);
+  assert.match(log, /the loading screen stays up until progress 1/, `${who}: held after ready()`);
+  assert.match(log, /loading: Joining the match/, `${who}: labelled join stage`);
+  assert.match(log, /playable \d+ ms after ready\(\): loading screen hidden/, `${who}: revealed at progress 1`);
 }
 
 async function open(browser, query, errors, { waitForJoin = true, viewport = VIEW, hasTouch = false } = {}) {
