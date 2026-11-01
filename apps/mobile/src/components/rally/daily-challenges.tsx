@@ -12,7 +12,7 @@ import {
   type LucideIcon,
 } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, View, type TextStyle } from 'react-native';
+import { ActivityIndicator, View, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { Separator } from '@/components/ui/separator';
@@ -77,8 +77,7 @@ export function DailyChallenges({ inset = false, className }: { inset?: boolean;
   const challenges = useDailyChallenges();
   const claim = useClaimChallenge();
   const now = useNow(30_000);
-  const all = challenges.data ?? [];
-  const resetAt = nextResetAt(all, now);
+  const resetAt = nextResetAt(challenges.data ?? [], now);
   const { refetch } = challenges;
 
   // A new set at the reset (a little after it, so the server's day has turned).
@@ -89,34 +88,70 @@ export function DailyChallenges({ inset = false, className }: { inset?: boolean;
   }, [resetAt, refetch, signedIn]);
 
   if (!signedIn) return null;
-  const list = visibleChallenges(all, now);
-  const style = inset ? { paddingLeft: pad.left, paddingRight: pad.right } : undefined;
-  const until = countdown(resetAt, now);
+  return (
+    <DailyChallengesView
+      challenges={challenges.data}
+      loading={challenges.isLoading}
+      error={challenges.isError}
+      now={now}
+      claimingId={claim.isPending ? (claim.variables ?? null) : null}
+      onClaim={(id) => claim.mutate(id)}
+      onRetry={() => void refetch()}
+      className={className}
+      style={inset ? { paddingLeft: pad.left, paddingRight: pad.right } : undefined}
+    />
+  );
+}
 
+/** The card as drawn from its data (DailyChallenges feeds it; the screenshot preview too). */
+export function DailyChallengesView({
+  challenges,
+  loading,
+  error,
+  now,
+  claimingId,
+  onClaim,
+  onRetry,
+  className,
+  style,
+}: {
+  challenges: Challenge[] | undefined;
+  loading: boolean;
+  error: boolean;
+  now: number;
+  claimingId: string | null;
+  onClaim: (id: string) => void;
+  onRetry: () => void;
+  className?: string;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const all = challenges ?? [];
+  const list = visibleChallenges(all, now);
+  const until = countdown(nextResetAt(all, now), now);
   return (
     <View className={cn('gap-3', className)} style={style}>
       <SectionHeader
         title="Daily challenges"
-        detail={challenges.data ? doneSummary(all, now) : undefined}
+        detail={challenges ? doneSummary(all, now) : undefined}
         className="px-0"
         accessory={
           <View className="flex-row items-center gap-1" accessible accessibilityLabel={`New challenges in ${until}`}>
             <Icon as={ClockIcon} className="text-muted-foreground size-3.5" />
             <Text className="text-muted-foreground text-[13px] font-medium" style={TABULAR}>
-              {until}
+              {until} left
             </Text>
           </View>
         }
       />
-      {challenges.isLoading ? (
+      {loading ? (
         <ChallengesSkeleton />
-      ) : challenges.isError ? (
+      ) : error ? (
         <EmptyState
           compact
           icon={CircleAlertIcon}
           title="Couldn't load your challenges"
           body="Check your connection and try again."
-          action={<RetryButton compact onPress={() => void refetch()} />}
+          action={<RetryButton compact onPress={onRetry} />}
         />
       ) : list.length === 0 ? (
         <EmptyState compact icon={TargetIcon} title="No challenges right now" body={`New ones arrive in ${until}.`} />
@@ -128,8 +163,8 @@ export function DailyChallenges({ inset = false, className }: { inset?: boolean;
               <ChallengeRow
                 challenge={c}
                 carriedOver={isCarriedOver(c, now)}
-                claiming={claim.isPending && claim.variables === c.id}
-                onClaim={() => claim.mutate(c.id)}
+                claiming={claimingId === c.id}
+                onClaim={() => onClaim(c.id)}
               />
             </View>
           ))}
