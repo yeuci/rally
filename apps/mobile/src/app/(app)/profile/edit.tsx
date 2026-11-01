@@ -3,7 +3,6 @@ import { UserXIcon } from 'lucide-react-native';
 import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, View, type LayoutChangeEvent, type ScrollViewInstance } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EmptyState, RetryButton } from '@/components/rally/empty-state';
 import { SectionHeader } from '@/components/rally/section-header';
 import { ErrorText, FormField } from '@/components/rally/form-field';
@@ -21,6 +20,7 @@ import { usePrivacy } from '@/lib/privacy';
 import { useProfile, useUpdateProfile, type Profile, type ProfileUpdate } from '@/lib/profile';
 import { DEFAULT_PRIVACY, privacyPatch, VISIBILITY_OPTIONS, type PrivacySettings, type Visibility } from '@/lib/social';
 import { useColumnPadding } from '@/lib/use-layout';
+import { useViewport } from '@/lib/viewport';
 
 const DISPLAY_NAME_MAX = 32; // profiles_display_name_len
 const BIO_MAX = 280; // profiles_bio_len
@@ -64,7 +64,7 @@ function EditProfileForm({ profile, privacy }: { profile: Profile; privacy: Priv
     scrolledToSection.current = true;
     scrollRef.current?.scrollTo({ y: Math.max(0, e.nativeEvent.layout.y - 12), animated: true });
   };
-  const insets = useSafeAreaInsets();
+  const { insets } = useViewport();
   const column = useColumnPadding();
   // The opaque stack header sits above this view; KeyboardAvoidingView measures from its own frame, so tell it.
   const headerHeight = useHeaderHeight();
@@ -177,7 +177,7 @@ function PrivacyField({ label, value, onChange }: { label: string; value: Visibi
 
 /** The form's footprint while the profile and privacy settings load. */
 function EditProfileSkeleton() {
-  const insets = useSafeAreaInsets();
+  const { insets } = useViewport();
   const column = useColumnPadding();
   const field = (label: number, height: number) => (
     <View className="gap-2">

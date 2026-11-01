@@ -1,15 +1,15 @@
 import { useCallback, useState } from 'react';
-import { useWindowDimensions, type LayoutChangeEvent } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { type LayoutChangeEvent } from 'react-native';
 import { columnPadding, COLUMN_MAX_WIDTH, isLandscape, isWideLayout, pagePadding } from './layout';
+import { useViewport } from './viewport';
 
 /**
- * Live window size, safe-area insets and the derived layout flags. Read on every render (useWindowDimensions
- * re-renders on rotation), never stored: nothing size-dependent may outlive an orientation change.
+ * Live screen size, safe-area insets and the derived layout flags, from the measured viewport (lib/viewport.tsx:
+ * re-renders on rotation, and never stale like the reported values can be). Read on every render, never stored:
+ * nothing size-dependent may outlive an orientation change.
  */
 export function useLayout() {
-  const { width, height } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
+  const { width, height, insets } = useViewport();
   return {
     width,
     height,
@@ -25,8 +25,7 @@ export function useLayout() {
 
 /** Horizontal padding for a centred, max-width content column (profile, forms, auth, dev screens). */
 export function useColumnPadding(maxWidth = COLUMN_MAX_WIDTH) {
-  const { width } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
+  const { width, insets } = useViewport();
   return columnPadding(width, insets, maxWidth);
 }
 

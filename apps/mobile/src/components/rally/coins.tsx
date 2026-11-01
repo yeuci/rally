@@ -2,7 +2,6 @@ import { CoinsIcon } from 'lucide-react-native';
 import { useEffect } from 'react';
 import { AccessibilityInfo, Pressable, View, type TextStyle } from 'react-native';
 import Animated, { FadeInUp, FadeOutUp, ReduceMotion } from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from '@/components/ui/icon';
 import { SkeletonText } from '@/components/ui/skeleton';
 import { TapPressable } from '@/components/ui/tap-pressable';
@@ -12,6 +11,7 @@ import { COIN_TOAST_MS, coinsLabel, coinToastText, formatCoins } from '@/lib/coi
 import { useToast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import { CelebrationToast } from './level-toast';
+import { useViewport } from '@/lib/viewport';
 
 const TABULAR: TextStyle = { fontVariant: ['tabular-nums'] };
 
@@ -110,7 +110,7 @@ let announcedKey = 0;
 export function CoinToastHost() {
   const toast = useCoinToast();
   const other = useToast();
-  const insets = useSafeAreaInsets();
+  const { insets } = useViewport();
 
   useEffect(() => {
     if (!toast) return;

@@ -13,12 +13,12 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@/components/ui/text';
 import { BANNER_MS, bannerDragOffset, bannerSwipeDismisses } from '@/lib/friend-alerts-model';
 import { bannerCountdown, friendRequestQueue } from '@/lib/social-realtime';
 import { requestLine, type QueuedRequest, type RequestProfile } from '@/lib/social-realtime-model';
 import { ProfileAvatar } from './profile-avatar';
+import { useViewport } from '@/lib/viewport';
 
 /** How far a swiped-away banner travels before it leaves the queue. */
 const SWIPE_OUT = -140;
@@ -46,7 +46,7 @@ export function FriendRequestBanner({
   onAccept: () => void;
   onOpen: () => void;
 }) {
-  const insets = useSafeAreaInsets();
+  const { insets } = useViewport();
   return (
     <View
       className="absolute left-0 right-0 items-center"

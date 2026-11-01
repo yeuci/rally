@@ -3,11 +3,11 @@ import { WifiOffIcon } from 'lucide-react-native';
 import { useEffect } from 'react';
 import { AccessibilityInfo, View } from 'react-native';
 import Animated, { FadeInUp, FadeOutUp, ReduceMotion } from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { useOffline } from '@/lib/network';
 import { isGameScreen } from '@/lib/rejoin';
+import { useViewport } from '@/lib/viewport';
 
 /**
  * Where the pill sits below the top of the safe area: under the status bar and the navigation bar (the dashboard's top
@@ -34,7 +34,7 @@ export function OfflineBanner() {
 
 /** The pill itself (also rendered by the screenshot preview). */
 export function OfflinePill() {
-  const insets = useSafeAreaInsets();
+  const { insets } = useViewport();
   return (
     <Animated.View
       entering={FadeInUp.duration(220).reduceMotion(ReduceMotion.System)}

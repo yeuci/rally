@@ -4,8 +4,7 @@ import * as Haptics from 'expo-haptics';
 import { useKeepAwake } from 'expo-keep-awake';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { AppState, BackHandler, PixelRatio, Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AppState, BackHandler, PixelRatio, Platform, StyleSheet, View } from 'react-native';
 import { Text } from '@/components/ui/text';
 import { GameHostController, type DeviceInfo, type GameHostResult, type HapticKind } from './controller';
 import { fetchEntryDocument, type EntryDocument } from './entry';
@@ -31,6 +30,7 @@ import type { PlaySessionService } from './play-session';
 import type { ProgressStore } from './progress';
 import type { SaveStore } from './saves';
 import { WebView, type WebViewHandle } from './webview';
+import { useViewport } from '@/lib/viewport';
 
 export type { GameHostResult } from './controller';
 
@@ -145,8 +145,7 @@ function useMenuButtonPrefs(store: MenuButtonStore | null, gameId: string) {
 export function GameHost(props: GameHostProps) {
   useKeepAwake();
   const { onExit, onPlayRecorded, orientation, bundleUrl, entrySha256 } = props;
-  const insets = useSafeAreaInsets();
-  const { width, height } = useWindowDimensions();
+  const { width, height, insets } = useViewport();
 
   // The game menu's button over the game; the game keeps its HUD out of this rect (`device.menuButton`).
   const menuButton = useMemo(() => menuButtonRect({ top: insets.top, left: insets.left }), [insets.top, insets.left]);
