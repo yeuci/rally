@@ -32,6 +32,7 @@
 'use strict';
 
 const { spawn } = require('node:child_process');
+const net = require('node:net');
 const path = require('node:path');
 const os = require('node:os');
 const assert = require('node:assert/strict');
@@ -155,6 +156,52 @@ async function open(browser, query, errors, { waitForJoin = true, beforeGoto, vi
   await page.goto(`${SUMO_URL}?${query}&lowfx=1${COLYSEUS_PARAM}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
   if (waitForJoin) await waitJoined(page, `?${query}`);
   return page;
+}
+
+/**
+ * A TCP proxy in front of the game server, for one page's connection: `drop()` cuts every connection through it at
+ * once (both ends see an abnormal close, 1006, as when a phone loses the network), and `hold(promise)` keeps new
+ * connections waiting until the promise settles (the SDK's reconnect attempt hangs meanwhile).
+ */
+function tcpProxy(targetPort) {
+  const pairs = new Set();
+  let held = null;
+  const server = net.createServer(async (client) => {
+    client.pause();
+    if (held) await held;
+    const upstream = net.connect(Number(targetPort), '127.0.0.1');
+    const pair = [client, upstream];
+    pairs.add(pair);
+    const done = () => {
+      client.destroy();
+      upstream.destroy();
+      pairs.delete(pair);
+    };
+    for (const sock of pair) {
+      sock.on('error', done);
+      sock.on('close', done);
+    }
+    client.pipe(upstream);
+    upstream.pipe(client);
+    client.resume();
+  });
+  return {
+    listen: () => new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server.address().port))),
+    drop() {
+      for (const [client, upstream] of pairs) {
+        client.destroy();
+        upstream.destroy();
+      }
+      pairs.clear();
+    },
+    hold(promise) {
+      held = promise;
+    },
+    close() {
+      this.drop();
+      return new Promise((resolve) => server.close(() => resolve()));
+    },
+  };
 }
 
 /** Synthetic touch pointer events on the canvas (they bubble to window, like real ones). */
@@ -472,11 +519,49 @@ async function main() {
     );
     passed('Fay refreshed her tab: the old seat was freed at once (2 players, none reconnecting)');
 
+    // 9. The game menu and the connection banner: Escape opens the harness' game menu (People lists the room, the
+    //    ping shows a round-trip time, "Names over pucks" off hides the labels); then Gus's socket drops from the
+    //    network side, the shell's "Reconnecting…" banner shows while the SDK reconnects (held 2 s), and goes.
+    const proxy = tcpProxy(COLYSEUS_PORT);
+    const proxyPort = await proxy.listen();
+    const gus = await open(browser, `name=Gus&colyseus=${encodeURIComponent(`http://127.0.0.1:${proxyPort}`)}`, errors);
+    await gus.waitForFunction(() => window.__sumo.applied.net === 'connected', null, { timeout: 10_000 });
+    await gus.keyboard.press('Escape');
+    const menu = '#rally-harness-menu >> [data-role="menu"]';
+    await gus.waitForSelector(menu, { timeout: 5_000 });
+    await gus.waitForSelector(`${menu} >> [data-role="menu-player"]`, { timeout: 5_000 });
+    assert.match(await gus.textContent(`${menu} >> [data-role="menu-ping"]`), /\d+ ms|Connected/);
+    await gus.click(`${menu} >> [data-role="menu-tab-settings"]`);
+    // The harness' own panel overlaps the menu in this viewport: toggle and resume through the DOM.
+    await gus.$eval(`${menu} >> [data-game="showNames"]`, (el) => {
+      el.checked = false;
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await gus.waitForFunction(() => window.__sumo.applied.namesHidden === true, null, { timeout: 5_000 });
+    await gus.$eval(`${menu} >> [data-role="menu-resume"]`, (el) => el.click());
+    await gus.waitForSelector(menu, { state: 'hidden', timeout: 5_000 });
+    await gus.waitForTimeout(5500); // Colyseus only reconnects rooms that have been up a few seconds
+    let releaseSocket;
+    proxy.hold(new Promise((r) => (releaseSocket = r)));
+    proxy.drop();
+    const banner = '#rally-harness-menu >> [data-role="net-banner"]';
+    await gus.waitForSelector(banner, { timeout: 10_000 });
+    assert.match(await gus.textContent(banner), /Reconnecting…/);
+    assert.equal(await sumo(gus, 'applied.net'), 'reconnecting');
+    await gus.waitForTimeout(2000);
+    releaseSocket();
+    await gus.waitForFunction(() => window.__sumo.applied.net === 'connected', null, { timeout: 15_000 });
+    await gus.waitForSelector(banner, { state: 'hidden', timeout: 5_000 });
+    const gusLog = await gus.textContent('#rally-dev-harness >> [data-role="log"]');
+    assert.match(gusLog, /net\.status: reconnecting[\s\S]*net\.status: connected/);
+    passed('game menu (Escape, People, ping, a game setting) and the Reconnecting… banner through a dropped socket');
+
     // Leave with consent, so a rerun does not wait for these seats' grace.
-    for (const page of [bob2, fay]) {
+    for (const page of [bob2, fay, gus]) {
       await page.click('#rally-dev-harness >> button[data-action="exitRequested"]');
       await page.waitForSelector('#rally-dev-harness >> [data-role="exit-overlay"]', { timeout: 10_000 });
     }
+    await proxy.close();
 
     const unexpected = errors.filter((e) => !/WebGPU|GPU stall|favicon|Automatic fallback to software WebGL/i.test(e));
     assert.deepEqual(unexpected, [], 'no page errors');

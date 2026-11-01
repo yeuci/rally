@@ -60,7 +60,8 @@ canvas {
 .topbar {
   position: absolute;
   top: calc(var(--safe-top) + 8px);
-  left: calc(var(--safe-left) + 8px);
+  /* In the shell its game-menu button sits top-left (--rally-menu-inset, from the launch context): keep clear. */
+  left: max(calc(var(--safe-left) + 8px), var(--rally-menu-inset, 0px));
   right: calc(var(--safe-right) + 8px);
   display: flex;
   align-items: flex-start;
@@ -263,6 +264,11 @@ canvas {
 .knife.down {
   transform: scale(0.92);
   background: rgba(255, 79, 74, 0.45);
+}
+/* Left-handed (the game menu's swapped sticks): the knife moves with the aiming thumb. */
+.knife.swapped {
+  right: auto;
+  left: calc(var(--safe-left) + 18px);
 }
 
 /* --- banner, start, toasts, hint, veils ----------------------------------------------------------------- */

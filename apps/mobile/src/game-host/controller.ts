@@ -1,4 +1,13 @@
-import type { LaunchContext, LaunchIntent } from '@rally/protocol';
+import type {
+  GameSetting,
+  GraphicsQuality,
+  HelpEntry,
+  LaunchContext,
+  LaunchIntent,
+  MenuPlayer,
+  PlayerSettings,
+  RequestParams,
+} from '@rally/protocol';
 import { HostBridge } from './bridge';
 import {
   createHostHandlers,
@@ -12,7 +21,42 @@ import { BAR_SHARE, gameBarPosition, loadingCopy, pageBarPosition, type LoadStag
 import type { PlaySessionService } from './play-session';
 import type { ProgressStore } from './progress';
 import type { SaveStore } from './saves';
+import {
+  DEFAULT_PLATFORM_SETTINGS,
+  coerceGameValue,
+  patchPlatform,
+  playerSettings,
+  valuesFor,
+  type GameSettingsStore,
+  type GameValues,
+  type PlatformSettings,
+  type NetStatus,
+  type SettingsPatch,
+} from './settings';
 import type { WebViewHandle } from './webview';
+
+/** While a slider is dragged, `settingsChanged` goes out at most this often (the value on release always goes). */
+export const SETTINGS_THROTTLE_MS = 120;
+
+export type HapticKind = RequestParams<'haptics'>['kind'];
+
+/** What the page defined for the game menu (`menu.define`) and who it says is in the match (`menu.players`). */
+export interface MenuView {
+  /** The page called `menu.define`. */
+  defined: boolean;
+  settings: GameSetting[];
+  help: HelpEntry[];
+  players: MenuPlayer[];
+}
+
+/** The menu's settings as the screen shows them. */
+export interface SettingsView {
+  platform: PlatformSettings;
+  /** The game's own values (saved, else defaults) for what the page defined. */
+  game: GameValues;
+  /** What "Auto" graphics means on this device. */
+  auto: GraphicsQuality;
+}
 
 /** How long the game may take from first byte to `ready()` before we show the failure overlay. */
 export const READY_TIMEOUT_MS = 20_000;
@@ -55,7 +99,23 @@ export interface HostView {
   error: string | null;
   /** Last frame rate the game's WebView reported (once a second while the FPS overlay is on); null otherwise. */
   fps: number | null;
+  /** The game menu is open (only over a running game). */
+  menuOpen: boolean;
+  menu: MenuView;
+  settings: SettingsView;
+  /** The player asked to leave; the game is finishing up. */
+  leaving: boolean;
+  /**
+   * The game's connection to its server (`net.status`), for the menu's ping bars and the Reconnecting / Connection
+   * lost banner; null until the page reports one (solo games never do).
+   */
+  net: NetStatus | null;
 }
+
+/** The fields of the view that are set directly; the rest is derived from the controller's state. */
+type ViewPatch = Partial<
+  Pick<HostView, 'attempt' | 'nonce' | 'phase' | 'progress' | 'stage' | 'label' | 'error' | 'fps' | 'menuOpen'>
+>;
 
 export interface GameHostResult {
   reason: string;
@@ -110,6 +170,17 @@ export interface GameHostControllerOptions {
   revealTimeoutMs?: number;
   /** Override {@link LEAVE_GRACE_MS} (tests). */
   leaveGraceMs?: number;
+  /** Where the game menu's settings live (AsyncStorage in the app); null keeps them for this session only. */
+  settingsStore?: GameSettingsStore | null;
+  /** What "Auto" graphics resolves to on this device (settings.ts `autoGraphics`). Default `high`. */
+  autoGraphics?: GraphicsQuality;
+  /**
+   * Plays a game's `haptics` request (expo-haptics), when the game may use them (manifest capability). Absent:
+   * `haptics` answers NOT_SUPPORTED. While the player has haptics off, requests are dropped.
+   */
+  playHaptic?: (kind: HapticKind) => void;
+  /** Override {@link SETTINGS_THROTTLE_MS} (tests). */
+  settingsThrottleMs?: number;
   now?: () => number;
   warn?: (message: string) => void;
   /** Launch timings, one line per session (dev builds log them to the Metro terminal). */
@@ -173,6 +244,25 @@ export class GameHostController {
   private revealTimer: ReturnType<typeof setTimeout> | null = null;
   private leaveTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // --- the game menu --------------------------------------------------------------------------------------------
+  /** Platform settings (volume, graphics, haptics): loaded from the store, then changed in the menu. */
+  private platform: PlatformSettings = DEFAULT_PLATFORM_SETTINGS;
+  /** Every saved value of this game's own settings (by key; checked against the definition when used). */
+  private saved: GameValues = {};
+  /** The settings store has been read (or there is none). Awaited before `ready()` answers. */
+  private settingsLoaded: Promise<void> = Promise.resolve();
+  /** What the current page defined with `menu.define`; null until then (and after a reload). */
+  private menuDef: { settings: GameSetting[]; help: HelpEntry[] } | null = null;
+  /** The current page's latest `menu.players`. */
+  private players: MenuPlayer[] = [];
+  /** The current page's latest `net.status`. */
+  private net: NetStatus | null = null;
+  /** A settings change the game has not been told about yet (a slider being dragged). */
+  private settingsPending = false;
+  private settingsTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Changes not written to the store yet (they are written when a change is final). */
+  private dirty = { platform: false, game: false };
+
   constructor(opts: GameHostControllerOptions) {
     this.opts = opts;
     this.now = opts.now ?? Date.now;
@@ -182,18 +272,30 @@ export class GameHostController {
     this.startedAt = this.now();
     this.joinState = createJoinState(opts.matchmaking?.join);
     const nonce = opts.createNonce();
-    this.view = {
+    const base = {
       attempt: 0,
       nonce,
-      phase: 'loading',
+      phase: 'loading' as const,
       progress: 0,
-      stage: 'entry',
+      stage: 'entry' as const,
       label: null,
-      ...this.copy({ stage: 'entry', label: null, progress: 0 }),
       error: null,
       fps: null,
+      menuOpen: false,
     };
+    this.view = { ...base, ...this.derived(base) };
     this.bridge = this.createBridge(nonce);
+    const store = opts.settingsStore;
+    if (store) {
+      this.settingsLoaded = store.load(opts.game.id).then(
+        ({ platform, game }) => {
+          this.platform = platform;
+          this.saved = game;
+          this.setView({});
+        },
+        () => {},
+      );
+    }
   }
 
   // --- store -------------------------------------------------------------------------------------------------
@@ -207,11 +309,40 @@ export class GameHostController {
 
   getSnapshot = (): HostView => this.view;
 
-  /** Every change goes through here; the status line and its detail are derived, never patched. */
-  private setView(patch: Partial<Omit<HostView, 'status' | 'detail'>>) {
+  /** Every change goes through here; the status line, the menu and the settings are derived, never patched. */
+  private setView(patch: ViewPatch) {
     const next = { ...this.view, ...patch };
-    this.view = { ...next, ...this.copy(next) };
+    this.view = { ...next, ...this.derived(next) };
     for (const l of this.listeners) l();
+  }
+
+  private derived(v: Pick<HostView, 'stage' | 'label' | 'progress'>) {
+    return {
+      ...this.copy(v),
+      menu: {
+        defined: this.menuDef !== null,
+        settings: this.menuDef?.settings ?? [],
+        help: this.menuDef?.help ?? [],
+        players: this.players,
+      },
+      settings: { platform: this.platform, game: this.gameValues(), auto: this.auto },
+      leaving: this.leaving,
+      net: this.net,
+    };
+  }
+
+  private get auto(): GraphicsQuality {
+    return this.opts.autoGraphics ?? 'high';
+  }
+
+  /** The game's own values: for what the page defined (saved, else defaults); before that, whatever is saved. */
+  private gameValues(): GameValues {
+    return this.menuDef ? valuesFor(this.menuDef.settings, this.saved) : { ...this.saved };
+  }
+
+  /** The protocol's settings, as the game gets them in the launch context and `settingsChanged`. */
+  private playerSettings(): PlayerSettings {
+    return playerSettings(this.platform, this.gameValues(), this.auto);
   }
 
   private copy(v: Pick<HostView, 'stage' | 'label' | 'progress'>) {
@@ -366,9 +497,10 @@ export class GameHostController {
     // A new document makes its own promises: labels and `progress: 1` count per page.
     const live = this.view.phase === 'ready' || this.holding;
     this.resetHold();
+    this.resetMenuPage();
     if (live) {
       this.bytes = this.pageBytesAt(0);
-      this.setView({ phase: 'loading', progress: 0, stage: 'page', label: null });
+      this.setView({ phase: 'loading', progress: 0, stage: 'page', label: null, menuOpen: false });
       this.armReadyTimeout();
     } else if (this.view.phase === 'loading') {
       this.bytes = this.pageBytesAt(0);
@@ -399,7 +531,8 @@ export class GameHostController {
     this.lastError = message;
     this.clearReadyTimeout();
     this.resetHold();
-    this.setView({ phase: 'crashed', error: message });
+    this.flushSettings();
+    this.setView({ phase: 'crashed', error: message, menuOpen: false });
   };
 
   onLoadError = (message: string): void => {
@@ -407,7 +540,8 @@ export class GameHostController {
     this.lastError = message;
     this.clearReadyTimeout();
     this.resetHold();
-    this.setView({ phase: 'failed', error: message });
+    this.flushSettings();
+    this.setView({ phase: 'failed', error: message, menuOpen: false });
   };
 
   /** App background / foreground → game `pause` / `resume`; paused time is not counted as playtime. */
@@ -432,7 +566,7 @@ export class GameHostController {
    * (or a game that never became ready) force-exits. A ready game still behind the loading screen (the hold) gets
    * {@link LEAVE_GRACE_MS} to leave its room and call `exit()`, then it is closed: it cannot show the player anything.
    */
-  requestExit = (): void => {
+  requestExit = (opts: { fallback?: boolean } = {}): void => {
     const t = this.now();
     const live = this.view.phase === 'ready' || this.holding;
     if (!live || t - this.exitRequestedAt < FORCE_EXIT_WINDOW_MS) {
@@ -443,13 +577,119 @@ export class GameHostController {
     this.bridge.sendEvent('exitRequested', {});
     this.leaving = true;
     this.setView({});
-    if (this.holding && this.leaveTimer === null) {
+    if ((this.holding || opts.fallback) && this.leaveTimer === null) {
       this.leaveTimer = setTimeout(() => {
         this.leaveTimer = null;
         this.finish('forced');
       }, this.opts.leaveGraceMs ?? LEAVE_GRACE_MS);
     }
   };
+
+  /**
+   * The game menu's "Leave game" (already confirmed there): the game leaves its room with consent and calls
+   * `exit()`; one that has not after {@link LEAVE_GRACE_MS} is closed. Pressed again, it closes at once.
+   */
+  leave = (): void => {
+    if (this.leaving) {
+      this.finish('forced');
+      return;
+    }
+    this.requestExit({ fallback: true });
+  };
+
+  /** Open the game menu (the menu button, Android back, or the game's `menu.open` on Escape). Only over a running game. */
+  openMenu = (): void => {
+    if (this.view.phase !== 'ready' || this.exited || this.view.menuOpen) return;
+    this.setView({ menuOpen: true });
+    this.bridge.sendEvent('menu', { open: true });
+  };
+
+  /** Close the game menu (Resume, the backdrop, Android back): anything still pending is sent first. */
+  closeMenu = (): void => {
+    if (!this.view.menuOpen) return;
+    this.flushSettings();
+    this.setView({ menuOpen: false });
+    this.bridge.sendEvent('menu', { open: false });
+  };
+
+  /**
+   * Android back. Over a running game it opens the menu, and closes it again; while leaving it closes the game (a game
+   * that ignores the exit request); while loading or on a problem screen it leaves as before (requestExit).
+   */
+  handleBack = (): void => {
+    if (this.leaving && this.view.phase !== 'loading') {
+      this.finish('forced');
+      return;
+    }
+    if (this.view.menuOpen) {
+      this.closeMenu();
+      return;
+    }
+    if (this.view.phase === 'ready') {
+      this.openMenu();
+      return;
+    }
+    this.requestExit();
+  };
+
+  /**
+   * A change in the game menu: platform settings and/or the game's own values. Applied to the view at once; the game
+   * gets `settingsChanged` (the full settings) at most every {@link SETTINGS_THROTTLE_MS} while `final` is false (a
+   * slider being dragged), and at once when it is true, which also saves the change on the device.
+   */
+  changeSettings = (patch: SettingsPatch, final = true): void => {
+    if (this.exited) return;
+    const platform = patchPlatform(this.platform, patch);
+    const platformChanged = JSON.stringify(platform) !== JSON.stringify(this.platform);
+    let gameChanged = false;
+    for (const [key, value] of Object.entries(patch.game ?? {})) {
+      const def = this.menuDef?.settings.find((d) => d.key === key);
+      const v = def ? coerceGameValue(def, value) : null;
+      if (v === null || this.saved[key] === v) continue;
+      this.saved = { ...this.saved, [key]: v };
+      gameChanged = true;
+    }
+    if (platformChanged || gameChanged) {
+      this.platform = platform;
+      this.dirty = { platform: this.dirty.platform || platformChanged, game: this.dirty.game || gameChanged };
+      this.settingsPending = true;
+      this.setView({});
+    }
+    if (final) this.flushSettings();
+    else if (this.settingsPending && this.settingsTimer === null) {
+      this.settingsTimer = setTimeout(() => {
+        this.settingsTimer = null;
+        this.sendSettings();
+      }, this.opts.settingsThrottleMs ?? SETTINGS_THROTTLE_MS);
+    }
+  };
+
+  private sendSettings() {
+    if (!this.settingsPending) return;
+    this.settingsPending = false;
+    this.bridge.sendEvent('settingsChanged', this.playerSettings());
+  }
+
+  /** Send what is pending now and save what changed. */
+  private flushSettings() {
+    if (this.settingsTimer !== null) clearTimeout(this.settingsTimer);
+    this.settingsTimer = null;
+    if (!this.exited) this.sendSettings();
+    const store = this.opts.settingsStore;
+    if (store && this.dirty.platform) void store.savePlatform(this.platform);
+    if (store && this.dirty.game) void store.saveGame(this.opts.game.id, this.saved);
+    this.dirty = { platform: false, game: false };
+  }
+
+  /** A new page (reload, new document): what the old one defined for the menu is gone; the menu closes. */
+  private resetMenuPage() {
+    this.menuDef = null;
+    this.players = [];
+    this.net = null;
+    if (this.settingsTimer !== null) clearTimeout(this.settingsTimer);
+    this.settingsTimer = null;
+    this.settingsPending = false;
+  }
 
   /**
    * Crash / failure overlay "Reload": new nonce, new bridge, new WebView (keyed by `attempt`). Same play session:
@@ -472,6 +712,7 @@ export class GameHostController {
     this.droppedCount = 0;
     this.diagnostics = [];
     this.resetHold();
+    this.resetMenuPage();
     this.clearLeaveTimeout();
     this.leaving = false;
     this.bytes = null;
@@ -484,6 +725,7 @@ export class GameHostController {
       label: null,
       error: null,
       fps: null,
+      menuOpen: false,
     });
     if (this.active) this.armReadyTimeout();
   };
@@ -491,6 +733,8 @@ export class GameHostController {
   /** Overlay "Back" and every other exit path. Idempotent. */
   finish = (reason: string): void => {
     if (this.exited) return;
+    // Settings changed but not saved yet (closed mid-drag) are kept.
+    this.flushSettings();
     this.exited = true;
     this.stop();
     this.bridge.close();
@@ -587,7 +831,19 @@ export class GameHostController {
           intent: this.opts.intent,
           ...(this.opts.resume ? { resume: this.opts.resume } : {}),
           device: this.device,
+          settings: this.playerSettings(),
         }),
+        beforeReady: () => this.settingsLoaded,
+        onMenuDefine: async (def) => {
+          await this.settingsLoaded;
+          this.menuDef = { settings: def.settings, help: def.help };
+          this.setView({});
+          return this.gameValues();
+        },
+        onMenuOpen: () => {
+          if (!this.holding) this.openMenu();
+        },
+        haptics: this.opts.playHaptic ? { enabled: () => this.platform.haptics, play: this.opts.playHaptic } : null,
         saves: this.opts.saves,
         progress: this.opts.progress,
         soloScores: this.opts.soloScores,
@@ -623,6 +879,18 @@ export class GameHostController {
       onGameEvent: (ev) => {
         if (ev.method === 'telemetry.report') this.metrics = ev.params.values;
         else if (ev.method === 'game.error') this.lastError = ev.params.message;
+        else if (ev.method === 'net.status') {
+          const next: NetStatus =
+            ev.params.rttMs === undefined
+              ? { state: ev.params.state }
+              : { state: ev.params.state, rttMs: ev.params.rttMs };
+          if (this.net?.state === next.state && this.net.rttMs === next.rttMs) return;
+          this.net = next;
+          this.setView({});
+        } else if (ev.method === 'menu.players') {
+          this.players = ev.params.players;
+          this.setView({});
+        }
       },
       onDrop: (reason) => {
         this.droppedCount += 1;

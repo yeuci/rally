@@ -201,6 +201,9 @@ export default function PlayScreen() {
         artUri={coverUriFor(p.game, 'feature')}
         iconUri={p.game.icon_url}
         pageBytes={pageBytesOf(p.manifest)}
+        // The game menu: the private room's code (People → Copy / Share) and what the game may use (haptics).
+        roomCode={roomCode}
+        capabilities={p.manifest.capabilities}
         user={{ id: me.id, username: me.username, avatarUrl: resolveAvatarUrl(me.avatar_url) }}
         intent={
           !p.room

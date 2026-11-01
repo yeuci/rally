@@ -15,6 +15,11 @@ export interface AudioHandle {
   /** Null until the first gesture (the context is created lazily inside it). */
   readonly context: AudioContext | null;
   muted: boolean;
+  /**
+   * The player's loudness 0…1 over the base volume (the game menu's master × effects, game-kit `effectsVolume`).
+   * Applied live; 0 is silent. Default 1.
+   */
+  volume: number;
   /** Short procedural tone with a fast attack and exponential decay. */
   blip(freq: number, ms: number, opts?: BlipOptions): void;
   /** Suspend output (host `pause`). */
@@ -44,8 +49,17 @@ export function createAudio(options: { volume?: number; target?: EventTarget } =
   let master: GainNode | null = null;
   let suspended = false;
   let listening = false;
+  const base = options.volume ?? 0.35;
+  let scale = 1;
 
   const handle: AudioHandle = {
+    get volume() {
+      return scale;
+    },
+    set volume(v: number) {
+      scale = Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 1;
+      if (master) master.gain.value = base * scale;
+    },
     get unlocked() {
       return ctx?.state === 'running';
     },
@@ -54,7 +68,7 @@ export function createAudio(options: { volume?: number; target?: EventTarget } =
     },
     muted: false,
     blip(freq, ms, opts = {}) {
-      if (!ctx || !master || ctx.state !== 'running' || handle.muted || suspended) return;
+      if (!ctx || !master || ctx.state !== 'running' || handle.muted || suspended || scale === 0) return;
       const t0 = ctx.currentTime + (opts.delayMs ?? 0) / 1000;
       const dur = Math.max(0.01, ms / 1000);
       const osc = ctx.createOscillator();
@@ -107,7 +121,7 @@ export function createAudio(options: { volume?: number; target?: EventTarget } =
         return;
       }
       master = ctx.createGain();
-      master.gain.value = options.volume ?? 0.35;
+      master.gain.value = base * scale;
       master.connect(ctx.destination);
       const c = ctx;
       // The system can stop a running context (iOS interruption: a call, Siri, another app's audio). Unless we

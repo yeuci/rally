@@ -1,4 +1,10 @@
-import { createDirectionKeys, createTwinStick, type DirectionKeysHandle, type TwinStickHandle } from '@rally/game-kit';
+import {
+  createDirectionKeys,
+  createTwinStick,
+  stickLook,
+  type DirectionKeysHandle,
+  type TwinStickHandle,
+} from '@rally/game-kit';
 import type { Vec2 } from '@rally/game-overrun-server';
 
 /** Finger travel (CSS px) for a full move: small enough for thumbs. */
@@ -28,6 +34,8 @@ export interface Controls {
   release(): void;
   /** Position the on-screen stick rings (once per frame). */
   draw(): void;
+  /** The player's touch controls (the game menu): left-handed swaps the sides; size and opacity of the sticks. */
+  configure(controls: { swapSticks: boolean; stickSize: number; stickOpacity: number }): void;
   destroy(): void;
 }
 
@@ -121,6 +129,8 @@ export function createControls(canvas: HTMLCanvasElement, moveEl: HTMLElement, a
   window.addEventListener('blur', onBlur);
 
   const knob = (el: HTMLElement) => el.firstElementChild as HTMLElement | null;
+  /** Ring scale from the stick size; the knob's offset is in the ring's own (unscaled) units. */
+  let ringScale = 1;
   const place = (
     el: HTMLElement,
     f: { originX: number; originY: number; x: number; y: number } | null,
@@ -132,9 +142,9 @@ export function createControls(canvas: HTMLCanvasElement, moveEl: HTMLElement, a
     }
     const r = canvas.getBoundingClientRect();
     el.hidden = false;
-    el.style.transform = `translate(${f.originX + r.left}px, ${f.originY + r.top}px)`;
-    let dx = f.x - f.originX;
-    let dy = f.y - f.originY;
+    el.style.transform = `translate(${f.originX + r.left}px, ${f.originY + r.top}px) scale(${ringScale})`;
+    let dx = (f.x - f.originX) / ringScale;
+    let dy = (f.y - f.originY) / ringScale;
     const len = Math.hypot(dx, dy);
     if (len > clamp) [dx, dy] = [(dx / len) * clamp, (dy / len) * clamp];
     const k = knob(el);
@@ -189,6 +199,12 @@ export function createControls(canvas: HTMLCanvasElement, moveEl: HTMLElement, a
     draw() {
       place(moveEl, twin.tracker.moveFinger, STICK_RADIUS * 0.6);
       place(aimEl, twin.tracker.aimFinger, STICK_RADIUS * 0.6);
+    },
+    configure(c) {
+      twin.tracker.configure(c);
+      const look = stickLook(c);
+      ringScale = look.scale;
+      moveEl.style.opacity = aimEl.style.opacity = String(look.opacity);
     },
     destroy() {
       twin.destroy();

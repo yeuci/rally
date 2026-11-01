@@ -228,7 +228,8 @@ async function main() {
     assert.equal(await stack(page, 'score'), 0);
     await page.click('#rally-dev-harness >> button[data-action="resume"]');
     await page.waitForSelector('#paused', { state: 'hidden' });
-    await page.waitForTimeout(400);
+    // Wait on the simulation itself rather than a fixed delay: on a loaded machine swiftshader frames come slowly.
+    await page.waitForFunction((t) => window.__stack.layerTime > t + 0.05, t1, { timeout: 10_000 }).catch(() => null);
     const t2 = await stack(page, 'layerTime');
     assert.ok(t2 > t1 + 0.05, `simulation continues after resume (${t1} → ${t2})`);
     console.log(
@@ -240,8 +241,48 @@ async function main() {
     await placeBlock(page, 0.6);
     console.log('✓ lowMemory → trimmed, still playable');
 
-    // 7. exitRequested → the game saves and calls exit("host").
-    await page.click('#rally-dev-harness >> button[data-action="exitRequested"]');
+    // 7. The host's game menu (the harness draws the shell's): Escape opens it and pauses the tower; graphics Low and
+    //    a volume change reach the game live; our own setting and the how-to-play are there; Resume continues.
+    // The harness panel keeps its keys to itself: take the focus off the button clicked last. Collapse it too: at
+    // phone width it sits over the menu's footer.
+    await page.evaluate(() => document.activeElement && document.activeElement.blur());
+    await togglePanel();
+    await page.evaluate(() => document.activeElement && document.activeElement.blur());
+    await page.keyboard.press('Escape');
+    const menu = '#rally-harness-menu >> [data-role="menu"]';
+    await page.waitForSelector(menu, { timeout: 5_000 });
+    // The `menu` event reaches the game a message later than the panel shows.
+    await page.waitForFunction(() => window.__stack.paused, null, { timeout: 5_000 }).catch(() => null);
+    assert.equal(await stack(page, 'paused'), true, 'solo: paused while the menu is open');
+    await page.selectOption(`${menu} >> [data-role="setting-graphics"]`, 'low');
+    await page.waitForFunction(
+      () => window.__stack.applied.settings.graphics === 'low' && window.__stack.applied.dpr === 1,
+      null,
+      { timeout: 5_000 },
+    );
+    await page.$eval(`${menu} >> [data-setting="volume.master"]`, (el) => {
+      el.value = '0.5';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await page.waitForFunction(() => Math.abs(window.__stack.applied.volume - 0.5) < 1e-9, null, { timeout: 5_000 });
+    assert.ok(await page.$(`${menu} >> [data-game="perfectFlash"]`), 'our own setting is offered');
+    await page.click(`${menu} >> [data-role="menu-tab-help"]`);
+    assert.match(await page.textContent(menu), /Drop the block/);
+    await page.click(`${menu} >> [data-role="menu-resume"]`);
+    await page.waitForSelector(menu, { state: 'hidden', timeout: 5_000 });
+    await page.waitForFunction(() => !window.__stack.paused, null, { timeout: 5_000 }).catch(() => null);
+    assert.equal(await stack(page, 'paused'), false, 'resumed with the menu closed');
+    log = await panelLog(page);
+    assert.match(log, /→ evt menu \{open: true\}/);
+    assert.match(log, /settingsChanged \(graphics low, master 50 %/);
+    const menuSaved = await local(page, 'rally-harness:settings');
+    assert.equal(menuSaved.graphics, 'low', 'kept for the next launch');
+    console.log('✓ game menu: Escape pauses, Low graphics (DPR 1) and 50 % volume applied live, help, Resume');
+
+    // 8. Leave from the game menu (its corner button) → exitRequested → the game saves and calls exit("host").
+    await page.click('#rally-harness-menu >> [data-role="menu-button"]');
+    await page.click(`${menu} >> [data-role="menu-leave"]`);
     await page.waitForSelector('#rally-dev-harness >> [data-role="exit-overlay"]', { timeout: 10_000 });
     const overlay = await page.textContent('#rally-dev-harness >> [data-role="exit-overlay"]');
     assert.match(overlay, /game exited \(host\)/);
@@ -249,7 +290,7 @@ async function main() {
     assert.match(log, /exit\("host"\)/);
     console.log(`✓ exitRequested → exit() → overlay "${overlay.replace('reload', '').trim()}"`);
 
-    // 8. Standalone (?nohost): plays with in-memory/localStorage fallbacks, no bridge.
+    // 9. Standalone (?nohost): plays with in-memory/localStorage fallbacks, no bridge.
     const standalone = await context.newPage();
     standalone.on('pageerror', (e) => errors.push(e.message));
     await standalone.goto(`${STACK_URL}?nohost`);

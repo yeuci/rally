@@ -11,6 +11,13 @@ export interface LifecycleOptions {
   onExitRequested?: () => void | Promise<void>;
   /** Drop caches, pools, extra render targets. */
   onLowMemory?: () => void;
+  /**
+   * The host's game menu opened or closed (`menu` event): release held input while it is open (sticks, fire). A solo
+   * game may also pause (`pauseWhileMenuOpen`).
+   */
+  onMenu?: (open: boolean) => void;
+  /** Pause (reason 'menu') while the host's game menu is open. Default false: multiplayer keeps running underneath. */
+  pauseWhileMenuOpen?: boolean;
   /** Also pause while `document.hidden`. Default: only when not hosted (the shell sends `pause` itself). */
   pauseWhenHidden?: boolean;
   /** Upper bound for `onExitRequested` before exiting anyway. Default 3000 ms. */
@@ -96,6 +103,13 @@ export function createLifecycle(
     rally.on('resume', () => lifecycle.resume('host')),
     rally.on('exitRequested', () => void lifecycle.exit('host')),
     rally.on('lowMemory', () => options.onLowMemory?.()),
+    rally.on('menu', ({ open }) => {
+      if (options.pauseWhileMenuOpen) {
+        if (open) lifecycle.pause('menu');
+        else lifecycle.resume('menu');
+      }
+      options.onMenu?.(open);
+    }),
   ];
   if (pauseWhenHidden && typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', onVisibility);

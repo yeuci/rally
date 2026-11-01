@@ -57,7 +57,8 @@ canvas {
 .topbar {
   position: absolute;
   top: calc(var(--safe-top) + 8px);
-  left: calc(var(--safe-left) + 8px);
+  /* In the shell its game-menu button sits top-left (--rally-menu-inset, from the launch context): keep clear. */
+  left: max(calc(var(--safe-left) + 8px), var(--rally-menu-inset, 0px));
   right: calc(var(--safe-right) + 8px);
   display: flex;
   align-items: flex-start;

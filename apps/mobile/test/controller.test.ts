@@ -3,8 +3,10 @@ import { test } from 'node:test';
 import { GameHostController, type GameHostResult } from '../src/game-host/controller';
 import type { PlaySessionService } from '../src/game-host/play-session';
 import { createMemoryProgressStore, type ProgressStore } from '../src/game-host/progress';
+import { createMemoryStorage } from '../src/game-host/rejoin-journal';
 import { createMemorySaveStore } from '../src/game-host/saves';
-import { BUNDLE, NONCE, clock, device, req } from './helpers';
+import { createGameSettingsStore, menuButtonRect, type GameSettingsStore } from '../src/game-host/settings';
+import { BUNDLE, NONCE, clock, device, evt, req } from './helpers';
 
 function setup(
   opts: {
@@ -16,6 +18,10 @@ function setup(
     onPlayRecorded?: () => void;
     title?: string | null;
     pageBytes?: number | null;
+    settingsStore?: GameSettingsStore | null;
+    autoGraphics?: 'low' | 'medium' | 'high';
+    playHaptic?: (kind: string) => void;
+    settingsThrottleMs?: number;
   } = {},
 ) {
   const c = clock();
@@ -31,6 +37,10 @@ function setup(
     pageBytes: opts.pageBytes ?? null,
     revealTimeoutMs: opts.revealTimeoutMs,
     leaveGraceMs: opts.leaveGraceMs,
+    settingsStore: opts.settingsStore,
+    autoGraphics: opts.autoGraphics,
+    playHaptic: opts.playHaptic,
+    settingsThrottleMs: opts.settingsThrottleMs,
     log: (m) => logs.push(m),
     user: { id: 'u1', username: 'tester', avatarUrl: null },
     intent: 'solo',
@@ -704,5 +714,281 @@ test('without a title or a known download size the words stay generic', () => {
   const v = controller.getSnapshot();
   assert.equal(v.status, 'Downloading game files');
   assert.match(v.detail ?? '', /^\d+%$/);
+  controller.stop();
+});
+
+// --- the game menu ------------------------------------------------------------------------------------------------
+
+const DEFINITION = {
+  settings: [
+    { type: 'toggle', key: 'aimAssist', label: 'Aim assist', default: true },
+    { type: 'slider', key: 'sensitivity', label: 'Stick sensitivity', min: 0.5, max: 2, step: 0.25, default: 1 },
+  ],
+  help: [{ title: 'Move', text: 'Drag the left half of the screen.' }],
+};
+const events = (delivered: () => { kind: string; method?: string; params?: unknown }[], method: string) =>
+  delivered()
+    .filter((e) => e.kind === 'evt' && e.method === method)
+    .map((e) => e.params);
+const responseTo = (delivered: () => { kind: string; id?: string; params?: unknown }[], raw: string) =>
+  delivered().find((e) => e.kind === 'res' && e.id === (JSON.parse(raw) as { id: string }).id);
+
+async function seededStore() {
+  const storage = createMemoryStorage();
+  const store = createGameSettingsStore(storage);
+  await store.savePlatform({
+    volume: { master: 0.5, music: 0.2, effects: 0.8 },
+    graphics: 'auto',
+    haptics: true,
+    controls: { swapSticks: false, stickSize: 1, stickOpacity: 0.8, aimAssist: true },
+  });
+  await store.saveGame('spike', { aimAssist: false, sensitivity: 1.5 });
+  return { storage, store };
+}
+
+test('launch context: saved settings (Auto resolved) and the menu button rect in device', async () => {
+  const { store } = await seededStore();
+  const { controller, delivered } = setup({ settingsStore: store, autoGraphics: 'medium' });
+  const rect = menuButtonRect({ top: 47, left: 0 });
+  controller.update({ device: { ...device, menuButton: rect } });
+  controller.handleMessage(ready(), BUNDLE);
+  await tick();
+  const ctx = delivered().find((e) => e.kind === 'res')!.params as {
+    device: { menuButton: unknown };
+    settings: { volume: unknown; graphics: string; game: unknown };
+  };
+  assert.deepEqual(ctx.device.menuButton, rect);
+  assert.deepEqual(ctx.settings.volume, { master: 0.5, music: 0.2, effects: 0.8 });
+  assert.equal(ctx.settings.graphics, 'medium');
+  assert.deepEqual(ctx.settings.game, { aimAssist: false, sensitivity: 1.5 }, 'saved values before menu.define');
+  controller.stop();
+});
+
+test('menu.define: stored for the page, answered with saved values else defaults, shown in the menu', async () => {
+  const storage = createMemoryStorage();
+  const store = createGameSettingsStore(storage);
+  await store.saveGame('spike', { sensitivity: 1.75, gone: 'x' });
+  const { controller, delivered } = setup({ settingsStore: store });
+  controller.handleMessage(ready(), BUNDLE);
+  await tick();
+  const raw = req('menu.define', DEFINITION);
+  controller.handleMessage(raw, BUNDLE);
+  await tick();
+  assert.deepEqual((responseTo(delivered, raw)?.params as { values: unknown }).values, {
+    aimAssist: true,
+    sensitivity: 1.75,
+  });
+  const v = controller.getSnapshot();
+  assert.equal(v.menu.defined, true);
+  assert.deepEqual(
+    v.menu.settings.map((s) => s.key),
+    ['aimAssist', 'sensitivity'],
+  );
+  assert.equal(v.menu.help[0]!.title, 'Move');
+  assert.deepEqual(v.settings.game, { aimAssist: true, sensitivity: 1.75 });
+  controller.handleMessage(
+    evt('menu.players', { players: [{ name: 'Alice', detail: '3 kills', you: true }, { name: 'Bob' }] }),
+    BUNDLE,
+  );
+  await tick();
+  assert.deepEqual(
+    controller.getSnapshot().menu.players.map((p) => p.name),
+    ['Alice', 'Bob'],
+  );
+  controller.stop();
+});
+
+test('the menu opens only over a running game, tells the game, and closes again', async () => {
+  const { controller, delivered } = setup();
+  controller.openMenu();
+  assert.equal(controller.getSnapshot().menuOpen, false, 'not over the loading screen');
+  controller.handleMessage(loading(0.5, 'Joining the match'), BUNDLE);
+  controller.handleMessage(ready(), BUNDLE);
+  await tick();
+  controller.handleMessage(req('menu.open', {}), BUNDLE); // Escape during the hold
+  await tick();
+  assert.equal(controller.getSnapshot().menuOpen, false, 'not while the loading screen holds');
+  controller.handleMessage(loading(1, 'Joining the match'), BUNDLE);
+  await tick();
+  controller.handleMessage(req('menu.open', {}), BUNDLE); // Escape
+  await tick();
+  assert.equal(controller.getSnapshot().menuOpen, true);
+  controller.openMenu();
+  controller.closeMenu();
+  controller.closeMenu();
+  assert.equal(controller.getSnapshot().menuOpen, false);
+  assert.deepEqual(events(delivered, 'menu'), [{ open: true }, { open: false }], 'one event per change');
+  controller.stop();
+});
+
+test('settings: live while dragging (throttled), at once and saved when final', async () => {
+  const { storage, store } = await seededStore();
+  const { controller, delivered } = setup({ settingsStore: store, settingsThrottleMs: 20, autoGraphics: 'high' });
+  controller.handleMessage(ready(), BUNDLE);
+  controller.handleMessage(req('menu.define', DEFINITION), BUNDLE);
+  await tick();
+  controller.openMenu();
+  for (let i = 1; i <= 10; i++) controller.changeSettings({ volume: { master: i / 10 } }, false);
+  assert.equal(controller.getSnapshot().settings.platform.volume.master, 1, 'the menu shows the drag at once');
+  assert.equal(events(delivered, 'settingsChanged').length, 0, 'nothing sent within the window');
+  await new Promise((r) => setTimeout(r, 40));
+  let sent = events(delivered, 'settingsChanged') as { volume: { master: number } }[];
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]!.volume.master, 1, 'the latest value');
+  assert.equal(JSON.parse((await storage.getItem('rally.game-settings'))!).volume.master, 0.5, 'not saved mid-drag');
+  controller.changeSettings({ volume: { master: 0.7 } }, true);
+  controller.changeSettings({ graphics: 'low' });
+  controller.changeSettings({ game: { aimAssist: true, sensitivity: 9, unknown: 1 } });
+  controller.changeSettings({ game: { aimAssist: 'yes' } }); // wrong type: ignored
+  controller.changeSettings({ controls: { swapSticks: true, stickOpacity: 0.5 } });
+  sent = events(delivered, 'settingsChanged') as never;
+  assert.equal(sent.length, 5);
+  assert.deepEqual(sent.at(-1), {
+    volume: { master: 0.7, music: 0.2, effects: 0.8 },
+    graphics: 'low',
+    haptics: true,
+    controls: { swapSticks: true, stickSize: 1, stickOpacity: 0.5, aimAssist: true },
+    game: { aimAssist: true, sensitivity: 2 },
+  });
+  await tick();
+  assert.equal(JSON.parse((await storage.getItem('rally.game-settings'))!).graphics, 'low');
+  assert.deepEqual(JSON.parse((await storage.getItem('rally.game-settings.spike'))!), {
+    aimAssist: true,
+    sensitivity: 2,
+  });
+
+  // The next session starts from what was saved.
+  const next = setup({ settingsStore: store });
+  next.controller.handleMessage(ready(), BUNDLE);
+  await tick();
+  const ctx = next.delivered().find((e) => e.kind === 'res')!.params as { settings: { graphics: string } };
+  assert.equal(ctx.settings.graphics, 'low');
+  controller.stop();
+  next.controller.stop();
+});
+
+test('Android back: opens and closes the menu over the game; force-closes a game that ignores Leave', async () => {
+  const early = setup();
+  early.controller.handleBack(); // on the loading screen: leave as before
+  assert.equal(early.exits[0]?.reason, 'forced');
+
+  const { controller, delivered, exits } = setup({ leaveGraceMs: 10_000 });
+  controller.handleMessage(ready(), BUNDLE);
+  await tick();
+  controller.handleBack();
+  assert.equal(controller.getSnapshot().menuOpen, true);
+  controller.handleBack();
+  assert.equal(controller.getSnapshot().menuOpen, false);
+  controller.handleBack();
+  controller.leave(); // the menu's Leave game
+  assert.ok(events(delivered, 'exitRequested').length === 1);
+  assert.equal(controller.getSnapshot().leaving, true);
+  assert.equal(exits.length, 0);
+  controller.handleBack(); // the game did not leave: back closes it
+  assert.equal(exits[0]?.reason, 'forced');
+});
+
+test('Leave from the menu: a game that leaves in time exits with its reason; one that does not is closed', async () => {
+  const slow = setup({ leaveGraceMs: 20 });
+  slow.controller.handleMessage(ready(), BUNDLE);
+  await tick();
+  slow.controller.openMenu();
+  slow.controller.leave();
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(slow.exits[0]?.reason, 'forced');
+
+  const quick = setup({ leaveGraceMs: 40 });
+  quick.controller.handleMessage(ready(), BUNDLE);
+  await tick();
+  quick.controller.leave();
+  quick.controller.handleMessage(req('exit', { reason: 'host' }), BUNDLE);
+  await new Promise((r) => setTimeout(r, 80));
+  assert.deepEqual(
+    quick.exits.map((e) => e.reason),
+    ['host'],
+  );
+});
+
+test('haptics: played while the setting is on, dropped while off, NOT_SUPPORTED without permission', async () => {
+  const played: string[] = [];
+  const { controller, delivered } = setup({ playHaptic: (k) => played.push(k) });
+  controller.handleMessage(ready(), BUNDLE);
+  const a = req('haptics', { kind: 'light' });
+  controller.handleMessage(a, BUNDLE);
+  await tick();
+  controller.changeSettings({ haptics: false });
+  const b = req('haptics', { kind: 'heavy' });
+  controller.handleMessage(b, BUNDLE);
+  await tick();
+  assert.deepEqual(played, ['light']);
+  assert.equal((responseTo(delivered, b) as { params: unknown }).params, null, 'dropped without an error');
+
+  const none = setup();
+  none.controller.handleMessage(ready(), BUNDLE);
+  const c = req('haptics', { kind: 'light' });
+  none.controller.handleMessage(c, BUNDLE);
+  await tick();
+  assert.equal((responseTo(none.delivered, c) as { error?: { code: string } }).error?.code, 'NOT_SUPPORTED');
+  controller.stop();
+  none.controller.stop();
+});
+
+test('a reload or a new document forgets what the page defined and closes the menu; saved values stay', async () => {
+  const { store } = await seededStore();
+  const { controller, delivered } = setup({ settingsStore: store });
+  controller.handleMessage(ready(), BUNDLE);
+  controller.handleMessage(req('menu.define', DEFINITION), BUNDLE);
+  controller.handleMessage(evt('menu.players', { players: [{ name: 'Alice' }] }), BUNDLE);
+  await tick();
+  controller.openMenu();
+  controller.onMainFrameLoadStart(BUNDLE); // location.reload()
+  let v = controller.getSnapshot();
+  assert.equal(v.menuOpen, false);
+  assert.equal(v.menu.defined, false);
+  assert.deepEqual(v.menu.players, []);
+  assert.deepEqual(
+    v.settings.game,
+    { aimAssist: false, sensitivity: 1.5 },
+    'saved values, before the page defines again',
+  );
+  assert.deepEqual(events(delivered, 'menu'), [{ open: true }], 'no close event to a page that is gone');
+
+  controller.handleMessage(ready(), BUNDLE);
+  controller.handleMessage(req('menu.define', DEFINITION), BUNDLE);
+  await tick();
+  controller.openMenu();
+  controller.onProcessGone('gone');
+  assert.equal(controller.getSnapshot().menuOpen, false);
+  controller.reload();
+  v = controller.getSnapshot();
+  assert.equal(v.menu.defined, false);
+  controller.stop();
+});
+
+test('connection status: net.status drives the view (ping bars, banner); a new document forgets it', async () => {
+  let renders = 0;
+  const { controller } = setup();
+  controller.subscribe(() => (renders += 1));
+  controller.handleMessage(ready(), BUNDLE);
+  await tick();
+  assert.equal(controller.getSnapshot().net, null, 'solo games never report one');
+  controller.handleMessage(evt('net.status', { state: 'connected', rttMs: 48 }), BUNDLE);
+  await tick();
+  assert.deepEqual(controller.getSnapshot().net, { state: 'connected', rttMs: 48 });
+  const before = renders;
+  controller.handleMessage(evt('net.status', { state: 'connected', rttMs: 48 }), BUNDLE);
+  await tick();
+  assert.equal(renders, before, 'the same status again changes nothing');
+  controller.handleMessage(evt('net.status', { state: 'reconnecting' }), BUNDLE);
+  await tick();
+  assert.deepEqual(controller.getSnapshot().net, { state: 'reconnecting' });
+  controller.handleMessage(evt('net.status', { state: 'disconnected' }), BUNDLE);
+  await tick();
+  assert.equal(controller.getSnapshot().net?.state, 'disconnected');
+  controller.handleMessage(evt('net.status', { state: 'lost' }), BUNDLE); // not in the protocol: dropped
+  await tick();
+  assert.equal(controller.getSnapshot().net?.state, 'disconnected');
+  controller.onMainFrameLoadStart(BUNDLE);
+  assert.equal(controller.getSnapshot().net, null);
   controller.stop();
 });

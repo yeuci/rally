@@ -3,6 +3,7 @@ import { afterEach, test } from 'node:test';
 import { HostBridge } from '../src/game-host/bridge';
 import {
   createHostHandlers,
+  MENU_DEFINES_PER_MINUTE,
   PROGRESS_LIMITS_PER_MINUTE,
   SESSION_LIMITS_PER_MINUTE,
   type HostHandlerDeps,
@@ -243,6 +244,73 @@ test('ui.loading passes the trimmed label on; an empty or overlong label is refu
   assert.equal((await call('ui.loading', { progress: 0.4, label: 'x'.repeat(61) })).error?.code, 'INVALID_PARAMS');
   assert.deepEqual(calls.loading, [0.25, 0.3]);
   assert.deepEqual(calls.labels, ['Downloading characters', undefined]);
+});
+
+test('game menu methods: NOT_SUPPORTED on a host without the menu; menu.define validated, answered with values', async () => {
+  const bare = setup();
+  assert.equal((await bare.call('menu.define', { settings: [], help: [] })).error?.code, 'NOT_SUPPORTED');
+  assert.equal((await bare.call('menu.open', {})).error?.code, 'NOT_SUPPORTED');
+  assert.equal((await bare.call('haptics', { kind: 'light' })).error?.code, 'NOT_SUPPORTED');
+
+  const defined: unknown[] = [];
+  let opened = 0;
+  const { call } = setup({
+    onMenuDefine: (def) => {
+      defined.push(def);
+      return { aimAssist: false };
+    },
+    onMenuOpen: () => (opened += 1),
+  });
+  const ok = await call('menu.define', {
+    settings: [{ type: 'toggle', key: 'aimAssist', label: 'Aim assist', default: true }],
+    help: [{ title: 'Move', text: 'Drag the left half.' }],
+  });
+  assert.deepEqual(ok.params, { values: { aimAssist: false } });
+  assert.equal(
+    (await call('menu.define', { settings: [{ type: 'toggle', key: 'Bad Key', label: 'x', default: true }] })).error
+      ?.code,
+    'INVALID_PARAMS',
+  );
+  const dup = { type: 'toggle', key: 'a', label: 'A', default: true };
+  assert.equal((await call('menu.define', { settings: [dup, dup] })).error?.code, 'INVALID_PARAMS');
+  assert.deepEqual(
+    (await call('menu.define', {})).params,
+    { values: { aimAssist: false } },
+    'settings and help default to []',
+  );
+  assert.deepEqual(defined.at(-1), { settings: [], help: [] });
+  assert.equal((await call('menu.open', {})).params, null);
+  assert.equal(opened, 1);
+});
+
+test('menu.define is rate limited (a game cannot loop it)', async () => {
+  const c = clock();
+  const { call } = setup({ now: c.now, onMenuDefine: () => ({}) });
+  for (let i = 0; i < MENU_DEFINES_PER_MINUTE; i++) assert.equal((await call('menu.define', {})).error, undefined);
+  assert.equal((await call('menu.define', {})).error?.code, 'RATE_LIMITED');
+});
+
+test('haptics: played while the player has them on, dropped (no error) while off', async () => {
+  let on = true;
+  const played: string[] = [];
+  const { call } = setup({ haptics: { enabled: () => on, play: (k) => played.push(k) } });
+  assert.equal((await call('haptics', { kind: 'success' })).params, null);
+  on = false;
+  assert.equal((await call('haptics', { kind: 'heavy' })).params, null);
+  assert.deepEqual(played, ['success']);
+  assert.equal((await call('haptics', { kind: 'boom' })).error?.code, 'INVALID_PARAMS');
+});
+
+test('ready waits for the saved settings before answering', async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const { call, calls } = setup({ beforeReady: () => gate });
+  const answer = call('ready', { sdkVersion: '1' });
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(calls.ready, 0);
+  release();
+  assert.deepEqual((await answer).params, launchContext);
+  assert.equal(calls.ready, 1);
 });
 
 test('TokenBucket refills continuously up to capacity', () => {

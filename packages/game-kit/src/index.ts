@@ -75,6 +75,19 @@ export {
   type Rgb,
 } from './models.ts';
 export {
+  GRAPHICS_PRESETS,
+  bindSettings,
+  effectsVolume,
+  graphicsPreset,
+  musicVolume,
+  rememberGraphics,
+  rememberedGraphics,
+  stickLook,
+  type GraphicsPreset,
+} from './settings.ts';
+export { assistAim, type AimAssistOptions, type AimPoint } from './aim.ts';
+export { NET_STATUS_INTERVAL_MS, createNetStatus, type NetState, type NetStatusReporter } from './net.ts';
+export {
   BOOT_LABEL_MAX,
   createBootProgress,
   formatBytes,
