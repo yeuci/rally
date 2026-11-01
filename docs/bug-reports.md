@@ -13,11 +13,11 @@ warning, error and game host log lines.
 
 ## Who gets it
 
-| Build | Shake to report |
-|---|---|
-| Dev builds and Expo Go (`__DEV__`) | on |
-| Builds made with `EXPO_PUBLIC_BUG_REPORTS=1` (the EAS `preview` profile sets it) | on |
-| Store builds (neither) | off: no shake listener, no log capture, no Developer section |
+| Build                                                                            | Shake to report                                              |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Dev builds and Expo Go (`__DEV__`)                                               | on                                                           |
+| Builds made with `EXPO_PUBLIC_BUG_REPORTS=1` (the EAS `preview` profile sets it) | on                                                           |
+| Store builds (neither)                                                           | off: no shake listener, no log capture, no Developer section |
 
 It also needs a signed-in, linked account (the database refuses signed-out clients and anonymous sessions).
 
@@ -38,18 +38,18 @@ the row's `context.screenshotNote` says `taken over a WebGL game: the game area 
 
 ## What a report holds
 
-| Column | Content |
-|---|---|
-| `id`, `created_at` | set by the server |
-| `user_id` | the reporter (column default `auth.uid()`; clients cannot set it). Becomes null if the account is deleted, so the report stays |
-| `note` | what the tester typed (≤ 2000 characters) |
-| `app_version` | `app.json` version |
-| `platform`, `os_version` | `ios` / `android`, and `Platform.Version` |
-| `route` | the expo-router path at the time of the shake, e.g. `/game/sumo/play` |
-| `game_id`, `game_version` | set when the report came from the play screen |
-| `logs` | the last ~200 lines: every `console.warn` / `console.error`, plus the game host's `[game-host]` / `[bridge]` / `[play-session]` / `[game …]` lines, as `HH:MM:SS.mmm W text` (UTC; `W` warn, `E` error, `I` host info) |
-| `screenshot_path` | object name in the `bug-reports` bucket (`<user_id>/<uuid>.jpg`), or null |
-| `context` | `executionEnvironment` (`storeClient` = Expo Go), `expoSdk`, `device`, `window`, `screenshot` (`attached` / `left out` / `capture failed` / `upload failed`), `screenshotNote`, `screenshotError` |
+| Column                    | Content                                                                                                                                                                                                                |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`, `created_at`        | set by the server                                                                                                                                                                                                      |
+| `user_id`                 | the reporter (column default `auth.uid()`; clients cannot set it). Becomes null if the account is deleted, so the report stays                                                                                         |
+| `note`                    | what the tester typed (≤ 2000 characters)                                                                                                                                                                              |
+| `app_version`             | `app.json` version                                                                                                                                                                                                     |
+| `platform`, `os_version`  | `ios` / `android`, and `Platform.Version`                                                                                                                                                                              |
+| `route`                   | the expo-router path at the time of the shake, e.g. `/game/sumo/play`                                                                                                                                                  |
+| `game_id`, `game_version` | set when the report came from the play screen                                                                                                                                                                          |
+| `logs`                    | the last ~200 lines: every `console.warn` / `console.error`, plus the game host's `[game-host]` / `[bridge]` / `[play-session]` / `[game …]` lines, as `HH:MM:SS.mmm W text` (UTC; `W` warn, `E` error, `I` host info) |
+| `screenshot_path`         | object name in the `bug-reports` bucket (`<user_id>/<uuid>.jpg`), or null                                                                                                                                              |
+| `context`                 | `executionEnvironment` (`storeClient` = Expo Go), `expoSdk`, `device`, `window`, `screenshot` (`attached` / `left out` / `capture failed` / `upload failed`), `screenshotNote`, `screenshotError`                      |
 
 Limits: 10 reports per user per hour (`RATE_LIMITED`); screenshots are JPEGs up to 5 MB (the app sends ~1280 px).
 
