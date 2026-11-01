@@ -20,7 +20,13 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "dev:mobile:go:clear": "pnpm --filter @rally/mobile start:go:clear",
-    "dev:mobile:go:tunnel": "pnpm --filter @rally/mobile start:go:tunnel"
+    "dev:mobile:go:tunnel": "pnpm --filter @rally/mobile start:go:tunnel",
+    "ship": "tsx tooling/release/src/cli.ts ship",
+    "ship:status": "tsx tooling/release/src/cli.ts status",
+    "ship:db": "tsx tooling/release/src/cli.ts db",
+    "ship:server": "tsx tooling/release/src/cli.ts server",
+    "ship:games": "tsx tooling/release/src/cli.ts games",
+    "app": "pnpm --filter @rally/mobile start:go:tunnel"
   },
   "devDependencies": {
     "@rally/model-pipeline": "workspace:*",
@@ -28,6 +34,7 @@
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.1.1",
     "prettier": "^3.9.10",
+    "tsx": "^4.21.0",
     "turbo": "^2.11.10",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.72.1"

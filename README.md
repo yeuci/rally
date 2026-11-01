@@ -18,6 +18,17 @@ games/spike          The M0 spike game (game.json + Vite/TS/PlayCanvas client)
 docs/                architecture.md, decisions/ (ADRs)
 ```
 
+## Releasing (owner)
+
+```bash
+pnpm ship          # pull main, push migrations, redeploy the game server if its code changed, publish new game versions
+pnpm ship:status   # what `pnpm ship` would do, without doing it
+pnpm app           # start the app for Expo Go (tunnel)
+```
+
+Single steps: `pnpm ship:db`, `pnpm ship:server`, `pnpm ship:games [ids]`. Setup and details:
+[`tooling/release/README.md`](tooling/release/README.md).
+
 ## Prerequisites
 
 - Node 22+, pnpm 10 (`corepack enable`)
