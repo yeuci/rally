@@ -24,6 +24,8 @@ export interface ChefView {
   act: number;
   connected: boolean;
   guest: boolean;
+  /** The Rally user id of a signed-in chef ('' for guests and bots): the host menu's People list. */
+  uid: string;
   bot: boolean;
   /** The night's vote (-1: none yet). */
   vote: number;

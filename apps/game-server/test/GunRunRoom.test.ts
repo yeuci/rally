@@ -121,7 +121,7 @@ describe('GunRunRoom', () => {
         serverVersion: SERVER_VERSION,
       },
     );
-    assert.equal(SERVER_VERSION, 4);
+    assert.ok(SERVER_VERSION >= 4, `server v${SERVER_VERSION} has the gunrun room`);
     const b = await join('Bob');
     assert.equal(b.room.roomId, a.room.roomId);
     await waitFor(() => view(a.room).players.size === 4 && server.botCount === 2, 'a bot made room for Bob');

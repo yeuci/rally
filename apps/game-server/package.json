@@ -23,6 +23,7 @@
     "@rally/game-gunrun-server": "workspace:*",
     "@rally/game-overrun-server": "workspace:*",
     "@rally/game-sumo-server": "workspace:*",
+    "@rally/game-sushi-server": "workspace:*",
     "colyseus": "^0.18.10",
     "express": "^5.2.1",
     "jose": "^6.2.14"
