@@ -6,6 +6,7 @@ import { ActivityIndicator, RefreshControl, ScrollView, View } from 'react-nativ
 import { LaunchConsentDialog } from '@/components/rally/consent-dialog';
 import { EmptyState, RetryButton } from '@/components/rally/empty-state';
 import { PersonList, PersonListSkeleton, PersonRow } from '@/components/rally/person-row';
+import { RecentlyPlayedWithSection } from '@/components/rally/recently-played';
 import { SearchPill } from '@/components/rally/search-pill';
 import { SectionHeader } from '@/components/rally/section-header';
 import { Segmented } from '@/components/rally/segmented';
@@ -53,7 +54,8 @@ const findPlayers = () => router.push({ pathname: '/search', params: { q: '@' } 
  * Your friends show their presence (`friends_presence`, m3-phase2 §2): "Online" or "In Sumo", playing friends first,
  * with **Join** when their room has a free seat (`useLaunchGame` → `join=friend`: the play route asks
  * `friend_join_target` for the room, so the target never comes from the friend's client). Polled every 30 s while
- * this screen is in front, and refreshed when it comes back into focus.
+ * this screen is in front, and refreshed when it comes back into focus. Under them, "Recently played with"
+ * (`recently_played_with`): people from your counted matches of the last 14 days, with Add friend.
  */
 export default function FriendsScreen() {
   const { username, tab } = useLocalSearchParams<{ username?: string; tab?: string }>();
@@ -90,7 +92,12 @@ function MyFriends({ initialTab }: { initialTab: Tab }) {
   async function refresh() {
     setRefreshing(true);
     try {
-      await Promise.all([friends.refetch(), requests.refetch(), presence.refetch()]);
+      await Promise.all([
+        friends.refetch(),
+        requests.refetch(),
+        presence.refetch(),
+        qc.refetchQueries({ queryKey: socialKeys.recentPlayers(userId) }),
+      ]);
     } finally {
       setRefreshing(false);
     }
@@ -195,6 +202,8 @@ function MyFriends({ initialTab }: { initialTab: Tab }) {
           )}
         </>
       )}
+      {/* People from your recent matches, with Add friend (hidden while filtering your friends). */}
+      {tab === 'friends' && !filter.trim() && !friends.isLoading ? <RecentlyPlayedWithSection /> : null}
       <LaunchConsentDialog launcher={launcher} />
     </ScrollView>
   );
