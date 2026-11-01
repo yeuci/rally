@@ -48,12 +48,106 @@ const packRgb = (c: Rgb | readonly number[]) => ((c[0]! & 255) << 16) | ((c[1]! 
 
 /**
  * A pipeline file's bytes: fetched and gunzipped (a server that sends the `.gz` with `Content-Encoding: gzip` has
- * already inflated it; the gzip magic tells).
+ * already inflated it; the gzip magic tells). `onBytes` sees the bytes received so far and the response's usable
+ * size (see {@link responseSize}).
  */
-export async function fetchModel(url: string, fetchFn: typeof fetch = fetch): Promise<ArrayBuffer> {
+export async function fetchModel(
+  url: string,
+  fetchFn: typeof fetch = fetch,
+  onBytes?: (loaded: number, total: number | null) => void,
+): Promise<ArrayBuffer> {
   const res = await fetchFn(url);
   if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
-  return inflate(new Uint8Array(await res.arrayBuffer()));
+  const total = responseSize(res);
+  return inflate(await readBody(res, onBytes && ((n) => onBytes(n, total))));
+}
+
+/** Download progress over several files: bytes so far, and their total once every response has said its size. */
+export interface DownloadProgress {
+  loaded: number;
+  /** Null until every file's size is known (a server that compresses on the fly sends no usable length). */
+  total: number | null;
+  /** Files finished, of `files`. */
+  done: number;
+  files: number;
+  /** 0…1: bytes over the total when it is known, else finished files over all of them. */
+  fraction: number;
+}
+
+/**
+ * Fetch `urls` in parallel, each resolving with its inflated bytes as soon as it is in (so callers parse while the
+ * rest download); `onProgress` follows the bytes across all of them (streamed where the browser exposes the body).
+ */
+export function fetchModels(
+  urls: readonly string[],
+  onProgress?: (p: DownloadProgress) => void,
+  fetchFn: typeof fetch = fetch,
+): Promise<ArrayBuffer>[] {
+  const files = urls.map(() => ({ loaded: 0, total: null as number | null, done: false }));
+  const report = () => {
+    if (!onProgress) return;
+    const loaded = files.reduce((n, f) => n + f.loaded, 0);
+    const known = files.every((f) => f.total !== null);
+    const total = known ? files.reduce((n, f) => n + (f.total ?? 0), 0) : null;
+    const done = files.filter((f) => f.done).length;
+    onProgress({
+      loaded,
+      total,
+      done,
+      files: files.length,
+      fraction: total ? Math.min(1, loaded / total) : files.length ? done / files.length : 1,
+    });
+  };
+  return urls.map(async (url, i) => {
+    const f = files[i]!;
+    const out = await fetchModel(url, fetchFn, (loaded, total) => {
+      f.total = total;
+      f.loaded = total === null ? loaded : Math.min(loaded, total);
+      report();
+    });
+    // The final size is what arrived (a length that was missing or wrong no longer matters).
+    f.total = f.loaded = Math.max(f.loaded, f.total ?? 0);
+    f.done = true;
+    report();
+    return out;
+  });
+}
+
+/** Content-Length, unless the body is content-encoded (the browser hands over more bytes than that) or absent. */
+export function responseSize(res: Pick<Response, 'headers'>): number | null {
+  const headers = res.headers as Headers | undefined;
+  if (!headers || typeof headers.get !== 'function') return null;
+  const encoding = headers.get('content-encoding');
+  if (encoding && encoding.toLowerCase() !== 'identity') return null;
+  const n = Number(headers.get('content-length'));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** The whole body, reporting the bytes so far as chunks arrive (or once, where the body is not a stream). */
+async function readBody(res: Response, onBytes?: (loaded: number) => void): Promise<Uint8Array> {
+  const reader = onBytes && res.body && typeof res.body.getReader === 'function' ? res.body.getReader() : null;
+  if (!reader || !onBytes) {
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    onBytes?.(bytes.byteLength);
+    return bytes;
+  }
+  onBytes(0);
+  const chunks: Uint8Array[] = [];
+  let loaded = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    loaded += value.byteLength;
+    onBytes(loaded);
+  }
+  const out = new Uint8Array(loaded);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.byteLength;
+  }
+  return out;
 }
 
 /** Gunzip when the bytes are gzip, else pass them through (as an exact-size ArrayBuffer). */
@@ -75,23 +169,42 @@ export function loadContainer(app: Application, name: string, contents: ArrayBuf
 
 /**
  * Load `names` (GLBs) from a file map (a game's `import.meta.glob('./models/*.gz', { query: '?url', … })`, keyed
- * `<dir>/<name>.glb.gz`) in parallel; `progress` gets 0…1.
+ * `<dir>/<name>.glb.gz`) in parallel; `progress` gets 0…1 (downloads, then parsing; see {@link modelsFraction}) and
+ * the download bytes, for a loading bar that says "1.2 of 3.4 MB".
  */
 export async function loadModels(
   app: Application,
   files: Readonly<Record<string, string>>,
   names: readonly string[],
-  progress: (f: number) => void = () => {},
+  progress: (f: number, bytes: DownloadProgress) => void = () => {},
+  fetchFn: typeof fetch = fetch,
 ): Promise<Record<string, ContainerResource>> {
-  let done = 0;
+  let parsed = 0;
+  let last: DownloadProgress = { loaded: 0, total: null, done: 0, files: names.length, fraction: 0 };
+  const tell = () => progress(modelsFraction(last.fraction, parsed, names.length), last);
+  const downloads = fetchModels(
+    names.map((name) => modelUrl(files, `${name}.glb.gz`)),
+    (p) => {
+      last = p;
+      tell();
+    },
+    fetchFn,
+  );
   const out: Record<string, ContainerResource> = {};
   await Promise.all(
-    names.map(async (name) => {
-      out[name] = await loadContainer(app, name, await fetchModel(modelUrl(files, `${name}.glb.gz`)));
-      progress(++done / names.length);
+    names.map(async (name, i) => {
+      out[name] = await loadContainer(app, name, await downloads[i]!);
+      parsed += 1;
+      tell();
     }),
   );
   return out;
+}
+
+/** Downloading is most of loading models; parsing the rest: 0…1 over both. */
+export function modelsFraction(downloaded: number, parsed: number, files: number): number {
+  const p = files > 0 ? parsed / files : 1;
+  return Math.min(1, 0.85 * Math.min(1, Math.max(0, downloaded)) + 0.15 * p);
 }
 
 /** The URL of `file` in a file map whose keys end with `/<file>`. */
