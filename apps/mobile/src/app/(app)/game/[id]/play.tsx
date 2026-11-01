@@ -14,7 +14,6 @@ import { config, toWsUrl } from '@/config';
 import { HostError } from '@/game-host/bridge';
 import { GameHost, type GameHostResult } from '@/game-host/GameHost';
 import { MATCH_ENDED_EXIT, type MatchmakingTarget } from '@/game-host/handlers';
-import { turnBackFromGame } from '@/game-host/orientation';
 import { pageBytesOf } from '@/game-host/loading-copy';
 import { GameBackdrop } from '@/game-host/loading-screen';
 import { createRejoinJournal } from '@/game-host/rejoin-journal';
@@ -79,12 +78,8 @@ async function resolveFriend(friendId: string): Promise<FriendJoinTarget> {
 /** The game fades into its blurred art before the screen closes (see `leaving` in PlayScreen). */
 const LEAVE_FADE_MS = 220;
 
-/**
- * Back to the game page: first turn the screen back to how the player held it before the game (a landscape game on a
- * portrait phone), so the page underneath never lays out mid-rotation; GameHost frees the orientation once unmounted.
- */
-async function leave(id: string) {
-  await turnBackFromGame();
+/** Back to the game page (the native stack turns the screen back to the shell's orientation as the game closes). */
+function leave(id: string) {
   if (router.canGoBack()) router.back();
   else router.replace({ pathname: '/game/[id]', params: { id } });
 }
@@ -159,7 +154,7 @@ export default function PlayScreen() {
   const [leaving, setLeaving] = useState(false);
   const exitTo = useCallback((gameId: string) => {
     setLeaving(true);
-    setTimeout(() => void leave(gameId), LEAVE_FADE_MS);
+    setTimeout(() => leave(gameId), LEAVE_FADE_MS);
   }, []);
 
   const onExit = useCallback(
@@ -186,7 +181,7 @@ export default function PlayScreen() {
   useEffect(() => {
     if (!resumeEnded) return;
     showToast('That match has ended');
-    void leave(id ?? '');
+    leave(id ?? '');
   }, [resumeEnded, id]);
 
   if (plan.isLoading || consent.isLoading || profile.isLoading || resumeRecord.isLoading || resumeEnded) {
