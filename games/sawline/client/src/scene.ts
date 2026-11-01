@@ -19,7 +19,7 @@ import {
   VertexFormat,
 } from 'playcanvas';
 import { roundedBox } from './meshes.ts';
-import type { Models } from './models.ts';
+import type { Models, PropName } from './models.ts';
 import {
   BAY_SPOTS,
   DEBARKER_Z,
@@ -40,7 +40,16 @@ import {
   type SimEvent,
   type Truck,
 } from './sim.ts';
-import { type Look, WALK_STRIDE, type Worker, makeWorker, oneShot, play, resetWorker } from './workers.ts';
+import {
+  type Look,
+  WALK_STRIDE,
+  type Worker,
+  makeWorker,
+  oneShot,
+  play,
+  resetWorker,
+  vertexMaterial,
+} from './workers.ts';
 
 const hex = (h: string) => {
   const n = parseInt(h.slice(1), 16);
@@ -415,6 +424,18 @@ const PUNCH_SPEED = 1.8;
 const PICKUP_SPEED = 1.7;
 const WORKER_TURN_RATE = 12;
 
+/** One Survival Pack prop (CC0, Quaternius; see models.ts), standing on y = 0 at `pos`. */
+function prop(parent: Entity, models: Models, name: PropName, pos: V3, yaw = 0, tilt: V3 = [0, 0, 0]): Entity {
+  const e = new Entity(`prop-${name}`);
+  e.addComponent('render', { castShadows: true, receiveShadows: true });
+  e.render!.meshInstances = [new MeshInstance(models.props[name], vertexMaterial())];
+  e.render!.castShadows = true;
+  e.setLocalPosition(...pos);
+  e.setLocalEulerAngles(tilt[0], yaw + tilt[1], tilt[2]);
+  parent.addChild(e);
+  return e;
+}
+
 /** One plank's world transform per pile slot, in drop order: a sand-pile heap growing from the middle. */
 function pileTransforms(): Float32Array {
   const out = new Float32Array(PILE_MAX * 16);
@@ -700,6 +721,45 @@ export function createSawlineScene(app: Application, models: Models, opts: { sha
     w.root.setLocalEulerAngles(0, -90, 0);
     return w;
   }) as [Worker, Worker];
+
+  // --- yard props (Survival Pack): the log deck by the infeed, a fuel corner, the operators' odds and ends ---------
+  const decor = new Entity('decor');
+  world.addChild(decor);
+  const deck = { x: LINE_X + 2.3, z: INFEED_Z - 0.7 };
+  const LOG_D = 0.75;
+  const dr = rng(911);
+  [
+    [-1, 0],
+    [0, 0],
+    [1, 0],
+    [-0.5, 1],
+    [0.5, 1],
+    [0, 2],
+  ].forEach(([col, row]) => {
+    // WoodLog lies along x: turned to lie along the line, stacked three, two, one.
+    const at: V3 = [deck.x + col! * LOG_D * 1.02, row! * LOG_D * 0.86, deck.z + (dr() - 0.5) * 0.3];
+    prop(decor, models, 'WoodLog', at, 90 + (dr() - 0.5) * 6);
+  });
+  // Stakes at the corners keep the stack from rolling.
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      part(decor, 'box', PALETTE.trunk, [deck.x + sx * 1.6 * LOG_D, 0.45, deck.z + sz * 0.9], [0.11, 0.9, 0.11], {
+        radius: 0.03,
+      });
+    }
+  }
+  prop(decor, models, 'Axe', [deck.x + 1.65, 0, deck.z + 0.7], 75, [0, 0, 18]);
+  prop(decor, models, 'Shovel', [deck.x + 1.5, 0.02, deck.z - 0.9], 30, [-90, 0, 0]);
+  prop(decor, models, 'PropaneTank', [5.7, 0, 2.6], 10);
+  prop(decor, models, 'PropaneTank', [5.75, 0, 3.15], -25);
+  prop(decor, models, 'PropaneTank', [5.25, 0, 2.75], 40);
+  prop(decor, models, 'GasCan', [4.85, 0, 2.6], 25);
+  prop(decor, models, 'GasCan', [4.95, 0, 3.0], -15);
+  prop(decor, models, 'Trashcan', [OP_X + 0.2, 0, SAW_Z + 1.75], 15);
+  prop(decor, models, 'FirstAidKit_Hard', [OP_X + 0.55, 0, SAW_Z + 1.95], -20);
+  const deskTop = 0.705;
+  prop(decor, models, 'Radio', [OP_X - 0.46, deskTop, stations[1].z - 0.14], 90);
+  prop(decor, models, 'WaterBottle_1', [OP_X - 0.5, deskTop, stations[0].z - 0.16], 0);
 
   const LOADER_LOOKS: Look[] = [
     { body: 'worker_m', vest: PALETTE.vestLoader, hat: PALETTE.hardHat, skin: PALETTE.skins[3] },
@@ -1020,6 +1080,7 @@ export function createSawlineScene(app: Application, models: Models, opts: { sha
       lowFx = true;
       sun.light!.shadowResolution = 1024;
       trees.enabled = false;
+      decor.enabled = false;
     },
   };
 

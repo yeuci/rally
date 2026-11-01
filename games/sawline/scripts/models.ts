@@ -1,9 +1,9 @@
 /**
- * Sawline's workers, from the CC0 Ultimate Animated Character Pack by Quaternius (quaternius.com), through the shared
- * pipeline (@rally/model-pipeline):
+ * Sawline's workers and yard props, from two CC0 packs by Quaternius (quaternius.com) through the shared pipeline
+ * (@rally/model-pipeline): the Ultimate Animated Character Pack (rigged glTF) and the Survival Pack (OBJ + MTL).
  *
- *   pnpm --filter @rally/game-sawline models          (downloads the pack from the repo's art-source release)
- *   MODELS_SRC=<dir with the zip> pnpm --filter @rally/game-sawline models
+ *   pnpm --filter @rally/game-sawline models          (downloads the packs from the repo's art-source release)
+ *   MODELS_SRC=<dir with both zips> pnpm --filter @rally/game-sawline models
  *
  * (In the dev container Node's fetch needs NODE_USE_ENV_PROXY=1 to go through the proxy.) Writes into
  * client/src/models/ (gzipped GLBs + meta.gen.ts, read by client/src/models.ts):
@@ -11,6 +11,7 @@
  * - worker_m.glb, worker_f.glb: one skinned, vertex-coloured mesh each (they share the skeleton), with their material
  *   colours listed so the game can give each worker a vest, hard hat and skin tone.
  * - clips.glb: the clips the game plays, once for both.
+ * - props.glb: the survival props the yard uses (logs, fuel, tools, …), one node each, standing on y = 0.
  */
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,8 +24,13 @@ import {
   entry,
   kb,
   loadPack,
+  modelPack,
+  objSoup,
   readGltf,
   simplifierReady,
+  text,
+  triangleCount,
+  type PackEntry,
   type Rgb,
 } from '@rally/model-pipeline';
 
@@ -36,6 +42,11 @@ const GENERATOR = 'games/sawline/scripts/models.ts';
 const CHARACTER_PACK = {
   file: 'ultimate_character_pack.zip',
   sha256: '6975138a87bcf05bf2e1c0830125565c19ed7c8e019cf485f7d49a5df4a59b8d',
+};
+
+const SURVIVAL_PACK = {
+  file: 'survival_pack.zip',
+  sha256: '7543e6c3589f4ac700efea438ed8f06f3e1e568f8cd7ab0b3b3f41831dc81e66',
 };
 
 const CHARACTERS = [
@@ -58,6 +69,19 @@ const CLIPS = [
 ] as const;
 /** The pack's characters stand about 3.1 units tall; the mill's workers about 1.25 (trucks and saws are toy-sized). */
 const CHARACTER_SCALE = 0.4;
+
+/** Survival props: triangle budget and the yard size of their longest side (world units). */
+const PROPS: Record<string, { triangles: number; size: number }> = {
+  WoodLog: { triangles: 160, size: 2.6 },
+  PropaneTank: { triangles: 220, size: 0.62 },
+  GasCan: { triangles: 160, size: 0.34 },
+  Trashcan: { triangles: 220, size: 0.56 },
+  Radio: { triangles: 160, size: 0.2 },
+  WaterBottle_1: { triangles: 100, size: 0.15 },
+  FirstAidKit_Hard: { triangles: 140, size: 0.26 },
+  Axe: { triangles: 140, size: 0.55 },
+  Shovel: { triangles: 140, size: 0.75 },
+};
 
 async function main() {
   await simplifierReady;
@@ -87,8 +111,42 @@ async function main() {
   console.log(`  clips.glb.gz  ${CLIPS.join(', ')}, ${kb(clipSize)}`);
   meta.clips = CLIPS;
 
+  // Props: one node each, scaled so the longest side is `size`, standing on y = 0 (their lowest point).
+  const survival = await loadPack(SURVIVAL_PACK);
+  const props: PackEntry[] = [];
+  const propMeta: Record<string, { index: number; size: [number, number, number] }> = {};
+  let propTriangles = 0;
+  for (const [name, p] of Object.entries(PROPS)) {
+    const obj = text(entry(survival, `${name}.obj`));
+    const mtl = text(entry(survival, `${name}.mtl`));
+    const native = extent(objSoup(obj, mtl, p.triangles, 1).positions);
+    const soup = objSoup(obj, mtl, p.triangles, p.size / Math.max(...native.size));
+    const { min, size } = extent(soup.positions);
+    for (let i = 1; i < soup.positions.length; i += 3) soup.positions[i]! -= min[1]!;
+    propMeta[name] = { index: props.length, size: size.map(round) as [number, number, number] };
+    props.push({ name, soups: [soup] });
+    propTriangles += triangleCount(soup);
+  }
+  const propSize = out.file('props.glb', await io.writeBinary(modelPack(props)));
+  console.log(`  props.glb.gz  ${props.length} props, ${propTriangles} triangles, ${kb(propSize)}`);
+  meta.props = propMeta;
+
   out.meta('meta.gen.ts', 'MODELS', meta, GENERATOR);
   console.log(`wrote ${OUT} (${kb(out.total)} gzipped in all)`);
 }
+
+function extent(positions: ArrayLike<number>): { min: number[]; size: number[] } {
+  const min = [Infinity, Infinity, Infinity];
+  const max = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < positions.length; i += 3) {
+    for (let k = 0; k < 3; k++) {
+      min[k] = Math.min(min[k]!, positions[i + k]!);
+      max[k] = Math.max(max[k]!, positions[i + k]!);
+    }
+  }
+  return { min, size: [0, 1, 2].map((k) => max[k]! - min[k]!) };
+}
+
+const round = (v: number) => Math.round(v * 1000) / 1000;
 
 await main();

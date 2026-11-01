@@ -29,4 +29,42 @@ export const MODELS = {
     },
   },
   clips: ['Idle', 'Walk', 'Walk_Carry', 'PickUp', 'Punch', 'Shoot_OneHanded', 'SitDown', 'Jump', 'Victory'],
+  props: {
+    WoodLog: {
+      index: 0,
+      size: [2.6, 0.751, 0.765],
+    },
+    PropaneTank: {
+      index: 1,
+      size: [0.454, 0.62, 0.434],
+    },
+    GasCan: {
+      index: 2,
+      size: [0.26, 0.34, 0.084],
+    },
+    Trashcan: {
+      index: 3,
+      size: [0.311, 0.56, 0.406],
+    },
+    Radio: {
+      index: 4,
+      size: [0.16, 0.2, 0.053],
+    },
+    WaterBottle_1: {
+      index: 5,
+      size: [0.045, 0.15, 0.045],
+    },
+    FirstAidKit_Hard: {
+      index: 6,
+      size: [0.26, 0.176, 0.093],
+    },
+    Axe: {
+      index: 7,
+      size: [0.213, 0.55, 0.032],
+    },
+    Shovel: {
+      index: 8,
+      size: [0.154, 0.75, 0.033],
+    },
+  },
 } as const;

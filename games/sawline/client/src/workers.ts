@@ -57,6 +57,19 @@ export interface Worker {
 }
 
 let vertexMat: StandardMaterial | null = null;
+
+/** The material for the pipeline's vertex-coloured meshes (workers and props). */
+export function vertexMaterial(): StandardMaterial {
+  if (!vertexMat) {
+    vertexMat = new StandardMaterial();
+    vertexMat.diffuseVertexColor = true;
+    vertexMat.useMetalness = false;
+    vertexMat.specular = new Color(0.04, 0.04, 0.04);
+    vertexMat.gloss = 0.2;
+    vertexMat.update();
+  }
+  return vertexMat;
+}
 const looks = new Map<string, Mesh>();
 
 /**
@@ -79,20 +92,13 @@ function lookMesh(app: Application, source: Mesh, look: Look): Mesh {
 }
 
 export function makeWorker(app: Application, models: Models, parent: Entity, look: Look, name: string): Worker {
-  if (!vertexMat) {
-    vertexMat = new StandardMaterial();
-    vertexMat.diffuseVertexColor = true;
-    vertexMat.useMetalness = false;
-    vertexMat.specular = new Color(0.04, 0.04, 0.04);
-    vertexMat.gloss = 0.2;
-    vertexMat.update();
-  }
+  const material = vertexMaterial();
   const model = models.characters[look.body].instantiateRenderEntity();
   for (const c of model.findComponents('render')) {
     const render = c as RenderComponent;
     for (const mi of render.meshInstances) {
       mi.mesh = lookMesh(app, mi.mesh!, look);
-      mi.material = vertexMat;
+      mi.material = material;
     }
     render.castShadows = true;
   }

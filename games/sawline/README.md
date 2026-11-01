@@ -79,21 +79,24 @@ Same as Stack and Lumber Camp: loading veil + `ui.loading` → `save.get` → fi
 `progress` = `{ best, played, version: 1 }` (`played` seeds the next shift and turns the first-shift tutorial off);
 at the whistle `leaderboard.submit('earnings', …)`, the achievements earned this shift (`first_truck`, `perfect_10` =
 ten perfect cuts in a row, `earn_3000`, `earn_5000`, `full_line` = all eleven upgrades) and the global top 10; host
-`pause` / `resume` / `exitRequested` / `lowMemory` (smaller shadow map, no trees, fewer chips); telemetry every 10 s.
+`pause` / `resume` / `exitRequested` / `lowMemory` (smaller shadow map, no trees or props, fewer chips);
+telemetry every 10 s.
 
 `window.__sawline` (phase, time, earned, wallet, cuts, sawDepth, upgrades, sim, `autoplay(on)`, `skip(seconds)`)
 exists in `vite dev` only, for the e2e.
 
 ## Models
 
-The crew comes from the **CC0** (public domain) [Ultimate Animated Character
-Pack](https://quaternius.com/packs/ultimatedanimatedcharacter.html) by [Quaternius](https://quaternius.com)
-(Worker_Male and Worker_Female). `pnpm --filter @rally/game-sawline models` rebuilds `client/src/models/` from
-`ultimate_character_pack.zip`, downloaded from this repo's **`art-source` release** (sha256-pinned; keep that release,
-or pass `MODELS_SRC=<dir with the zip>`; in the dev container Node's fetch needs `NODE_USE_ENV_PROXY=1`), through the
-shared pipeline (`tooling/model-pipeline`, runtime half in game-kit's `models.ts`), the same way as Lumber Camp's:
-flat-colour materials become vertex colours in one skinned mesh per worker (≈ 1,400 triangles), the two share one
-skeleton (checked), and `clips.glb` holds the 9 clips the crew plays, once. ≈ 120 KB gzipped in all.
+The crew and the yard props come from two **CC0** (public domain) packs by [Quaternius](https://quaternius.com): the
+[Ultimate Animated Character Pack](https://quaternius.com/packs/ultimatedanimatedcharacter.html) (Worker_Male and
+Worker_Female) and the [Survival Pack](https://quaternius.com/packs/survival.html) (WoodLog, PropaneTank, GasCan,
+Trashcan, Radio, WaterBottle_1, FirstAidKit_Hard, Axe, Shovel). `pnpm --filter @rally/game-sawline models` rebuilds
+`client/src/models/` from the two zips, downloaded from this repo's **`art-source` release** (sha256-pinned; keep that
+release, or pass `MODELS_SRC=<dir with both zips>`; in the dev container Node's fetch needs `NODE_USE_ENV_PROXY=1`),
+through the shared pipeline (`tooling/model-pipeline`, runtime half in game-kit's `models.ts`), the same way as Lumber
+Camp's: flat-colour materials become vertex colours in one skinned mesh per worker (≈ 1,400 triangles), the two share
+one skeleton (checked), and `clips.glb` holds the 9 clips the crew plays, once. Each prop is one node of `props.glb`
+(100–220 triangles), scaled so its longest side is a set yard size and standing on y = 0. ≈ 150 KB gzipped in all.
 
 - **Looks:** each worker's copy of the mesh is recoloured (cached per look): a hi-vis **Vest** (orange at the machines,
   lime for the loaders), a yellow or white **Hat** (hard hat) and **Skin**, which the pack ships as one near-black
@@ -107,9 +110,12 @@ skeleton (checked), and `clips.glb` holds the 9 clips the crew plays, once. ≈ 
   they wait by their bay. With **Forklifts** each loader drives one along the same route (seated, `SitDown`), forks
   loaded on the way to the truck. The route and the rhythm are for show: the sim's loading rate decides the sale.
 - Everyone but the forklift drivers cheers (`Victory`) when the shift ends.
+- **Props:** a log deck by the infeed (six WoodLogs between stakes, an axe and a shovel), a fuel corner for the
+  forklifts by the third bay (propane tanks, gas cans), a radio and a first-aid kit by the saw, a water bottle on the
+  debarker's desk. `lowMemory` hides them with the trees.
 
 Sawline's name, line, machines, rules, text and sounds are original to Rally (the yard, machines and trucks are
-procedural primitives). The workers are the CC0 Quaternius models above.
+procedural primitives). The workers and props are the CC0 Quaternius models above.
 
 ## Artwork
 
