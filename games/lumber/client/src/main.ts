@@ -315,7 +315,16 @@ ui.again.addEventListener('click', () => {
   newShift();
 });
 
+/** Dev only (store art): the sim stands still while the scene keeps rendering and animating. */
+let hold = false;
+
 app.on('update', (dt: number) => {
+  if (hold) {
+    scene.sync(sim, dt);
+    labels.sync(sim);
+    renderHud();
+    return;
+  }
   const live = !lifecycle.isPaused && !lifecycle.isExiting;
   const stick = live ? (autoplay ? null : controls.stick) : { x: 0, z: 0 };
   if (sim.phase === 'ready' && live && (autoplay || (stick && Math.hypot(stick.x, stick.z) > 0.25))) {
@@ -441,6 +450,14 @@ if (import.meta.env.DEV) {
     /** Let the greedy bot play (true) or hand control back (false). */
     autoplay(on: boolean) {
       autoplay = on ? new Bot() : null;
+    },
+    /** Store art: stop the sim (the scene keeps animating; floating labels stay up), and frame the camera. */
+    hold(on: boolean) {
+      hold = on;
+      labels.freeze(on);
+    },
+    artView(view: { zoom: number; at?: { x: number; z: number } } | null) {
+      scene.setArtView(view);
     },
     /** Jump the shift clock forward (testing the end of a shift without waiting 4 minutes). */
     skip(seconds: number) {

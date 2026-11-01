@@ -533,6 +533,8 @@ export interface LumberScene {
   project(x: number, y: number, z: number, out: { x: number; y: number }): void;
   /** Camera framing: follow the player, or pull back over the whole camp after the shift. */
   setOverview(on: boolean): void;
+  /** Store art (dev only): frame closer (`zoom` < 1) or wider, looking at `at`; null = the game's own framing. */
+  setArtView(view: { zoom: number; at?: { x: number; z: number } } | null): void;
   /** Drop non-essential work (lowMemory). */
   trim(): void;
   readonly entityCount: number;
@@ -749,7 +751,9 @@ export function createLumberScene(app: Application, loaded: Models, opts: { shad
   let overview = false;
   const projectTmp = new Vec3();
   let camZ = 0;
+  let camX = 0;
   let orthoH = 7;
+  let artView: { zoom: number; at?: { x: number; z: number } } | null = null;
   let shadowsLow = false;
   let time = 0;
 
@@ -910,13 +914,15 @@ export function createLumberScene(app: Application, loaded: Models, opts: { shad
       const k = dt > 0 ? 1 - Math.exp(-dt * 6) : 1;
       // The whole camp fits across, so the camera only follows the player up and down.
       const pz = sim.player.pz + (sim.player.z - sim.player.pz) * a;
-      const wantZ = overview ? 0.6 : Math.max(-2.4, Math.min(3.6, pz + 0.6));
-      const wantH = overview ? Math.max(base, 9.5) : base;
+      const wantZ = artView?.at?.z ?? (overview ? 0.6 : Math.max(-2.4, Math.min(3.6, pz + 0.6)));
+      const wantX = artView?.at?.x ?? 0;
+      const wantH = (overview ? Math.max(base, 9.5) : base) * (artView?.zoom ?? 1);
       camZ += (wantZ - camZ) * k;
+      camX += (wantX - camX) * k;
       orthoH += (wantH - orthoH) * k;
       if (camera.camera!.orthoHeight !== orthoH) camera.camera!.orthoHeight = orthoH;
-      camera.setPosition(CAM.x, CAM.y, camZ + CAM.z);
-      camera.lookAt(0, 0, camZ);
+      camera.setPosition(camX + CAM.x, CAM.y, camZ + CAM.z);
+      camera.lookAt(camX, 0, camZ);
     },
     burst(at, color) {
       const m = new StandardMaterial();
@@ -937,6 +943,9 @@ export function createLumberScene(app: Application, loaded: Models, opts: { shad
       const s = camera.camera!.worldToScreen(projectTmp.set(x, y, z));
       out.x = s.x;
       out.y = s.y;
+    },
+    setArtView(view) {
+      artView = view;
     },
     setOverview(on) {
       overview = on;

@@ -19,6 +19,8 @@ export interface Labels {
   /** A rising "+$n" at a world point. */
   float(text: string, at: Vec2, cls?: string): void;
   clear(): void;
+  /** Store art (dev only): stop the floating labels' clock where they are. */
+  freeze(on: boolean): void;
 }
 
 /**
@@ -30,6 +32,8 @@ export function createLabels(container: HTMLElement, scene: LumberScene): Labels
   const pool = new Map<string, HTMLElement>();
   const touched = new Set<string>();
   const floats: { el: HTMLElement; at: Vec2; born: number }[] = [];
+  let frozenAt: number | null = null;
+  const clock = () => frozenAt ?? performance.now();
   const out = { x: 0, y: 0 };
 
   function get(key: string, cls: string): HTMLElement {
@@ -120,7 +124,7 @@ export function createLabels(container: HTMLElement, scene: LumberScene): Labels
         put(el, cx + (c.kind === 'cart' ? 0.65 : 0.4), 1.0, cz, 'right');
       }
 
-      const now = performance.now();
+      const now = clock();
       for (let i = floats.length - 1; i >= 0; i--) {
         const f = floats[i]!;
         const t = (now - f.born) / FLOAT_MS;
@@ -147,7 +151,10 @@ export function createLabels(container: HTMLElement, scene: LumberScene): Labels
       el.className = `label float ${cls}`;
       el.textContent = text;
       container.appendChild(el);
-      floats.push({ el, at, born: performance.now() });
+      floats.push({ el, at, born: clock() });
+    },
+    freeze(on) {
+      frozenAt = on ? performance.now() : null;
     },
     clear() {
       for (const el of pool.values()) el.remove();

@@ -16,6 +16,7 @@ pnpm --filter @rally/game-lumber build      # -> client/dist
 pnpm --filter @rally/game-lumber test       # simulation unit tests (node:test)
 pnpm --filter @rally/game-lumber test:e2e   # Playwright through the dev harness (needs Chromium; playwright via NODE_PATH)
 pnpm --filter @rally/game-lumber models     # rebuild client/src/models/ from the art-source release (Models)
+pnpm --filter @rally/game-lumber art        # re-render the store art in art/ (Artwork)
 pnpm --filter @rally/publish-game publish-game lumber --dry-run
 ```
 
@@ -82,8 +83,8 @@ Same pattern as Stack:
   props, and closes audio.
 - **Telemetry:** `rally.telemetry.report('lumber', { fps, frameMs, p95Ms, earned, shiftTime, … })` every 10 s.
 
-`window.__lumber` (phase, time, earned, wallet, player, unlocked, `autoplay(on)`, `skip(seconds)`) exists in
-`vite dev` only, for the e2e.
+`window.__lumber` (phase, time, earned, wallet, player, unlocked, `autoplay(on)`, `skip(seconds)`, `hold(on)`,
+`artView(view)`) exists in `vite dev` only, for the e2e and the art script.
 
 ## Models
 
@@ -115,5 +116,15 @@ Quaternius models above.
 
 ## Artwork
 
-None yet: `game.json` has no icon / cover / screenshots, so the app shows generated art. See
-[Stack's README](../stack/README.md#artwork) for the sizes when adding them.
+`pnpm --filter @rally/game-lumber art` renders `art/*.webp` (listed in `game.json`) with the game itself: headless
+Chromium, software WebGL, through the dev harness. The greedy bot plays a shift through the dev-only `window.__lumber`
+probe (`skip` runs the seeded, fixed-step sim ahead), and `hold` stops the sim on the frame wanted while the scene keeps
+animating and floating labels stay up; `artView` frames the icon and cover. `ART_ONLY=icon,cover` renders a subset.
+
+- `icon` 1024², the player carrying a tall stack of planks from the mill to the counter (the stack is topped up for
+  the picture: the bot carries small loads); `cover` 1920 × 1080, the camp mid-shift (no HUD on either).
+- `shot-1` the first seconds of a shift with the tutorial hint, `shot-2` a busy camp with a sale at the till,
+  `shot-3` the shift-over card (1170 × 2532, iPhone portrait @3×; the dev harness' made-up leaderboard line is left
+  out).
+
+Re-render after a visual change.
