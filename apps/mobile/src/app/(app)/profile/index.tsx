@@ -14,21 +14,12 @@ import {
 import { useState } from 'react';
 import { RefreshControl, ScrollView, View } from 'react-native';
 import { CoinBalancePill } from '@/components/rally/coins';
+import { DeleteAccountSheet } from '@/components/rally/delete-account-sheet';
 import { ErrorText } from '@/components/rally/form-field';
 import { Glow } from '@/components/rally/glow';
 import { LogoMark } from '@/components/rally/logo';
 import { LinkRow, PlayedGamesSection, ProfileHeader, StatsStrip } from '@/components/rally/profile-sections';
 import { SettingsGroup, SettingsRow } from '@/components/rally/settings-rows';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { Separator } from '@/components/ui/separator';
@@ -166,7 +157,7 @@ export default function ProfileScreen() {
       <ErrorText>{signOutError}</ErrorText>
 
       <SettingsGroup>
-        <SettingsRow icon={Trash2Icon} label="Delete account" destructive onPress={() => setDeleteOpen(true)} />
+        <SettingsRow icon={Trash2Icon} label="Delete account" destructive onPress={() => setDeleteOpen(true)} disabled={!p} />
       </SettingsGroup>
 
       <View className="flex-row items-center justify-center gap-1.5 opacity-70">
@@ -176,25 +167,13 @@ export default function ProfileScreen() {
         </Text>
       </View>
 
-      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <AlertDialogContent className="w-[22rem] max-w-full">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete your account?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Email us from the address on your account and we&apos;ll permanently delete your profile, saves and play
-              history. In-app deletion is coming soon.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogAction onPress={() => mail('Delete my Rally account')}>
-              <Text>Email {config.supportEmail}</Text>
-            </AlertDialogAction>
-            <AlertDialogCancel>
-              <Text>Cancel</Text>
-            </AlertDialogCancel>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* In-app deletion (App Store 5.1.1(v)): photos, then delete_my_account(), then a local sign-out. */}
+      <DeleteAccountSheet
+        open={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
+        userId={p?.id ?? null}
+        username={p?.username ?? null}
+      />
     </ScrollView>
   );
 }

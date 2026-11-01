@@ -50,6 +50,8 @@ export interface GameHostProps {
   pageBytes?: number | null;
   /** The private room's join code, when known: the game menu's People tab offers Copy / Share. */
   roomCode?: string | null;
+  /** The joined room's id, when known: a report from the game menu carries it (with the game id) for moderators. */
+  roomId?: string | null;
   /** `manifest.capabilities`: `haptics` lets the game's `haptics()` requests through (while the player has them on). */
   capabilities?: readonly string[];
   /** The game menu's settings store; default AsyncStorage (platform settings once per device, game settings per game). */
@@ -413,6 +415,8 @@ export function GameHost(props: GameHostProps) {
           settings={view.settings}
           leaving={view.leaving}
           roomCode={props.roomCode ?? null}
+          gameId={props.game.id}
+          roomId={props.roomId ?? null}
           net={view.net}
           onResume={controller.closeMenu}
           onLeave={controller.leave}

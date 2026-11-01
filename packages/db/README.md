@@ -452,7 +452,8 @@ the `supabase_realtime` publication: `postgres_changes` neither filters DELETE e
   requester; also for the mutual auto-accept of `send_friend_request`), `friend_declined` (to the requester),
   `friend_request_cancelled` (to the recipient), `friend_removed` (to the other side). `block_user` sends the matching
   declined / cancelled / removed event, so a block looks like those. Nothing is sent when the status did not change,
-  nor for deletes by the service role or without a user JWT (purges, account deletion cascades).
+  nor for deletes by the service role or without a user JWT (purges). `delete_my_account()` runs with the user's
+  JWT, so its cascade sends each friend the matching removed / cancelled / declined event.
 - Who listens: RLS on `realtime.messages`, policy "users receive their own user channel": SELECT to `authenticated`
   where `realtime.topic() = 'user:' || auth.uid()`. No INSERT policy, so clients cannot send or track presence on
   `user:*`. The app subscribes like this:
@@ -476,6 +477,17 @@ the `supabase_realtime` publication: `postgres_changes` neither filters DELETE e
 `equipped_items`, and the RPCs `my_wallet`, `buy_item`, `equip_item`, `public_cosmetics`, `owns_game`. Coins are
 awarded only inside `server_record_match`, `submit_solo_score` and `unlock_achievement` (their answers are unchanged);
 every write goes through `private.apply_coins`, which locks the wallet row first.
+
+## Moderation and account deletion
+
+`20261102000100_moderation.sql` (pinned by `test/moderation.test.ts`; the moderator's guide, the per-table deletion
+decisions and the owner step in [docs/moderation.md](../../docs/moderation.md)): `reports` (no client grants;
+moderators work in Studio) written only by `report_user` (linked accounts, fixed reasons, 10 per burst, one open row
+per reporter / target / day, the same empty answer whoever the target is), and `delete_my_account()`, which scrubs
+the user out of `match_results`, `game_rooms.player_ids` and `user_sanctions.created_by`, then deletes the
+`auth.users` row so the profile and every per-user table cascade. The app deletes `avatars/<uid>/` through Storage
+first. `bug_reports_screenshot` now allows the null reporter its `on delete set null` leaves (it used to block the
+delete). A test classifies every foreign key to `profiles` / `auth.users` as cascade or set null.
 
 ## Default avatars
 

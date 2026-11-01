@@ -214,3 +214,15 @@ export const BUG_REPORT_LIMITS = { note: 2000, logs: 100000, route: 300, screens
 
 /** Private Storage bucket for bug-report screenshots: objects at `<auth.uid()>/<file>`, owner insert only. */
 export const BUG_REPORTS_BUCKET = "bug-reports" as const;
+
+// ---- Moderation and account deletion (20261102000100_moderation.sql; docs/moderation.md) ---------------------------
+
+/** `report_user(p_reason)`: the fixed set (the `reports_reason` check). `inappropriate_profile` = name or photo. */
+export const REPORT_REASONS = ["harassment", "hate", "cheating", "inappropriate_profile", "spam", "other"] as const;
+export type ReportReason = (typeof REPORT_REASONS)[number];
+
+/** Lengths `report_user` accepts (INVALID beyond them), so the app trims first. */
+export const REPORT_LIMITS = { note: 500, roomId: 128 } as const;
+
+/** `reports.status`, set by moderators in Studio (changing it stamps `reviewed_at`). */
+export type ReportStatus = "open" | "actioned" | "dismissed";

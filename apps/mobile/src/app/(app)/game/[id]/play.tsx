@@ -101,6 +101,8 @@ export default function PlayScreen() {
   const profile = useProfile();
   // The private room's join code, once a join learns it (shown with Share over the game).
   const [roomCode, setRoomCode] = useState<string | null>(null);
+  // The joined room, for the context of a report filed from the game menu.
+  const [roomId, setRoomId] = useState<string | null>(null);
 
   const target = useMemo(
     () => parseJoinTarget({ join, name, room: roomParam, code, friend }),
@@ -140,6 +142,7 @@ export default function PlayScreen() {
             allowPrivateHttp: __DEV__,
             onJoined: ({ roomId, gameId, code: joinedCode }) => {
               setRoomCode(joinedCode ?? null);
+              setRoomId(roomId);
               // Presence: friends see "In <game>" (and can join) once the server's mirror confirms the seat.
               setInGame(gameId, roomId);
             },
@@ -228,6 +231,7 @@ export default function PlayScreen() {
           pageBytes={pageBytesOf(p.manifest)}
           // The game menu: the private room's code (People → Copy / Share) and what the game may use (haptics).
           roomCode={roomCode}
+          roomId={roomId}
           capabilities={p.manifest.capabilities}
           user={{ id: me.id, username: me.username, avatarUrl: resolveAvatarUrl(me.avatar_url) }}
           intent={
