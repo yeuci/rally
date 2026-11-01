@@ -54,6 +54,14 @@
             "usesCleartextTraffic": true
           }
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Rally uses your photos when you choose one for your profile picture.",
+          "cameraPermission": "Rally uses the camera when you take a photo for your profile picture.",
+          "microphonePermission": false
+        }
       ]
     ],
     "experiments": {
