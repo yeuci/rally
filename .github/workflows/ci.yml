@@ -95,3 +95,6 @@ jobs:
 
       - name: Sushi Shift (two chefs, real game server with dev rules)
         run: pnpm --filter @rally/game-sushi test:e2e
+
+      - name: Sawline
+        run: pnpm --filter @rally/game-sawline test:e2e
