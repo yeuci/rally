@@ -3,7 +3,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import Animated, { FadeIn, ReduceMotion } from 'react-native-reanimated';
 import { BugReportHost } from '@/components/rally/bug-report-sheet';
 import { CoinToastHost } from '@/components/rally/coins';
 import { FriendRequestPrompt } from '@/components/rally/friend-request-sheet';
@@ -15,6 +16,7 @@ import { GameHost, type GameHostResult } from '@/game-host/GameHost';
 import { MATCH_ENDED_EXIT, type MatchmakingTarget } from '@/game-host/handlers';
 import { turnBackFromGame } from '@/game-host/orientation';
 import { pageBytesOf } from '@/game-host/loading-copy';
+import { GameBackdrop } from '@/game-host/loading-screen';
 import { createRejoinJournal } from '@/game-host/rejoin-journal';
 import { createSupabaseProgressStore } from '@/game-host/supabase-progress';
 import { createSupabaseSaveStore } from '@/game-host/supabase-saves';
@@ -73,6 +75,9 @@ async function resolveFriend(friendId: string): Promise<FriendJoinTarget> {
   if (!target) throw new HostError('MATCHMAKE_FAILED', 'unexpected friend_join_target answer');
   return target;
 }
+
+/** The game fades into its blurred art before the screen closes (see `leaving` in PlayScreen). */
+const LEAVE_FADE_MS = 220;
 
 /**
  * Back to the game page: first turn the screen back to how the player held it before the game (a landscape game on a
@@ -149,6 +154,14 @@ export default function PlayScreen() {
   // Presence: back to 'online' when this screen closes, however it closes (in_game is set by onJoined above).
   useEffect(() => setOnline, []);
 
+  // Leaving: the game fades into its blurred art (the loading screen's backdrop), the screen turns back behind it,
+  // then the modal closes onto the game page. A cut straight from the game looked abrupt.
+  const [leaving, setLeaving] = useState(false);
+  const exitTo = useCallback((gameId: string) => {
+    setLeaving(true);
+    setTimeout(() => void leave(gameId), LEAVE_FADE_MS);
+  }, []);
+
   const onExit = useCallback(
     (result: GameHostResult) => {
       setOnline();
@@ -163,9 +176,9 @@ export default function PlayScreen() {
       // Already leaving: the screen is unmounting (navigation away, sign-out).
       if (result.reason === 'unmount') return;
       if (result.reason === MATCH_ENDED_EXIT) showToast('That match has ended');
-      void leave(id ?? '');
+      exitTo(id ?? '');
     },
-    [id, qc, userId, multiplayer],
+    [id, qc, userId, multiplayer, exitTo],
   );
 
   const resumeEnded =
@@ -236,6 +249,14 @@ export default function PlayScreen() {
           presents from the nearest view controller, so the friend-request host must be mounted here to rise over
           the game (components/rally/friend-request-sheet.tsx). It follows Settings → Notifications → While playing:
           a banner overlaid at the top of the game by default (a plain view, no Modal), the sheet, or nothing. */}
+      {leaving ? (
+        <Animated.View
+          entering={FadeIn.duration(LEAVE_FADE_MS).reduceMotion(ReduceMotion.System)}
+          style={StyleSheet.absoluteFill}
+        >
+          <GameBackdrop artUri={coverUriFor(p.game, 'feature')} dim />
+        </Animated.View>
+      ) : null}
       <ToastHost />
       {/* Coins awarded by the match (or a solo run) show over the game too, like the friend-request banner. */}
       <CoinToastHost />

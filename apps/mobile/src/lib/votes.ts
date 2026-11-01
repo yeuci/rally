@@ -75,13 +75,16 @@ export function useVoteGame(gameId: string) {
     onError: (err, _liked, ctx) => {
       if (ctx?.previous) qc.setQueryData(key, ctx.previous);
       const kind = socialErrorKind(err);
-      showToast(
+      // The server's reason goes to the log (shake-to-report keeps it) and, in dev builds, onto the toast.
+      const reason = err instanceof Error ? err.message : String((err as { message?: unknown })?.message ?? err);
+      console.warn(`[votes] vote_game failed for ${gameId}: ${reason}`);
+      const text =
         kind === 'rate-limited'
           ? 'Too many votes. Try again in a few minutes.'
           : kind === 'network'
             ? "You're offline. Your vote wasn't saved."
-            : "Couldn't save your vote. Try again.",
-      );
+            : "Couldn't save your vote. Try again.";
+      showToast(__DEV__ && kind === 'other' ? `${text} (${reason.slice(0, 120)})` : text);
     },
   });
 }
