@@ -18,6 +18,7 @@ import { LaunchConsentDialog } from '@/components/rally/consent-dialog';
 import { DashboardHero, DashboardHeroSkeleton } from '@/components/rally/dashboard-hero';
 import { DashboardTopBar, TOP_BAR_ROW } from '@/components/rally/dashboard-top-bar';
 import { EmptyState } from '@/components/rally/empty-state';
+import { FriendsPlayingRow } from '@/components/rally/friends-playing-row';
 import { Glow } from '@/components/rally/glow';
 import { SearchPillButton } from '@/components/rally/search-pill';
 import { TileRow, TileRowSkeleton } from '@/components/rally/tile-row';
@@ -212,6 +213,7 @@ export default function Dashboard() {
             </View>
           ) : (
             <>
+              <FriendsPlayingRow pad={pad} width={width} launcher={launcher} live={focused} />
               <TileRow
                 title="Continue playing"
                 games={recent.data}
