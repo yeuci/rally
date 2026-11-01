@@ -12,7 +12,7 @@ import {
   type ResultMessage,
   type SushiStateView,
 } from '@rally/game-sushi-server';
-import { SLOT_COLORS } from './characters.ts';
+import { SLOT_COLORS } from './colors.ts';
 import type { Icons } from './icons.ts';
 import { resultLine } from './result.ts';
 

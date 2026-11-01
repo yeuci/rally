@@ -27,8 +27,7 @@ const CUSTOMER_SCALE = 0.47;
 const WALK_STRIDE = 1.5;
 const RUN_STRIDE = 3.4;
 
-/** Slot colours (rings, name tags, the crew list): the panda's orange headband, then the rabbits' outfits. */
-export const SLOT_COLORS = ['#ff8a3d', '#2ec4d6', '#ff5aa5', '#9b6bff'] as const;
+export { SLOT_COLORS } from './colors.ts';
 export const chefModel = (slot: number): CharacterName => MODELS.chefs[slot % MODELS.chefs.length]!;
 export const customerModel = (look: number): CharacterName => MODELS.customers[look % MODELS.customers.length]!;
 

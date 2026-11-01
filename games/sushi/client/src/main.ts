@@ -41,7 +41,7 @@ import {
   type SushiStateView,
   type Vec2,
 } from '@rally/game-sushi-server';
-import { SLOT_COLORS } from './characters.ts';
+import { SLOT_COLORS } from './colors.ts';
 import { createControls } from './controls.ts';
 import { LESSONS, createHud, createLabels, dayName, esc, orderHtml, patienceColor, yen } from './hud.ts';
 import { applyLowFx } from './lowfx.ts';
@@ -76,6 +76,9 @@ const PREDICT = params.get('predict') !== '0';
 const ART = import.meta.env.DEV ? params.get('art') : null;
 /** Dev only: `?lowfx=1` draws at most 15 fps at DPR 1 without MSAA, shadows or effects (the e2e). */
 const LOWFX = import.meta.env.DEV && !ART && params.has('lowfx') && params.get('lowfx') !== '0';
+/** Dev-only perf knobs (test/perf.cjs PERF_QUERY): `?noscroll` (the belt's slats stand still), `?nolabels`. */
+const NOSCROLL = import.meta.env.DEV && params.has('noscroll');
+const NOLABELS = import.meta.env.DEV && params.has('nolabels');
 
 /** Boot progress to the host's loading screen (with a user-facing label) and to our own veil. */
 let lastLabel = '';
@@ -589,11 +592,12 @@ function frame(dt: number) {
         labels.get(`stale:${i}`, 'stale-tag', tmpScreen.x, tmpScreen.y).textContent = '🪰';
     }
   }
-  scene.setBelt(bs, slots);
+  scene.setBelt(NOSCROLL ? 0 : bs, slots);
   for (let i = 0; i < SEATS.length; i++) {
     const v = st.seats[i];
     if (v) scene.setSeat(i, v.dirty, v.eating as Kind);
   }
+  if (NOLABELS) labels.begin();
   labels.end();
 
   hud.render(st, me, resultDay === `${st.run}:${st.day}` || st.phase === 'over' ? lastResult : 'pending');

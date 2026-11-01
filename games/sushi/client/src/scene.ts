@@ -315,6 +315,14 @@ export function createSushiScene(
   mamboo.diffuse = rgb('#c7b27a');
   mamboo.useMetalness = false;
   mamboo.update();
+  const plateWhite = new StandardMaterial();
+  plateWhite.diffuse = rgb('#eceef0');
+  plateWhite.useMetalness = false;
+  plateWhite.update();
+  const plateDirty = new StandardMaterial();
+  plateDirty.diffuse = rgb('#9b8b72');
+  plateDirty.useMetalness = false;
+  plateDirty.update();
   const binMat = new StandardMaterial();
   binMat.diffuse = rgb('#4a4f55');
   binMat.useMetalness = false;
@@ -529,18 +537,28 @@ export function createSushiScene(
           r.stackKey = key;
           for (const e of r.stack) e.destroy();
           r.stack = [];
+          if (!n) return;
+          // Two draws however tall: the top plate, and a column of plate rims under it.
           const food = models.food[type === 'plates' ? 'PlateWhite' : 'PlateDirty'];
           const sc = 0.5 / (food.max[0]! - food.min[0]!);
-          for (let i = 0; i < n; i++) {
-            const plate = new Entity('plate');
-            plate.addComponent('render', {
-              meshInstances: [new MeshInstance(food.mesh, vertexMat)],
+          const base = type === 'plates' ? COUNTER_TOP : COUNTER_TOP - 0.12;
+          const top = new Entity('plate');
+          top.addComponent('render', { meshInstances: [new MeshInstance(food.mesh, vertexMat)], castShadows: false });
+          top.setLocalScale(sc, sc, sc);
+          top.setPosition(def.x, base + (n - 1) * 0.05, def.y);
+          app.root.addChild(top);
+          r.stack.push(top);
+          if (n > 1) {
+            const column = new Entity('plates');
+            column.addComponent('render', {
+              type: 'cylinder',
+              material: type === 'plates' ? plateWhite : plateDirty,
               castShadows: false,
             });
-            plate.setLocalScale(sc, sc, sc);
-            plate.setPosition(def.x, (type === 'plates' ? COUNTER_TOP : COUNTER_TOP - 0.12) + i * 0.05, def.y);
-            app.root.addChild(plate);
-            r.stack.push(plate);
+            column.setLocalScale(0.4, (n - 1) * 0.05, 0.4);
+            column.setPosition(def.x, base + ((n - 1) * 0.05) / 2 + 0.02, def.y);
+            app.root.addChild(column);
+            r.stack.push(column);
           }
           return;
         }

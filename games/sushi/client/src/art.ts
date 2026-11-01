@@ -233,6 +233,8 @@ export function stageArt(shot: ArtShot, deps: { app: Application; scene: SushiSc
   const hosted = document.createElement('style');
   hosted.textContent = '#exit { display: none !important; }';
   document.head.appendChild(hosted);
+  // ...and keeps the top-left corner clear for the host's menu button (its default 56 px reserve).
+  document.body.classList.remove('standalone');
   if (pose.clean) {
     const style = document.createElement('style');
     style.textContent = CLEAN_CSS;
