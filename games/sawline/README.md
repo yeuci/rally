@@ -25,7 +25,7 @@ The greedy bot earns about $4,600 a shift with typical aim (±0.12), $3,100 when
 Inspired by the "idle lumber" production-line genre; the design, names and art are our own.
 
 ```bash
-pnpm --filter @rally/game-sawline dev        # http://localhost:5185 with the dev harness (fake host); ?nohost = standalone
+pnpm --filter @rally/game-sawline dev        # http://localhost:5196 with the dev harness (fake host); ?nohost = standalone
 pnpm --filter @rally/game-sawline build      # -> client/dist
 pnpm --filter @rally/game-sawline test       # simulation unit tests (node:test)
 pnpm --filter @rally/game-sawline test:e2e   # Playwright through the dev harness (needs Chromium; playwright via NODE_PATH)
@@ -37,7 +37,7 @@ Controls: the two big buttons (multi-touch: hold one, tap the other), or D / ←
 
 In the Rally app, with the dev server running on a PC the phone can reach:
 
-- **Developer screen** (anyone): Profile → Developer, bundle URL `http://<pc-ip>:5185/index.html`. The room does not
+- **Developer screen** (anyone): Profile → Developer, bundle URL `http://<pc-ip>:5196/index.html`. The room does not
   matter (a solo game never matchmakes); saves and boards stay in memory under the dev identity.
 - **Catalog** (owner, before the real publish): apply `docs/dev/sawline-dev-rows.sql` in Supabase Studio with the IP of
   the PC serving the game. Sawline then shows up with its board and achievements; the real publish replaces it.

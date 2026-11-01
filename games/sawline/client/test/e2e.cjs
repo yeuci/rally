@@ -3,7 +3,7 @@
 //
 //   pnpm --filter @rally/game-sawline test:e2e
 //
-// Starts the Vite dev server (:5185, harness plugin on) unless it is already running, drives Chromium with Playwright
+// Starts the Vite dev server (:5196, harness plugin on) unless it is already running, drives Chromium with Playwright
 // and asserts: boot → ready(), holding DEBARK starts the shift and strips the trunk (the line waits with "HOLD" when
 // released), a CUT tap on the mark makes a log and shows the verdict, the greedy bot (dev probe) sells planks and buys
 // an upgrade from the shop, pause/resume freeze/continue the shift clock, skipping to the whistle shows the results
@@ -21,7 +21,7 @@ const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
 
 const ROOT = path.resolve(__dirname, '../../../..');
-const SAWLINE_URL = process.env.SAWLINE_URL || 'http://localhost:5185/';
+const SAWLINE_URL = process.env.SAWLINE_URL || 'http://localhost:5196/';
 const SCREENSHOT = process.env.E2E_SCREENSHOT || path.join(os.tmpdir(), 'sawline.png');
 
 const started = [];
