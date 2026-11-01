@@ -349,7 +349,8 @@ export function GameHost(props: GameHostProps) {
 
       {view.phase === 'loading' && (
         <GameLoadingScreen
-          key={view.attempt}
+          // Prefixed: the WebView beside it is keyed by the bare attempt number (React needs sibling keys unique).
+          key={`loading-${view.attempt}`}
           title={props.title ?? null}
           artUri={props.artUri}
           iconUri={props.iconUri}
