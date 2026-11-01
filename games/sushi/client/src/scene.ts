@@ -95,8 +95,8 @@ export interface CustomerPose {
 export interface SushiScene {
   /** Frame the open zones (eases there unless `snap`). */
   frame(zones: number, snap?: boolean): void;
-  /** Frame a box instead (store art close-ups), at once. */
-  frameBox(box: { x0: number; y0: number; x1: number; y1: number }): void;
+  /** Frame a box instead (store art close-ups), at once, optionally from a lower `pitch` (degrees). */
+  frameBox(box: { x0: number; y0: number; x1: number; y1: number }, pitch?: number): void;
   setZones(zones: number): void;
   setStation(id: number, view: StationStateView, world: WorldView): void;
   setBelt(beltS: number, slots: readonly { item: Item | null; stale: boolean; age: number }[]): void;
@@ -145,8 +145,9 @@ export function frameBox(
   box: { x0: number; y0: number; x1: number; y1: number },
   aspect: number,
   wallH = 2.6,
+  pitchDeg = PITCH_DEG,
 ): { tx: number; tz: number; d: number } {
-  const P = (PITCH_DEG * Math.PI) / 180;
+  const P = (pitchDeg * Math.PI) / 180;
   const tanV = Math.tan((FOV_DEG * Math.PI) / 360);
   const tanH = tanV * aspect;
   const corners: [number, number, number][] = [];
@@ -252,7 +253,7 @@ export function createSushiScene(
   const camera = new Entity('camera');
   camera.addComponent('camera', { clearColor: CLEAR, fov: FOV_DEG, nearClip: 1, farClip: 120 });
   app.root.addChild(camera);
-  const P = (PITCH_DEG * Math.PI) / 180;
+  let P = (PITCH_DEG * Math.PI) / 180;
   let zonesNow = 0;
   const want = { tx: 0, tz: 0, d: 20 };
   const at = { tx: 0, tz: 0, d: 20 };
@@ -457,10 +458,11 @@ export function createSushiScene(
       zonesNow = zones;
       reframe(snap);
     },
-    frameBox(box) {
-      const f = frameBox(box, device.width / Math.max(1, device.height), 1);
+    frameBox(box, pitch = PITCH_DEG) {
+      const f = frameBox(box, device.width / Math.max(1, device.height), 1, pitch);
       Object.assign(want, f);
       Object.assign(at, f);
+      P = (pitch * Math.PI) / 180;
     },
     setZones(zones) {
       level.setZones(zones, zones & Zone.dining ? 1 : 0);

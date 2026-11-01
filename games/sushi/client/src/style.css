@@ -639,7 +639,7 @@ body.swapped .action {
   height: 30px;
   border-radius: 50%;
   background:
-    radial-gradient(circle, #fffaf0 56%, transparent 58%),
+    radial-gradient(circle, #fffaf0 44%, transparent 46%),
     conic-gradient(var(--pc, #6fcf7a) calc(var(--p, 0) * 1%), rgba(0, 0, 0, 0.25) 0);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
   display: flex;

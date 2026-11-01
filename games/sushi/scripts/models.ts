@@ -304,7 +304,12 @@ const PROPS: Record<string, [string, number]> = {
 
 /** Props recoloured like the pack's preview: the bar stools' seats red (the pack's are blue-grey). */
 const PROP_SWAP: Record<string, [Rgb, Rgb][]> = {
-  Stool: [[[60, 80, 108], [150, 12, 10]]],
+  Stool: [
+    [
+      [60, 80, 108],
+      [150, 12, 10],
+    ],
+  ],
 };
 
 async function main() {

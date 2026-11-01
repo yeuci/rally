@@ -149,8 +149,9 @@ export interface ArtPose {
   state: SushiStateView;
   me: string;
   clean: boolean;
-  /** A box to frame instead of the open zones (sim units). */
+  /** A box to frame instead of the open zones (sim units), and the camera's pitch for it. */
   frame?: { x0: number; y0: number; x1: number; y1: number };
+  pitch?: number;
   result: ResultMessage | null;
 }
 
@@ -163,6 +164,9 @@ export function artPose(shot: ArtShot): ArtPose {
       kinds.forEach((k, i) => g.putOnBelt(i, k));
       g.beltS = 0.6;
       const panda = g.chefList[0]!;
+      // The other chef steps out of the picture.
+      const other = g.chefList[1];
+      if (other) Object.assign(other, { x: 6, y: -4.5 });
       Object.assign(panda, {
         x: -0.7,
         y: -1.75,
@@ -171,9 +175,10 @@ export function artPose(shot: ArtShot): ArtPose {
       });
       return {
         state: snapshot(g),
-        me: 'p0',
+        me: 'nobody',
         clean: true,
-        frame: { x0: -3.2, y0: -3.0, x1: 1.8, y1: 0.0 },
+        frame: { x0: -2.0, y0: -2.3, x1: 0.6, y1: -0.85 },
+        pitch: 38,
         result: null,
       };
     }
@@ -182,7 +187,7 @@ export function artPose(shot: ArtShot): ArtPose {
       return { state: snapshot(g), me: 'p0', clean: true, result: null };
     }
     case 'bar': {
-      const g = played(7, 2, 2, 58, { arrivals: 1.6 });
+      const g = played(7, 2, 3, 42, { arrivals: 2.2 });
       return { state: snapshot(g), me: 'p0', clean: false, result: null };
     }
     case 'festival': {
@@ -224,6 +229,10 @@ const CLEAN_CSS = '#hud, #labels, .stick { display: none !important; }';
 export function stageArt(shot: ArtShot, deps: { app: Application; scene: SushiScene; hud: Hud }): Net {
   const { app, scene, hud } = deps;
   const pose = artPose(shot);
+  // The store art shows the game as the shell hosts it: no plain-browser exit button (the host's menu is there).
+  const hosted = document.createElement('style');
+  hosted.textContent = '#exit { display: none !important; }';
+  document.head.appendChild(hosted);
   if (pose.clean) {
     const style = document.createElement('style');
     style.textContent = CLEAN_CSS;
@@ -244,7 +253,7 @@ export function stageArt(shot: ArtShot, deps: { app: Application; scene: SushiSc
     });
   void (async () => {
     await frames(4);
-    if (pose.frame) scene.frameBox(pose.frame);
+    if (pose.frame) scene.frameBox(pose.frame, pose.pitch);
     await frames(40);
     app.timeScale = 0;
     await frames(6);
