@@ -1,5 +1,5 @@
 // Hand-written to match `supabase gen types typescript` output for supabase/migrations (M1 + M2 + M4 social + M3 phase 2
-// + coins).
+// + coins + progress).
 // Regenerate against a real project with `pnpm --filter @rally/db gen:types` once one is linked;
 // keep this file in that exact shape so the swap is a no-op for consumers.
 export type Json =
@@ -110,6 +110,51 @@ export type Database = {
           },
         ]
       }
+      challenge_templates: {
+        Row: {
+          active: boolean
+          board_key: string | null
+          coins: number
+          created_at: string
+          game_id: string | null
+          key: string
+          kind: string
+          target: number
+          tier: number
+          title: string
+          updated_at: string
+          xp: number
+        }
+        Insert: {
+          active?: boolean
+          board_key?: string | null
+          coins?: number
+          created_at?: string
+          game_id?: string | null
+          key: string
+          kind: string
+          target: number
+          tier: number
+          title: string
+          updated_at?: string
+          xp?: number
+        }
+        Update: {
+          active?: boolean
+          board_key?: string | null
+          coins?: number
+          created_at?: string
+          game_id?: string | null
+          key?: string
+          kind?: string
+          target?: number
+          tier?: number
+          title?: string
+          updated_at?: string
+          xp?: number
+        }
+        Relationships: []
+      }
       coin_ledger: {
         Row: {
           amount: number
@@ -181,6 +226,80 @@ export type Database = {
           value?: number
         }
         Relationships: []
+      }
+      daily_challenges: {
+        Row: {
+          board_key: string | null
+          claimed_at: string | null
+          coins: number
+          completed_at: string | null
+          created_at: string
+          day: string
+          game_id: string | null
+          id: string
+          kind: string
+          progress: number
+          refs: string[]
+          slot: number
+          target: number
+          template_key: string
+          tier: number
+          title: string
+          updated_at: string
+          user_id: string
+          xp: number
+        }
+        Insert: {
+          board_key?: string | null
+          claimed_at?: string | null
+          coins: number
+          completed_at?: string | null
+          created_at?: string
+          day: string
+          game_id?: string | null
+          id?: string
+          kind: string
+          progress?: number
+          refs?: string[]
+          slot: number
+          target: number
+          template_key: string
+          tier: number
+          title: string
+          updated_at?: string
+          user_id: string
+          xp: number
+        }
+        Update: {
+          board_key?: string | null
+          claimed_at?: string | null
+          coins?: number
+          completed_at?: string | null
+          created_at?: string
+          day?: string
+          game_id?: string | null
+          id?: string
+          kind?: string
+          progress?: number
+          refs?: string[]
+          slot?: number
+          target?: number
+          template_key?: string
+          tier?: number
+          title?: string
+          updated_at?: string
+          user_id?: string
+          xp?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_challenges_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       default_avatars: {
         Row: {
@@ -816,6 +935,35 @@ export type Database = {
           },
         ]
       }
+      player_progress: {
+        Row: {
+          level: number
+          updated_at: string
+          user_id: string
+          xp: number
+        }
+        Insert: {
+          level?: number
+          updated_at?: string
+          user_id: string
+          xp?: number
+        }
+        Update: {
+          level?: number
+          updated_at?: string
+          user_id?: string
+          xp?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "player_progress_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       presence: {
         Row: {
           game_id: string | null
@@ -888,6 +1036,27 @@ export type Database = {
           privacy?: Json
           updated_at?: string
           username?: string
+        }
+        Relationships: []
+      }
+      progress_rules: {
+        Row: {
+          description: string
+          key: string
+          updated_at: string
+          value: number
+        }
+        Insert: {
+          description?: string
+          key: string
+          updated_at?: string
+          value: number
+        }
+        Update: {
+          description?: string
+          key?: string
+          updated_at?: string
+          value?: number
         }
         Relationships: []
       }
@@ -1095,6 +1264,60 @@ export type Database = {
           },
         ]
       }
+      xp_ledger: {
+        Row: {
+          amount: number
+          created_at: string
+          game_id: string | null
+          id: number
+          level_after: number
+          note: string | null
+          reason: string
+          ref: string
+          user_id: string
+          xp_after: number
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          game_id?: string | null
+          id?: number
+          level_after: number
+          note?: string | null
+          reason: string
+          ref: string
+          user_id: string
+          xp_after: number
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          game_id?: string | null
+          id?: number
+          level_after?: number
+          note?: string | null
+          reason?: string
+          ref?: string
+          user_id?: string
+          xp_after?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "xp_ledger_game_id_fkey"
+            columns: ["game_id"]
+            isOneToOne: false
+            referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "xp_ledger_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -1103,6 +1326,7 @@ export type Database = {
       abandon_play_session: { Args: { p_session_id: string }; Returns: undefined }
       block_user: { Args: { p_user_id: string }; Returns: undefined }
       buy_item: { Args: { p_item_id: string }; Returns: Json }
+      claim_daily_challenge: { Args: { p_id: string }; Returns: Json }
       contains_banned_word: { Args: { input: string }; Returns: boolean }
       end_play_session: {
         Args: { p_playtime_s?: number; p_session_id: string }
@@ -1153,6 +1377,25 @@ export type Database = {
           username: string
         }[]
       }
+      my_daily_challenges: {
+        Args: never
+        Returns: {
+          claimed_at: string
+          coins: number
+          completed_at: string
+          day: string
+          expires_at: string
+          game_id: string
+          id: string
+          kind: string
+          progress: number
+          resets_at: string
+          slot: number
+          target: number
+          title: string
+          xp: number
+        }[]
+      }
       my_friend_requests: {
         Args: never
         Returns: {
@@ -1179,6 +1422,7 @@ export type Database = {
         Returns: Json
       }
       my_privacy: { Args: never; Returns: Json }
+      my_progress: { Args: never; Returns: Json }
       my_wallet: { Args: never; Returns: Json }
       owns_game: {
         Args: { p_game_id: string; p_user_id: string }
@@ -1219,6 +1463,7 @@ export type Database = {
         }[]
       }
       public_profile_stats: { Args: { p_user_id: string }; Returns: Json }
+      public_progress: { Args: { p_user_id: string }; Returns: Json }
       random_default_avatar: { Args: never; Returns: string }
       record_play: {
         Args: { p_game_id: string; p_playtime_s?: number }
