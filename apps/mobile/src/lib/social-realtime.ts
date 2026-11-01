@@ -4,6 +4,8 @@ import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useEffect, useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
 import { useSession } from '@/lib/auth/session';
+import { clearCoinToast } from '@/lib/coin-toast';
+import { handleCoinBroadcast, invalidateCoins } from '@/lib/coins';
 import { currentAlertStyle } from '@/lib/friend-alerts';
 import { createBannerCountdown, showsAcceptedToast } from '@/lib/friend-alerts-model';
 import { fetchFriendRequests, invalidateSocial, socialKeys } from '@/lib/friends';
@@ -38,6 +40,10 @@ import { showToast } from '@/lib/toast';
  *   the app returns to the foreground: broadcasts are not stored, so anything sent while the app was closed, in the
  *   background or offline is found there;
  * - on returning to the foreground a channel that is not joined is replaced; sign-out / account change removes it.
+ *
+ * The same channel carries coin awards (event `coins`, 20261031000400_coins.sql): lib/coins.ts `handleCoinBroadcast`
+ * refreshes the wallet and shows the "+25 coins" toast (Settings → Coin popups). A (re)subscribe refreshes the wallet,
+ * since awards sent while the channel was down are not replayed.
  *
  * supabase-js (2.118) hands the session's JWT to Realtime itself on INITIAL_SESSION / SIGNED_IN / TOKEN_REFRESHED
  * (and pushes refreshed tokens to joined channels); `setAuth()` is called once more before each subscribe so a
@@ -150,6 +156,13 @@ function announceAccepted(s: LiveSession, userId: string) {
     );
 }
 
+/** A `coins` broadcast (an award) for the signed-in user. */
+function routeCoins(topic: string, payload: unknown) {
+  const s = live;
+  if (!s || s.stopped || topic !== `user:${s.uid}`) return;
+  handleCoinBroadcast(s.qc, s.uid, payload);
+}
+
 function routeStatus(topic: string, status: string, err?: Error) {
   log(topic.replace(/^(user:.{8}).*/, '$1…'), status, err?.message ?? '');
   const s = live;
@@ -157,6 +170,7 @@ function routeStatus(topic: string, status: string, err?: Error) {
   if (status === 'SUBSCRIBED') {
     // Anything sent while we were not joined was not delivered: refresh, and look for unseen requests.
     void s.qc.invalidateQueries({ queryKey: socialKeys.all(s.uid) });
+    invalidateCoins(s.qc, s.uid);
     void catchUp(s);
   }
 }
@@ -179,6 +193,7 @@ async function subscribe(s: LiveSession) {
   if (!bound.has(ch)) {
     bound.add(ch);
     ch.on('broadcast', { event: 'social' }, (msg) => route(topic, msg.payload));
+    ch.on('broadcast', { event: 'coins' }, (msg) => routeCoins(topic, msg.payload));
   }
   s.channel = ch;
   if (ch.state === 'closed' || ch.state === 'errored') {
@@ -260,6 +275,7 @@ function start(qc: QueryClient, uid: string): () => void {
     if (live === s) live = null;
     friendRequestQueue.clear();
     bannerCountdown.stop();
+    clearCoinToast();
     const ch = s.channel;
     s.channel = null;
     if (ch) void supabase.removeChannel(ch).catch(() => 'error');

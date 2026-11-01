@@ -17,6 +17,7 @@ import { isGameScreen } from '@/lib/rejoin';
 import { fetchRequestProfile, friendRequestQueue, markRequestSeen, useFriendRequestQueue } from '@/lib/social-realtime';
 import { requestLine, type QueuedRequest, type RequestProfile } from '@/lib/social-realtime-model';
 import { BottomSheet } from './bottom-sheet';
+import { PlayerName } from './cosmetics';
 import { FriendRequestBanner } from './friend-request-banner';
 import { ProfileAvatar } from './profile-avatar';
 
@@ -66,13 +67,16 @@ export function FriendRequestSheet({
           {profile ? (
             <>
               <ProfileAvatar
+                userId={profile.userId}
                 profile={{ username: profile.username, display_name: profile.displayName, avatar_url: profile.avatarUrl }}
                 size="md"
               />
               <View className="shrink grow">
-                <Text className="text-[15px] font-semibold leading-5" numberOfLines={1}>
-                  {name}
-                </Text>
+                <PlayerName
+                  userId={profile.userId}
+                  name={profile.displayName || profile.username}
+                  className="text-[15px] font-semibold leading-5"
+                />
                 <Text className="text-muted-foreground text-[13px] leading-[18px]" numberOfLines={1}>
                   {`@${profile.username}`}
                 </Text>

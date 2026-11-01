@@ -10,6 +10,7 @@ import Animated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
+import { PlayerName } from '@/components/rally/cosmetics';
 import { EmptyState, RetryButton } from '@/components/rally/empty-state';
 import { ProfileAvatar } from '@/components/rally/profile-avatar';
 import { SectionHeader } from '@/components/rally/section-header';
@@ -200,9 +201,9 @@ export function LeaderboardSection({
 }
 
 /**
- * One board row: rank badge (medal tint for the top three), avatar, name, score. Another player's row opens their
- * profile; your own row (tinted) flashes when tapped or when `flash` changes, an opacity fade that also runs under
- * Reduce Motion (nothing moves).
+ * One board row: rank badge (medal tint for the top three), avatar (with the player's frame), name (in their name
+ * colour, with their badge), score. Another player's row opens their profile; your own row (tinted) flashes when
+ * tapped or when `flash` changes, an opacity fade that also runs under Reduce Motion (nothing moves).
  */
 function Row({ row, flash, onHighlight }: { row: LeaderboardRow; flash: number; onHighlight: () => void }) {
   const score = formatScore(row.score);
@@ -239,11 +240,9 @@ function Row({ row, flash, onHighlight }: { row: LeaderboardRow; flash: number; 
           {row.rank}
         </Text>
       </View>
-      <ProfileAvatar profile={{ username: row.username, display_name: null, avatar_url: row.avatarUrl }} size="sm" />
+      <ProfileAvatar userId={row.userId} profile={{ username: row.username, display_name: null, avatar_url: row.avatarUrl }} size="sm" />
       <View className="shrink grow flex-row items-center gap-2">
-        <Text className="shrink text-[15px] font-semibold leading-5" numberOfLines={1}>
-          {row.username}
-        </Text>
+        <PlayerName userId={row.userId} name={row.username} className="text-[15px] font-semibold leading-5" />
         {row.isMe && (
           <Badge variant="subtle">
             <Text>You</Text>

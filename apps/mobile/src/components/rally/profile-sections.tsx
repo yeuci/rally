@@ -8,6 +8,7 @@ import { Separator } from '@/components/ui/separator';
 import { Skeleton, SkeletonText } from '@/components/ui/skeleton';
 import { TapPressable } from '@/components/ui/tap-pressable';
 import { Text } from '@/components/ui/text';
+import { useCosmetics } from '@/lib/coins';
 import { memberSince, playsLabel, timeAgo } from '@/lib/format';
 import { toggleHaptic } from '@/lib/haptics';
 import { coverUriFor } from '@/lib/game-art';
@@ -18,6 +19,7 @@ import type { FriendSummary, PlayedGame } from '@/lib/social';
 import { showToast } from '@/lib/toast';
 import { useBoxSize } from '@/lib/use-layout';
 import { cn } from '@/lib/utils';
+import { PlayerName, ProfileBanner } from './cosmetics';
 import { EmptyState, RetryButton } from './empty-state';
 import { GameCover } from './game-cover';
 import { openPerson } from './person-row';
@@ -31,6 +33,10 @@ const TABULAR: TextStyle = { fontVariant: ['tabular-nums'] };
  * "Member since Oct 2026". Line boxes have fixed line heights so the skeleton (`profile` undefined) is the same height
  * as the loaded header, give or take the bio. `children` go under it (Edit profile, friendship buttons). A long press
  * on the avatar copies "@username" (toast + haptic).
+ *
+ * The player's equipped cosmetics (coins shop) show here for everyone who may see them: the banner as a gradient band
+ * behind the top half of the avatar (it extends into the screen's top padding, so the layout does not move when it
+ * arrives), the frame on the avatar, the name colour and badge on the display name.
  */
 export function ProfileHeader({
   profile: p,
@@ -41,8 +47,13 @@ export function ProfileHeader({
   badge?: string | null;
   children?: ReactNode;
 }) {
+  const look = useCosmetics(p?.id);
+  const outer = 96 + (3 + 4) * 2;
   return (
     <View className="items-center gap-4">
+      {look?.banner ? (
+        <ProfileBanner banner={look.banner} className="absolute left-0 right-0" style={{ top: -16, height: outer / 2 + 24 }} />
+      ) : null}
       {p ? (
         <TapPressable
           // Long press only: a tap does nothing (no haptic, no pressed state), so the avatar does not look like a button.
@@ -62,9 +73,14 @@ export function ProfileHeader({
       )}
       {p ? (
         <View className="items-center">
-          <Text className="text-center text-[26px] font-extrabold leading-8 tracking-tight" numberOfLines={2}>
-            {p.display_name || p.username}
-          </Text>
+          <PlayerName
+            look={look ?? {}}
+            name={p.display_name || p.username}
+            className="text-center text-[26px] font-extrabold leading-8 tracking-tight"
+            numberOfLines={2}
+            badgeSize={22}
+            containerClassName="gap-1.5"
+          />
           <Text className="text-muted-foreground text-[15px] font-medium leading-6">@{p.username}</Text>
           {/* Quieter than the handle: smaller, dimmed, a hair apart. Same 18 pt box as its skeleton line. */}
           <Text className="text-muted-foreground mt-0.5 text-xs leading-[18px] opacity-75">{memberSince(p.created_at)}</Text>
@@ -323,10 +339,8 @@ function FriendCell({ friend: f }: { friend: FriendSummary }) {
       className="items-center gap-1.5 active:opacity-70"
       style={{ width: FRIEND_CELL_WIDTH }}
     >
-      <ProfileAvatar profile={{ username: f.username, display_name: f.displayName, avatar_url: f.avatarUrl }} size="md" />
-      <Text className="text-muted-foreground text-[12px] leading-4" numberOfLines={1}>
-        {f.username}
-      </Text>
+      <ProfileAvatar userId={f.userId} profile={{ username: f.username, display_name: f.displayName, avatar_url: f.avatarUrl }} size="md" />
+      <PlayerName userId={f.userId} name={f.username} className="text-muted-foreground text-[12px] leading-4" badgeSize={11} containerClassName="gap-0.5" />
     </TapPressable>
   );
 }

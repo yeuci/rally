@@ -8,7 +8,6 @@ import Animated, {
   useReducedMotion,
   useSharedValue,
   withDelay,
-  withSequence,
   withTiming,
 } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
@@ -23,19 +22,21 @@ export function introPending(): boolean {
   return !played;
 }
 
-// Timeline (ms from the native splash being hidden). The spin lands its 1.5 turns with an ease-out; the zoom starts
-// just before it settles and carries the last half turn, so the mark is upright as it fills the screen and fades.
+// Timeline (ms from the native splash being hidden). One full turn, eased in and out, so the mark comes back upright
+// (never resting upside down); the zoom starts while the turn is still coming in, so it rushes closer as it settles,
+// then fills the screen and fades into the app.
 const LEAD = 32;
-const SPIN = { degrees: 540, duration: 650 };
-const ZOOM = { start: 600, duration: 450, scale: 14 };
+const SPIN = { degrees: 360, duration: 700 };
+const ZOOM = { start: 520, duration: 450, scale: 14 };
 const FADE = { duration: 260 }; // Reduce Motion: a plain cross-fade
 const NEVER = ReduceMotion.Never; // Reduce Motion is handled explicitly below
 
 /**
  * Cold-start intro. Mounts in the root layout on top of the first screen, drawing the native splash exactly (same
  * white mark at `SPLASH.imageWidth`, centred in the window on `SPLASH.backgroundColor`, whatever the theme). Once it
- * has laid out and a frame has passed, it hides the native splash (no visible change), spins the mark, zooms it ~14×
- * while it and the background fade, revealing the page, then unmounts. Blocks touches only while it runs (≈ 1.1 s).
+ * has laid out and a frame has passed, it hides the native splash (no visible change), turns the mark once around,
+ * zooms it ~14× as the turn lands while it and the background fade, revealing the page, then unmounts. Blocks touches
+ * only while it runs (≈ 1 s).
  */
 export function IntroOverlay() {
   const reduceMotion = useReducedMotion();
@@ -76,11 +77,7 @@ export function IntroOverlay() {
     rotate.set(
       withDelay(
         LEAD,
-        withSequence(
-          NEVER,
-          withTiming(SPIN.degrees, { duration: SPIN.duration, easing: Easing.out(Easing.cubic), reduceMotion: NEVER }),
-          withTiming(720, { duration: ZOOM.start + ZOOM.duration - SPIN.duration, easing: Easing.in(Easing.quad), reduceMotion: NEVER }),
-        ),
+        withTiming(SPIN.degrees, { duration: SPIN.duration, easing: Easing.inOut(Easing.cubic), reduceMotion: NEVER }),
         NEVER,
       ),
     );

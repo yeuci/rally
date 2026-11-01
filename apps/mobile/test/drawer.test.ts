@@ -17,11 +17,11 @@ test('the edge swipe opens the drawer on the dashboard only, never over the game
   }
 });
 
-test('drawer items: Home, Browse, Search, Friends (request badge), Profile, Settings; Developer only with dev tools', () => {
+test('drawer items: Home, Browse, Search, Friends (request badge), Shop, Profile, Settings; Developer only with dev tools', () => {
   const plain = drawerItems({ devTools: false, incomingRequests: null });
   assert.deepEqual(
     plain.map((i) => i.key),
-    ['home', 'browse', 'search', 'friends', 'profile', 'settings'],
+    ['home', 'browse', 'search', 'friends', 'shop', 'profile', 'settings'],
   );
   assert.equal(plain.find((i) => i.key === 'friends')!.badge, null);
   // Settings has its own screen now: no "opens your profile" hint.
@@ -36,4 +36,14 @@ test('drawer items: Home, Browse, Search, Friends (request badge), Profile, Sett
 test('the edge strip stays modest: narrower than the library default (32 pt), wider than a fingertip sliver', () => {
   assert.ok(DRAWER_EDGE_WIDTH <= 32);
   assert.ok(DRAWER_EDGE_WIDTH >= 20);
+});
+
+test('drawer items: Shop shows the coin balance once it is known', () => {
+  const unknown = drawerItems({ devTools: false, incomingRequests: null }).find((i) => i.key === 'shop')!;
+  assert.equal(unknown.value, null);
+  assert.equal(unknown.hint, undefined);
+  const known = drawerItems({ devTools: false, incomingRequests: null, coins: '1,250' }).find((i) => i.key === 'shop')!;
+  assert.equal(known.value, '1,250');
+  assert.equal(known.hint, '1,250 coins');
+  assert.equal(known.badge, null);
 });

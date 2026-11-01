@@ -1,0 +1,33 @@
+{
+  "name": "@rally/game-gunrun",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint . ../scripts --max-warnings 0",
+    "test": "node --conditions=rally-source --experimental-strip-types --no-warnings=ExperimentalWarning --test test/*.test.ts",
+    "test:e2e": "node test/e2e.cjs",
+    "perf": "node test/perf.cjs",
+    "art": "node --experimental-strip-types --no-warnings=ExperimentalWarning ../scripts/art.ts",
+    "models": "node --experimental-strip-types --no-warnings=ExperimentalWarning ../scripts/models.ts"
+  },
+  "dependencies": {
+    "@colyseus/sdk": "^0.18.8",
+    "@rally/game-gunrun-server": "workspace:*",
+    "@rally/game-kit": "workspace:*",
+    "@rally/sdk": "workspace:*",
+    "playcanvas": "^2.23.3"
+  },
+  "devDependencies": {
+    "@gltf-transform/core": "^4.5.1",
+    "@rally/dev-harness": "workspace:*",
+    "@rally/model-pipeline": "workspace:*",
+    "@types/node": "^22.20.5",
+    "typescript": "~6.0.3",
+    "vite": "^8.3.5"
+  }
+}

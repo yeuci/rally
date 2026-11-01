@@ -6,7 +6,11 @@ import { createClient } from '@supabase/supabase-js';
 import {
   Constants,
   PROFILE_COLUMNS,
+  type BuyItemResult,
+  type CoinAwardEvent,
   type Database,
+  type EquippedItems,
+  type WalletSummary,
   type Enums,
   type FriendJoinTarget,
   type FriendshipState,
@@ -125,6 +129,34 @@ test('Database type drives supabase-js inference', async () => {
   assert.equal(target.code, null);
   assert.equal(sanctions.banned_until, 'infinity');
   assert.equal(recorded.duplicate, false);
+
+  // Coins (20261031000400_coins.sql).
+  const _buy = client.rpc('buy_item', { p_item_id: 'name-mint' });
+  assertType<Equal<Awaited<typeof _buy>['data'], Json>>();
+  const _equip = client.rpc('equip_item', { p_kind: 'name_color' });
+  assertType<Equal<Awaited<typeof _equip>['data'], Json>>();
+  const _wallet = client.rpc('my_wallet');
+  assertType<Equal<Awaited<typeof _wallet>['data'], Json>>();
+  const _owns = client.rpc('owns_game', { p_user_id: '00000000-0000-0000-0000-000000000000', p_game_id: 'sumo' });
+  assertType<Equal<NonNullable<Awaited<typeof _owns>['data']>, boolean>>();
+  const _cos = client.rpc('public_cosmetics', { p_user_ids: [] });
+  type CosRow = NonNullable<Awaited<typeof _cos>['data']>[number];
+  assertType<Equal<keyof CosRow, 'user_id' | 'kind' | 'item_id' | 'name' | 'data'>>();
+  const _ledger = client.from('coin_ledger').select('id, amount, reason, note, balance_after, created_at');
+  type LedgerRow = NonNullable<Awaited<typeof _ledger>['data']>[number];
+  assertType<Equal<LedgerRow['id'], number>>();
+  assertType<Equal<LedgerRow['note'], string | null>>();
+  assertType<Equal<Tables<'wallets'>['balance'], number>>();
+  assertType<Equal<Tables<'achievements'>['coins'], number | null>>();
+  const _owned = client.from('user_items').select('item_id, item:shop_items(kind, name)');
+  type OwnedRow = NonNullable<Awaited<typeof _owned>['data']>[number];
+  assertType<Equal<OwnedRow['item'], { kind: string; name: string }>>();
+  const wallet: WalletSummary = { balance: 1, lifetime_earned: 1, daily_claimed: true, solo_today: 5, solo_cap: 50, match_today: 0, match_cap: 500 };
+  const bought: BuyItemResult = { status: 'owned', item_id: 'name-mint', balance: 0 };
+  const equipped: EquippedItems = { name_color: 'name-mint' };
+  const award: CoinAwardEvent = { type: 'coins', id: 1, amount: 25, reason: 'win', balance: 35, game_id: 'sumo', note: 'Sumo', at: '' };
+  assert.equal(wallet.solo_cap + bought.balance + award.amount, 75);
+  assert.equal(equipped.name_color, 'name-mint');
 
   // The selectable profile columns parse into a typed row.
   const _profile = client.from('profiles').select(PROFILE_COLUMNS);

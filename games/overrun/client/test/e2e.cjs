@@ -252,7 +252,21 @@ async function main() {
     await hidePanel.evaluate((el) => el.remove());
     await bob.waitForFunction((n) => window.__overrun.killsSeen > n, killsBefore, { timeout: 5_000 });
     await bob.waitForFunction(() => window.__overrun.teamKills >= 1, null, { timeout: 5_000 });
-    assert.equal(await alice.evaluate(() => window.__overrun.player('guest-Alice').kills), 1, "Alice's kill");
+    // Alice's page reads the same patch as Bob's; give it a moment (its frames are software-rendered), and if it never
+    // shows the kill, report what Bob's page says about who has it.
+    await alice
+      .waitForFunction(() => window.__overrun.player('guest-Alice')?.kills === 1, null, { timeout: 5_000 })
+      .catch(() => {});
+    const seen = await bob.evaluate(() => ({
+      alice: window.__overrun.player('guest-Alice'),
+      bob: window.__overrun.player('guest-Bob'),
+      teamKills: window.__overrun.teamKills,
+    }));
+    assert.equal(
+      await alice.evaluate(() => window.__overrun.player('guest-Alice').kills),
+      1,
+      `Alice's kill (Bob's page: ${JSON.stringify(seen)})`,
+    );
     const aim = await probe(alice, 'aim');
     assert.ok(aim.y < -0.9, `aimed up the screen (${JSON.stringify(aim)})`);
     await alice.screenshot({ path: `${SHOT}-alice.png` });

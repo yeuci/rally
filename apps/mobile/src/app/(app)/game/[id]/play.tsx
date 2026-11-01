@@ -4,6 +4,7 @@ import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
+import { CoinToastHost } from '@/components/rally/coins';
 import { FriendRequestPrompt } from '@/components/rally/friend-request-sheet';
 import { RoomCodePill } from '@/components/rally/room-code-pill';
 import { ToastHost } from '@/components/rally/toast';
@@ -202,6 +203,8 @@ export default function PlayScreen() {
           the game (components/rally/friend-request-sheet.tsx). It follows Settings → Notifications → While playing:
           a banner overlaid at the top of the game by default (a plain view, no Modal), the sheet, or nothing. */}
       <ToastHost />
+      {/* Coins awarded by the match (or a solo run) show over the game too, like the friend-request banner. */}
+      <CoinToastHost />
       <FriendRequestPrompt placement="game" />
     </View>
   );

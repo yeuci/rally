@@ -1,6 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 import { useSession } from '@/lib/auth/session';
+import { coinKeys } from '@/lib/coins';
 import { progressKeys } from '@/lib/game-progress';
 import { selectionHaptic } from '@/lib/haptics';
 import {
@@ -252,6 +253,8 @@ export function invalidateSocial(qc: QueryClient, uid: string | null, otherId: s
   void qc.invalidateQueries({ queryKey: progressKeys.userStats(otherId) });
   if (uid) void qc.invalidateQueries({ queryKey: progressKeys.userStats(uid) });
   void qc.invalidateQueries({ queryKey: progressKeys.userAchievements(otherId) });
+  // A block hides equipped cosmetics both ways (public_cosmetics); an unblock shows them again.
+  void qc.invalidateQueries({ queryKey: coinKeys.cosmetics(uid, otherId) });
   void qc.invalidateQueries({
     predicate: (q) => q.queryKey[0] === 'progress' && q.queryKey[3] === 'top' && q.queryKey[5] === 'friends',
   });

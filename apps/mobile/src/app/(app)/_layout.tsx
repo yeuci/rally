@@ -3,6 +3,7 @@ import { Redirect, Stack } from 'expo-router';
 import { useEffect } from 'react';
 import { useUniwind } from 'uniwind';
 import { AppDrawer } from '@/components/rally/app-drawer';
+import { CoinToastHost } from '@/components/rally/coins';
 import { FriendRequestPrompt } from '@/components/rally/friend-request-sheet';
 import { RejoinPrompt } from '@/components/rally/rejoin-sheet';
 import { ToastHost } from '@/components/rally/toast';
@@ -58,11 +59,15 @@ export default function AppLayout() {
         {/* The screen sets the genre's name as its title; the drawer's edge swipe is off here (lib/drawer.ts). */}
         <Stack.Screen name="browse" options={{ title: 'Browse' }} />
         <Stack.Screen name="game/[id]/rooms" options={{ title: 'Rooms' }} />
+        <Stack.Screen name="shop" options={{ title: 'Shop' }} />
+        <Stack.Screen name="coins" options={{ title: 'Coin history' }} />
       </Stack>
       {/* Over the stack: the toast ("That match has ended") and the rejoin sheet (a match left within its grace,
           m3-phase2 §4; a modal, so it also covers the drawer). Not over a running game: the play route is a native
           full-screen modal above all of this, so it mounts its own toast and friend-request hosts. */}
       <ToastHost />
+      {/* "+25 coins · Win" when coins are awarded (Settings → Coin popups); the play route mounts its own. */}
+      <CoinToastHost />
       <RejoinPrompt />
       {/* "sloth wants to be your friend" while no game is open (the play route's own host covers the game). */}
       <FriendRequestPrompt placement="shell" />
