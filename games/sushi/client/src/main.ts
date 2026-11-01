@@ -209,7 +209,9 @@ function applySettings(s: PlayerSettings) {
   if (s.controls) {
     controls.setLayout({ swap: s.controls.swapSticks, size: s.controls.stickSize, opacity: s.controls.stickOpacity });
   }
-  if (!LOWFX && !ART && s.graphics !== graphics) {
+  // Only the host's menu sets the quality: outside the shell `rally.settings` is the SDK's default ('high'), which
+  // would overwrite the remembered setting at every launch.
+  if (!LOWFX && !ART && rally.isHosted && s.graphics !== graphics) {
     graphics = s.graphics;
     rememberGraphics(globalThis.localStorage ?? null, graphics);
     const q = renderQuality(graphics);
