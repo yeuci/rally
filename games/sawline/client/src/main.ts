@@ -21,22 +21,28 @@ import {
   DEBARKER_Z,
   LINE_X,
   SAW_Z,
+  SHIFT_SECONDS,
   SawlineSim,
   TRUNK_RADIUS,
   UPGRADES,
+  type ModeId,
   type SimEvent,
   type UpgradeId,
 } from './sim.ts';
+import {
+  MODES,
+  type Progress,
+  isUnlocked,
+  modeDef,
+  newlyUnlocked,
+  parseProgress,
+  starText,
+  starsFor,
+  totalStars,
+} from './progress.ts';
 
-const BOARD = 'earnings';
 const TELEMETRY_MS = 10_000;
 const SHOP_SLOTS = 4;
-
-interface Progress {
-  best: number;
-  played: number;
-  version: 1;
-}
 
 const ACHIEVEMENTS: { key: string; title: string; earned: (s: SawlineSim) => boolean }[] = [
   { key: 'first_truck', title: 'First Delivery', earned: (s) => s.trucksServed >= 1 },
@@ -44,6 +50,11 @@ const ACHIEVEMENTS: { key: string; title: string; earned: (s: SawlineSim) => boo
   { key: 'earn_3000', title: 'Busy Mill', earned: (s) => s.earned >= 3000 },
   { key: 'earn_5000', title: 'Sawmill Tycoon', earned: (s) => s.earned >= 5000 },
   { key: 'full_line', title: 'Fully Loaded', earned: (s) => s.upgrades.size === UPGRADES.length },
+  {
+    key: 'steady_hands',
+    title: 'Steady Hands',
+    earned: (s) => s.mode === 'precision' && s.strikes === 0 && s.time >= SHIFT_SECONDS,
+  },
 ];
 
 /** First-shift tutorial, one line at a time; each step ends when its condition holds. */
@@ -65,15 +76,20 @@ const ui = {
   hint: $('hint'),
   combo: $('combo'),
   prompt: $('prompt'),
+  modes: $('modes'),
+  strikes: $('strikes'),
   shop: $('shop'),
   debark: $<HTMLButtonElement>('debark'),
   cut: $<HTMLButtonElement>('cut'),
   over: $('over'),
+  overLabel: $('over-label'),
   overScore: $('over-score'),
+  overStars: $('over-stars'),
   overBest: $('over-best'),
   overStats: $('over-stats'),
   overBoard: $('over-board'),
   overUnlocked: $('over-unlocked'),
+  overMode: $('over-mode'),
   again: $<HTMLButtonElement>('again'),
   paused: $('paused'),
   loading: $('loading'),
@@ -110,21 +126,11 @@ let labels!: ReturnType<typeof createLabels>;
 loading(0.1);
 
 // --- services --------------------------------------------------------------------------------------
-const save = createSave<Progress>(
-  rally,
-  'progress',
-  { best: 0, played: 0, version: 1 },
-  {
-    debounceMs: 800,
-    parse: (raw, d) => {
-      const r = (raw ?? {}) as Partial<Progress>;
-      const num = (v: unknown, f: number) =>
-        typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : f;
-      return { best: num(r.best, d.best), played: num(r.played, d.played), version: 1 };
-    },
-    onError: (err) => console.warn('[sawline] save failed', err),
-  },
-);
+const save = createSave<Progress>(rally, 'progress', parseProgress(null), {
+  debounceMs: 800,
+  parse: (raw) => parseProgress(raw),
+  onError: (err) => console.warn('[sawline] save failed', err),
+});
 const solo = createSolo(rally, { user: () => rally.context?.user ?? null });
 const audio = createAudio();
 const metrics = createFrameMetrics(2000);
@@ -175,8 +181,14 @@ function releaseAll() {
   ui.debark.classList.remove('down');
 }
 
+/** The mode the next shift plays: the saved choice, while it is unlocked. */
+function nextMode(): ModeId {
+  const m = save.data.mode;
+  return isUnlocked(m, save.data.bests) ? m : 'classic';
+}
+
 function newShift() {
-  sim = new SawlineSim((save.data.played * 7919 + 31) >>> 0);
+  sim = new SawlineSim((save.data.played * 7919 + 31) >>> 0, nextMode());
   labels.clear();
   scene.reset(sim);
   releaseAll();
@@ -185,16 +197,61 @@ function newShift() {
   tutorial = save.data.played === 0 ? 0 : -1;
   ui.hint.hidden = true;
   ui.combo.classList.remove('show');
+  renderModes();
+  renderStrikes();
   shown.wallet = shown.earned = -1;
   shown.clock = shown.shop = '';
   ui.clock.classList.remove('hurry');
   renderHud();
 }
 
+/** The mode picker (before a shift): each mode with its best stars, or what it takes to unlock it. */
+function renderModes() {
+  const bests = save.data.bests;
+  const total = totalStars(bests);
+  ui.modes.innerHTML = MODES.map((m) => {
+    const open = isUnlocked(m.id, bests);
+    const side = open
+      ? `<span class="stars">${starText(starsFor(m.id, bests[m.id]))}</span>`
+      : `<span class="lock">🔒 ${m.unlockAt - total} ★ to go</span>`;
+    const cls = ['mode', m.id === sim.mode ? 'on' : '', open ? '' : 'locked'].filter(Boolean).join(' ');
+    return `<button type="button" class="${cls}" data-mode="${m.id}"><b>${m.title}</b>${side}<small>${m.blurb}</small></button>`;
+  }).join('');
+  ui.modes.hidden = sim.phase !== 'ready';
+}
+
+ui.modes.addEventListener('click', (e) => {
+  const id = (e.target as HTMLElement).closest<HTMLElement>('[data-mode]')?.dataset.mode as ModeId | undefined;
+  if (!id || sim.phase !== 'ready') return;
+  if (!isUnlocked(id, save.data.bests)) {
+    audio.blip(200, 90, { type: 'square', gain: 0.12 });
+    ui.hint.textContent = `Earn ${modeDef(id).unlockAt} ★ to unlock ${modeDef(id).title}`;
+    ui.hint.hidden = false;
+    return;
+  }
+  if (id === sim.mode) return;
+  audio.blip(520, 40, { gain: 0.2 });
+  save.update((d) => {
+    d.mode = id;
+  });
+  newShift();
+});
+
+/** Precision: one pip per allowed strike on the CUT button, filled as they go. */
+function renderStrikes() {
+  const max = sim.rules.strikes;
+  ui.strikes.hidden = max === 0;
+  ui.strikes.innerHTML = Array.from({ length: max }, (_, i) => `<i class="${i < sim.strikes ? 'on' : ''}"></i>`).join(
+    '',
+  );
+}
+
 function startIfReady() {
   if (sim.phase !== 'ready' || lifecycle.isPaused || lifecycle.isExiting) return;
   sim.start();
   ui.prompt.hidden = true;
+  ui.modes.hidden = true;
+  if (tutorial < 0) ui.hint.hidden = true;
   audio.blip(660, 80, { gain: 0.25 });
 }
 
@@ -330,13 +387,16 @@ function onEvent(e: SimEvent) {
     case 'cut': {
       scene.burst(LINE_X, TRUNK_RADIUS + 0.4, SAW_Z, PALETTE.woodEnd, e.quality === 'perfect' ? 10 : 5, 3.2);
       const text = e.quality === 'perfect' ? 'PERFECT' : e.quality === 'good' ? 'GOOD' : 'OFF';
-      labels.float(
-        e.auto && e.quality !== 'off' ? 'auto' : text,
-        LINE_X + 1.2,
-        sawY,
-        SAW_Z,
-        e.auto ? 'good' : e.quality,
-      );
+      // Precision's off cuts say which strike they are instead (the 'strike' event, right after).
+      if (!(e.quality === 'off' && sim.rules.strikes > 0)) {
+        labels.float(
+          e.auto && e.quality !== 'off' ? 'auto' : text,
+          LINE_X + 1.2,
+          sawY,
+          SAW_Z,
+          e.auto ? 'good' : e.quality,
+        );
+      }
       if (e.quality === 'perfect') {
         showCombo(e.combo);
         const f = 523.25 * 2 ** (Math.min(e.combo - 1, 12) / 12);
@@ -375,6 +435,11 @@ function onEvent(e: SimEvent) {
     }
     case 'truckArrive':
       break;
+    case 'strike':
+      renderStrikes();
+      audio.blip(110, 260, { type: 'sawtooth', slideTo: 70, gain: 0.2 });
+      labels.float(`OFF · strike ${e.strikes}`, LINE_X + 1.2, TRUNK_RADIUS + 1.1, SAW_Z, 'off');
+      break;
     case 'over':
       audio.blip(880, 500, { type: 'sine', slideTo: 660, gain: 0.3 });
       void gameOver();
@@ -384,17 +449,31 @@ function onEvent(e: SimEvent) {
 
 async function gameOver() {
   const token = ++gameOverToken;
+  const mode = sim.mode;
+  const def = modeDef(mode);
   const score = sim.earned;
-  const prevBest = save.data.best;
+  const before = { ...save.data.bests };
+  const prevBest = before[mode];
   save.update((d) => {
     d.played += 1;
-    d.best = Math.max(d.best, score);
+    d.bests[mode] = Math.max(d.bests[mode], score);
   });
   const best = Math.max(prevBest, score);
   const newBest = score > prevBest && score > 0;
+  const stars = starsFor(mode, score);
+  const opened = newlyUnlocked(before, save.data.bests);
   releaseAll();
   ui.hint.hidden = true;
+  ui.overLabel.textContent = sim.struckOut
+    ? `Line stopped · ${sim.rules.strikes} bad cuts`
+    : mode === 'classic'
+      ? 'Shift over'
+      : `${def.title} over`;
   ui.overScore.textContent = money(score);
+  ui.overStars.innerHTML = [0, 1, 2].map((i) => `<i class="${i < stars ? 'on' : ''}">★</i>`).join('');
+  ui.overStars.setAttribute('aria-label', `${stars} of 3 stars`);
+  ui.overMode.textContent = opened.length ? `New mode: ${opened.map((m) => m.title).join(' · ')}` : '';
+  ui.overMode.hidden = !opened.length;
   ui.overBest.textContent = newBest ? 'New best!' : `Best ${money(best)}`;
   ui.overBest.classList.toggle('new', newBest);
   const cuts = sim.cuts.perfect + sim.cuts.good + sim.cuts.off;
@@ -410,10 +489,10 @@ async function gameOver() {
 
   const earned = ACHIEVEMENTS.filter((a) => a.earned(sim));
   const [submit, unlocks] = await Promise.all([
-    solo.submit(BOARD, score),
+    solo.submit(def.board, score),
     Promise.all(earned.map(async (a) => ({ a, r: await solo.unlock(a.key) }))),
   ]);
-  const top = await solo.top(BOARD, { scope: 'global', limit: 10 });
+  const top = await solo.top(def.board, { scope: 'global', limit: 10 });
   if (token !== gameOverToken) return;
 
   const fresh = unlocks.filter((u) => u.r.unlocked && !u.r.alreadyHad).map((u) => u.a.title);
@@ -479,12 +558,15 @@ function collect() {
     p95Ms: f.p95Ms,
     worstMs: f.worstMs,
     earned: sim.earned,
+    mode: sim.mode,
+    stars: totalStars(save.data.bests),
+    strikes: sim.strikes,
     phase: sim.phase,
     shiftTime: round(sim.time, 1),
     upgrades: sim.upgrades.size,
     pile: sim.pile,
     trucks: sim.trucks.length,
-    best: save.data.best,
+    best: save.data.bests[sim.mode],
     played: save.data.played,
     paused: lifecycle.isPaused,
     entities: scene?.entityCount ?? 0,
@@ -553,6 +635,22 @@ if (import.meta.env.DEV) {
     },
     get sawDepth() {
       return sim.sawDepth;
+    },
+    get mode() {
+      return sim.mode;
+    },
+    get stars() {
+      return totalStars(save.data.bests);
+    },
+    get strikes() {
+      return sim.strikes;
+    },
+    /** Set best shifts (stars) by hand, e.g. to unlock a mode in the e2e. */
+    setBests(bests: Partial<Progress['bests']>) {
+      save.update((d) => {
+        Object.assign(d.bests, bests);
+      });
+      if (sim.phase === 'ready') renderModes();
     },
     get upgrades() {
       return [...sim.upgrades];

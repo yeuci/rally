@@ -22,6 +22,11 @@
       "id": "earnings",
       "sort": "desc",
       "maxScorePerMinute": 3000
+    },
+    {
+      "id": "precision",
+      "sort": "desc",
+      "maxScorePerMinute": 3000
     }
   ],
   "achievements": [
@@ -54,6 +59,12 @@
       "title": "Fully Loaded",
       "hidden": false,
       "description": "Buy every upgrade in one shift."
+    },
+    {
+      "key": "steady_hands",
+      "title": "Steady Hands",
+      "hidden": false,
+      "description": "Finish a Precision shift without a single off cut."
     }
   ],
   "capabilities": [],

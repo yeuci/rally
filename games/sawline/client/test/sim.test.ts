@@ -195,3 +195,51 @@ test('the shift ends at SHIFT_SECONDS with one "over" event', () => {
   assert.equal(sim.phase, 'over');
   assert.equal(sim.cut(), 'busy');
 });
+
+test('Precision: no auto saw on sale, and the third off cut at the blade stops the line', () => {
+  const sim = new SawlineSim(1, 'precision');
+  assert.equal(sim.mode, 'precision');
+  assert.ok(!sim.shop.some((u) => u.id === 'autoSaw'), 'auto saw not offered');
+  sim.start();
+  sim.wallet = 10_000;
+  assert.equal(sim.buy('autoSaw'), false);
+  // Nobody taps: the saw makes a rough (off) cut each time a mark runs past, and each one is a strike.
+  const strikes: number[] = [];
+  let over = 0;
+  sim.setDebark(true);
+  for (let t = 0; t < 120 && sim.phase === 'playing'; t += 1 / 30) {
+    for (const e of sim.advance(1 / 30)) {
+      if (e.type === 'strike') strikes.push(e.strikes);
+      if (e.type === 'over') over++;
+    }
+  }
+  assert.deepEqual(strikes, [1, 2, 3]);
+  assert.equal(over, 1);
+  assert.equal(sim.phase, 'over');
+  assert.ok(sim.struckOut);
+  assert.ok(sim.time < SHIFT_SECONDS, `stopped early (${sim.time} s)`);
+  assert.equal(sim.advance(1).length, 0, 'nothing runs after the line stops');
+});
+
+test('Classic never strikes; a careful bot finishes a Precision shift, a sloppy one strikes out', () => {
+  const classic = new SawlineSim(5);
+  classic.setDebark(true);
+  classic.start();
+  run(classic, 60);
+  assert.ok(classic.cuts.off > 0, 'untapped marks make off cuts');
+  assert.equal(classic.strikes, 0);
+  assert.equal(classic.phase, 'playing');
+
+  const limit = manifest.leaderboards.find((b) => b.id === 'precision')!.maxScorePerMinute;
+  for (const [skill, finishes] of [
+    [0.12, true],
+    [0.4, false],
+  ] as const) {
+    const sim = new SawlineSim(3, 'precision');
+    const bot = new Bot(9, skill);
+    sim.start();
+    while (sim.phase === 'playing') sim.advance(1 / 30, bot.drive);
+    assert.equal(!sim.struckOut, finishes, `skill ${skill}: ${sim.strikes} strikes, ${sim.time} s, $${sim.earned}`);
+    assert.ok(sim.earned / (SHIFT_SECONDS / 60) < limit / 2, `skill ${skill}: $${sim.earned} vs ${limit} $/min`);
+  }
+});

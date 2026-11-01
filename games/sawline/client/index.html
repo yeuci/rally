@@ -20,19 +20,22 @@
       <div id="hint" class="hint" hidden></div>
       <div id="combo" class="combo"></div>
       <div id="prompt" class="prompt" hidden>Hold DEBARK to start the line</div>
+      <div id="modes" class="modes" hidden></div>
       <div class="controls">
         <div id="shop" class="shop"></div>
         <div class="buttons">
           <button id="debark" class="big debark" type="button"><span class="icon ring-icon"></span><b>Debark</b><small>hold</small></button>
-          <button id="cut" class="big cut" type="button"><span class="icon blade-icon"></span><b>Cut</b><small>tap</small></button>
+          <button id="cut" class="big cut" type="button"><span id="strikes" class="strikes" hidden></span><span class="icon blade-icon"></span><b>Cut</b><small>tap</small></button>
         </div>
       </div>
       <section id="over" class="card" hidden>
-        <div class="label-sm">Shift over</div>
+        <div id="over-label" class="label-sm">Shift over</div>
         <div id="over-score" class="big">$0</div>
+        <div id="over-stars" class="stars-row"></div>
         <div id="over-best" class="best">Best $0</div>
         <div id="over-stats" class="stats"></div>
         <div id="over-board" class="board">Leaderboard …</div>
+        <div id="over-mode" class="newmode" hidden></div>
         <div id="over-unlocked" class="unlocked" hidden></div>
         <button id="again" type="button">Next shift</button>
       </section>

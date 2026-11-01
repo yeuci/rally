@@ -9,6 +9,9 @@
  * automation, a faster belt (more output, tighter timing), more planks per log, more bays, faster loading.
  * Score = money earned over the shift.
  *
+ * Modes (`MODE_RULES`): Classic as above; Precision has no auto saw, and every off cut at the blade (a bad tap, or a
+ * rough cut the saw makes when a mark goes by untapped) is a strike: the third stops the line and ends the shift.
+ *
  * Determinism: fixed `TICK` steps (30 Hz) from an accumulator with a seeded RNG, as in Lumber Camp. Saw taps are
  * judged at the moment they happened (`cut(lateBy)`, like Stack's drops). Renderers interpolate with `alpha`.
  */
@@ -16,6 +19,20 @@
 export const TICK = 1 / 30;
 export const SHIFT_SECONDS = 240;
 const SHIFT_TICKS = Math.round(SHIFT_SECONDS / TICK);
+
+export type ModeId = 'classic' | 'precision';
+
+export interface ModeRules {
+  /** Off cuts at the blade that stop the line (0 = no limit). */
+  strikes: number;
+  /** Whether the auto saw is for sale. */
+  autoSaw: boolean;
+}
+
+export const MODE_RULES: Record<ModeId, ModeRules> = {
+  classic: { strikes: 0, autoSaw: true },
+  precision: { strikes: 3, autoSaw: false },
+};
 /** At most this many ticks per `advance` (0.5 s): after a stall the game slows down instead of jumping. */
 const MAX_TICKS_PER_ADVANCE = 15;
 
@@ -166,6 +183,8 @@ export type SimEvent =
   | { type: 'sale'; amount: number; bay: number }
   | { type: 'truckLeft'; turnedAway: boolean }
   | { type: 'buy'; id: UpgradeId }
+  /** Precision: an off cut at the blade; `strikes` so far. */
+  | { type: 'strike'; strikes: number }
   | { type: 'over' };
 
 /** mulberry32: small, fast, seedable. */
@@ -259,8 +278,16 @@ export class SawlineSim {
 
   events: SimEvent[] = [];
 
-  constructor(seed = 1) {
+  readonly mode: ModeId;
+  readonly rules: ModeRules;
+  /** Precision: off cuts at the blade so far; `struckOut` once they stopped the line. */
+  strikes = 0;
+  struckOut = false;
+
+  constructor(seed = 1, mode: ModeId = 'classic') {
     this.random = rng(seed);
+    this.mode = mode;
+    this.rules = MODE_RULES[mode];
     this.feed();
     this.rollAutoCut();
   }
@@ -327,6 +354,7 @@ export class SawlineSim {
     const out: UpgradeDef[] = [];
     for (const u of UPGRADES) {
       if (this.upgrades.has(u.id) || seen.has(u.group)) continue;
+      if (u.id === 'autoSaw' && !this.rules.autoSaw) continue;
       seen.add(u.group);
       out.push(u);
     }
@@ -398,11 +426,13 @@ export class SawlineSim {
     this.runSaw();
     this.feed();
     this.runTrucks();
-    if (this.tick >= SHIFT_TICKS) {
-      this.phase = 'over';
-      this.acc = 0;
-      this.events.push({ type: 'over' });
-    }
+    if (this.phase === 'playing' && this.tick >= SHIFT_TICKS) this.finish();
+  }
+
+  private finish(): void {
+    this.phase = 'over';
+    this.acc = 0;
+    this.events.push({ type: 'over' });
   }
 
   /** A new trunk at the top whenever there is room. */
@@ -520,6 +550,15 @@ export class SawlineSim {
     this.items.push(piece);
     if (trunk.length < 0.05) this.items = this.items.filter((x) => x !== trunk);
     this.rollAutoCut();
+    // Only cuts at the blade strike: a trunk's tail end (makeLog) was never the player's to cut.
+    if (quality === 'off' && this.rules.strikes > 0 && this.phase === 'playing') {
+      this.strikes++;
+      this.events.push({ type: 'strike', strikes: this.strikes });
+      if (this.strikes >= this.rules.strikes) {
+        this.struckOut = true;
+        this.finish();
+      }
+    }
     return quality;
   }
 

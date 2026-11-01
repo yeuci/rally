@@ -107,6 +107,33 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 .big.auto { background: #6f6b7e; box-shadow: 0 5px 0 #4e4a5c; }
 .big.auto small { opacity: 1; }
 .big.flash { animation: flash 200ms ease-out; }
+/* Precision: one pip per allowed strike in the CUT button's corner, filled red as they go. */
+.big.cut { position: relative; }
+.strikes { position: absolute; top: 10px; right: 12px; display: flex; gap: 5px; }
+.strikes i {
+  width: 16px; height: 16px; border-radius: 50%; background: rgba(255, 255, 255, 0.3); font-style: normal;
+  font-size: 11px; font-weight: 900; line-height: 16px; text-align: center; color: transparent;
+}
+.strikes i.on { background: #ff3b30; color: #fff; animation: strike-pop 300ms ease-out; }
+.strikes i.on::after { content: "✕"; }
+@keyframes strike-pop { from { transform: scale(2.2); } to { transform: scale(1); } }
+
+/* Mode picker (before a shift): one button per mode, its best stars or what unlocks it. */
+.modes {
+  position: absolute; left: 12px; right: 12px; top: calc(var(--safe-top) + 62px);
+  display: flex; gap: 8px; justify-content: center; pointer-events: auto;
+}
+.mode {
+  flex: 1 1 0; max-width: 170px; display: grid; gap: 1px; padding: 8px 10px; border-radius: 14px;
+  border: 2px solid transparent; background: rgba(255, 250, 240, 0.9); color: var(--ink); font: inherit;
+  text-align: left; cursor: pointer; box-shadow: 0 2px 0 rgba(59, 42, 26, 0.25);
+}
+.mode b { font-size: 15px; font-weight: 900; }
+.mode .stars { font-size: 15px; letter-spacing: 0.06em; color: var(--gold); }
+.mode .lock { font-size: 13px; font-weight: 800; color: var(--muted); }
+.mode small { font-size: 11px; font-weight: 700; color: var(--muted); }
+.mode.on { border-color: var(--cash); background: #fffaf0; }
+.mode.locked { opacity: 0.72; }
 @keyframes flash { 0% { filter: brightness(1.6); } 100% { filter: brightness(1); } }
 .icon { display: block; width: 26px; height: 26px; }
 .ring-icon { border-radius: 50%; border: 5px solid #fff; box-sizing: border-box; }
@@ -167,6 +194,16 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 .card .stats { margin-top: 8px; font-size: 14px; color: var(--muted); font-weight: 600; }
 .card .board { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 14px; color: var(--muted); }
 .card .unlocked { margin-top: 8px; font-size: 13px; font-weight: 700; color: #d18a00; }
+.card .stars-row { margin-top: 2px; font-size: 30px; letter-spacing: 0.08em; color: rgba(59, 42, 26, 0.18); }
+.card .stars-row i { font-style: normal; }
+.card .stars-row i.on { color: var(--gold); text-shadow: 0 2px 0 rgba(209, 138, 0, 0.35); animation: star-pop 360ms ease-out backwards; }
+.card .stars-row i.on:nth-child(2) { animation-delay: 140ms; }
+.card .stars-row i.on:nth-child(3) { animation-delay: 280ms; }
+@keyframes star-pop { from { transform: scale(0.2); opacity: 0; } 70% { transform: scale(1.25); } to { transform: scale(1); opacity: 1; } }
+.card .newmode {
+  margin-top: 8px; padding: 6px 10px; border-radius: 10px; background: rgba(245, 184, 46, 0.18);
+  font-size: 14px; font-weight: 800; color: #b06f00;
+}
 .card button {
   margin-top: 14px; width: 100%; padding: 14px 0; border: 0; border-radius: 14px;
   background: #3fb862; color: #fff; font: inherit; font-size: 18px; font-weight: 800; cursor: pointer;

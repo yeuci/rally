@@ -8,7 +8,8 @@
 // released), a CUT tap on the mark makes a log and shows the verdict, the greedy bot (dev probe) sells planks and buys
 // an upgrade from the shop, pause/resume freeze/continue the shift clock, skipping to the whistle shows the results
 // card with earnings / best / leaderboard rank, leaderboard.submit + achievement.unlock('first_truck') + save.put
-// reached the harness, exitRequested → save → exit("host"), and ?nohost plays standalone.
+// reached the harness, the results card's stars, the mode picker (Precision locked, then unlocked: its strike pips, three
+// untapped rough cuts stop the line, its own board), exitRequested → save → exit("host"), and ?nohost plays standalone.
 // Every page runs the dev-only ?lowfx=1 mode (≤ 15 fps, DPR 1, no MSAA or shadows): CI renders WebGL in software on a
 // small runner, and at full quality the shift clock crawls.
 // Env: SAWLINE_URL, E2E_SCREENSHOT=<png path> (default <tmp>/sawline.png).
@@ -109,7 +110,7 @@ async function main() {
     let log = await panelLog(page);
     assert.match(log, /ready\(\) after \d+ ms/);
     assert.match(log, /← save\.get ok/);
-    assert.match(log, /boards earnings, 5 achievement\(s\)/);
+    assert.match(log, /boards earnings, precision, 6 achievement\(s\)/);
     assert.equal(await sawline(page, 'phase'), 'ready');
     assert.equal(await page.locator('#shop button').count(), 4);
     console.log('✓ boot: ui.loading → save.get → ready(); prompt, four upgrades on offer');
@@ -188,6 +189,8 @@ async function main() {
     assert.equal(await page.textContent('#over-score'), `$${score.toLocaleString('en-US')}`);
     assert.equal(await page.textContent('#over-best'), 'New best!');
     assert.match(await page.textContent('#over-stats'), /^Trucks \d+ · Perfect \d+\/\d+ · Best combo \d+$/);
+    const stars = await page.evaluate(() => document.querySelectorAll('#over-stars i.on').length);
+    assert.equal(stars, [2000, 3500, 5000].filter((s) => score >= s).length, `stars for $${score}`);
     await page.waitForFunction(
       () => /#\d+ global/.test(document.querySelector('#over-board')?.textContent ?? ''),
       null,
@@ -211,12 +214,13 @@ async function main() {
     assert.match(log, /← leaderboard\.submit ok/);
     assert.match(log, /← leaderboard\.top ok/);
     await page.waitForFunction(
-      (s) => JSON.parse(localStorage.getItem('rally-harness:save:sawline:progress') || 'null')?.data?.best === s,
+      (s) =>
+        JSON.parse(localStorage.getItem('rally-harness:save:sawline:progress') || 'null')?.data?.bests?.classic === s,
       score,
       { timeout: 10_000 },
     );
     const saved = await local(page, 'rally-harness:save:sawline:progress');
-    assert.deepEqual(saved.data, { best: score, played: 1, version: 1 });
+    assert.deepEqual(saved.data, { bests: { classic: score, precision: 0 }, played: 1, mode: 'classic', version: 2 });
     console.log(
       `✓ harness: board ${mine.username}=$${mine.score}, achievements [${achievements.join(', ')}], save ${JSON.stringify(saved.data)}`,
     );
@@ -239,6 +243,49 @@ async function main() {
     await page.keyboard.up('KeyD');
     assert.ok(await page.isHidden('#hint'), 'no tutorial on the second shift');
     console.log('✓ next shift starts fresh from the keyboard (no tutorial)');
+    await page.keyboard.down('KeyD');
+    await page.evaluate(() => window.__sawline.skip(400));
+    await page.keyboard.up('KeyD');
+    await page.waitForSelector('#over:not([hidden])', { timeout: 5_000 });
+
+    // 9b. Modes: Precision is locked until 2 stars; unlocked, it shows strike pips and three untapped (rough) cuts stop
+    // the line early, on its own board.
+    await togglePanel();
+    await page.click('#again');
+    await page.waitForSelector('#modes:not([hidden])');
+    if ((await sawline(page, 'stars')) < 2) {
+      await page.click('#modes [data-mode="precision"]');
+      assert.equal(await page.textContent('#hint'), 'Earn 2 ★ to unlock Precision');
+      assert.equal(await sawline(page, 'mode'), 'classic');
+      await page.evaluate(() => window.__sawline.setBests({ classic: 3500 }));
+    }
+    await page.click('#modes [data-mode="precision"]');
+    await togglePanel();
+    assert.equal(await sawline(page, 'mode'), 'precision');
+    assert.equal(await page.evaluate(() => document.querySelectorAll('#strikes:not([hidden]) i').length), 3);
+    await page.keyboard.down('KeyD');
+    // The key starts the shift at once; the hold reaches the sim on the next frame.
+    await page.waitForFunction(() => window.__sawline.sim.ringRunning);
+    await page.evaluate(() => window.__sawline.skip(400));
+    await page.keyboard.up('KeyD');
+    assert.equal(await sawline(page, 'phase'), 'over');
+    assert.equal(await sawline(page, 'strikes'), 3);
+    const stoppedAt = await sawline(page, 'time');
+    assert.ok(stoppedAt < 240, `stopped early (${stoppedAt} s)`);
+    await page.waitForSelector('#over:not([hidden])', { timeout: 5_000 });
+    assert.equal(await page.textContent('#over-label'), 'Line stopped · 3 bad cuts');
+    const precisionScore = await sawline(page, 'earned');
+    await page.waitForFunction(
+      (s) =>
+        (JSON.parse(localStorage.getItem('rally-harness:board:sawline:precision') || '[]') || []).some(
+          (e) => e.userId === 'dev-user' && e.score === s,
+        ),
+      precisionScore,
+      { timeout: 10_000 },
+    );
+    console.log(
+      `✓ Precision: locked → unlocked, 3 rough cuts stop the line at ${stoppedAt.toFixed(1)} s, $${precisionScore} on its board`,
+    );
 
     // 10. exitRequested → the game saves and calls exit("host").
     await page.click('#rally-dev-harness >> button[data-action="exitRequested"]');
