@@ -60,7 +60,8 @@ canvas {
 .topbar {
   position: absolute;
   top: calc(var(--safe-top) + 8px);
-  left: calc(var(--safe-left) + 8px);
+  /* In the shell its game-menu button sits top-left (--rally-menu-inset, from the launch context): keep clear. */
+  left: max(calc(var(--safe-left) + 8px), var(--rally-menu-inset, 0px));
   right: calc(var(--safe-right) + 8px);
   display: flex;
   align-items: flex-start;
@@ -264,6 +265,11 @@ canvas {
   transform: scale(0.92);
   background: rgba(255, 79, 74, 0.45);
 }
+/* Left-handed (the game menu's swapped sticks): the knife moves with the aiming thumb. */
+.knife.swapped {
+  right: auto;
+  left: calc(var(--safe-left) + 18px);
+}
 
 /* --- banner, start, toasts, hint, veils ----------------------------------------------------------------- */
 .banner {
@@ -462,6 +468,25 @@ canvas {
   width: 0;
   background: var(--gold);
   transition: width 200ms;
+}
+/* The boot veil (standalone / dev; the host shows its own screen): the same words as the host, and bytes or a %. */
+#loading .bar {
+  width: min(300px, 70vw);
+}
+.veil-status {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  width: min(300px, 70vw);
+  margin-top: -4px;
+  font-size: 13px;
+  line-height: 17px;
+  color: rgba(255, 255, 255, 0.78);
+}
+.veil-status #loading-detail {
+  color: rgba(255, 255, 255, 0.45);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* --- in-world labels, sticks, damage vignette ------------------------------------------------------------- */

@@ -1,4 +1,5 @@
-import type { LaunchContext } from '@rally/protocol';
+import type { GameSettingValue, LaunchContext, RequestSchemas } from '@rally/protocol';
+import type { z } from 'zod';
 import { normalizeJoinCode, type FriendJoinTarget, type JoinTarget, type OriginJoin } from '../lib/join-target';
 import { HostError, type RequestHandlers } from './bridge';
 import { matchmake, mayAttachToken, serverVersion, type MatchmakeMethod } from './matchmake';
@@ -60,7 +61,13 @@ export interface JoinState {
 }
 
 export function createJoinState(target: JoinTarget = { join: 'quick' }): JoinState {
-  return { target, origin: target.join === 'resume' ? 'quick' : target.join, roomId: null, code: undefined, report: null };
+  return {
+    target,
+    origin: target.join === 'resume' ? 'quick' : target.join,
+    roomId: null,
+    code: undefined,
+    report: null,
+  };
 }
 
 /** `onExit` reason when a `resume` finds the match over (grace ended, room gone): the route says "That match has ended". */
@@ -83,10 +90,26 @@ export interface HostHandlerDeps {
   /** The session's join state (the controller keeps one across reloads); a fresh one from `matchmaking.join` if absent. */
   joinState?: JoinState;
   onReady: () => void;
-  onLoading: (progress: number) => void;
+  /** Awaited before `ready()` answers (the game menu's saved settings go into the launch context). */
+  beforeReady?: () => Promise<void>;
+  /** `ui.loading`: boot progress 0…1 and, from games that send them, a short label (see the hold contract in controller.ts). */
+  onLoading: (progress: number, label?: string) => void;
   onExit: (reason: string) => void;
+  /** `menu.define`: the game's own settings and help for the game menu; resolves with their current values. Absent: NOT_SUPPORTED. */
+  onMenuDefine?: (
+    def: RequestOutput<'menu.define'>,
+  ) => Promise<Record<string, GameSettingValue>> | Record<string, GameSettingValue>;
+  /** `menu.open` (Escape in the game). Absent: NOT_SUPPORTED. */
+  onMenuOpen?: () => void;
+  /**
+   * `haptics`, for games allowed to use them (manifest capability behind the 4.7.2 kill switch). `enabled` is the
+   * player's setting: while it is off requests are dropped. Absent: NOT_SUPPORTED.
+   */
+  haptics?: { enabled: () => boolean; play: (kind: RequestOutput<'haptics'>['kind']) => void } | null;
   now?: () => number;
 }
+
+type RequestOutput<M extends keyof typeof RequestSchemas> = z.output<(typeof RequestSchemas)[M]['params']>;
 
 const SLOT_RE = /^[A-Za-z0-9_-]{1,32}$/; // game_saves_slot check constraint
 const MAX_SAVE_BYTES = 65536; // game_saves_size check constraint (pg_column_size < 64 KB)
@@ -98,13 +121,16 @@ export const PROGRESS_LIMITS_PER_MINUTE = { submit: 30, top: 60, unlock: 60 } as
  * in flight at a time and at most this many per minute. `save.get` is a Supabase read per call.
  */
 export const SESSION_LIMITS_PER_MINUTE = { join: 6, saveGet: 60, reportReconnection: 12 } as const;
+/** `menu.define` replaces the definition and re-reads saved values: a few per page load is plenty. */
+export const MENU_DEFINES_PER_MINUTE = 20;
 /** Board ids and achievement keys come from the manifest; the server resolves them, the host only bounds them. */
 const MAX_KEY_LENGTH = 128;
 const isKey = (s: string) => s.length >= 1 && s.length <= MAX_KEY_LENGTH;
 
 /**
- * SDK v1 host handlers. Everything not listed (invite.open, haptics, orientation.lock) answers NOT_SUPPORTED from
- * the bridge: the capability methods sit behind the 4.7.2 kill switch, invites arrive with parties.
+ * SDK v1 host handlers. Everything not listed (invite.open, orientation.lock) answers NOT_SUPPORTED from the bridge:
+ * the capability methods sit behind the 4.7.2 kill switch, invites arrive with parties. `haptics` exists only when
+ * the host grants it (`deps.haptics`), and the game menu's `menu.define` / `menu.open` only on hosts with the menu.
  *
  * Bridge handlers plus the hooks the controller calls (a new main document, the app going to the background).
  */
@@ -124,6 +150,7 @@ export function createHostHandlers(deps: HostHandlerDeps): HostHandlers {
   const joinBucket = new TokenBucket(SESSION_LIMITS_PER_MINUTE.join, 60_000, deps.now);
   const saveGetBucket = new TokenBucket(SESSION_LIMITS_PER_MINUTE.saveGet, 60_000, deps.now);
   const reportBucket = new TokenBucket(SESSION_LIMITS_PER_MINUTE.reportReconnection, 60_000, deps.now);
+  const menuBucket = new TokenBucket(MENU_DEFINES_PER_MINUTE, 60_000, deps.now);
   const now = deps.now ?? Date.now;
   const state = deps.joinState ?? createJoinState(deps.matchmaking?.join);
   const gameId = () => deps.getLaunchContext().game.id;
@@ -154,15 +181,18 @@ export function createHostHandlers(deps: HostHandlerDeps): HostHandlers {
     ready: () => {
       if (ready) throw new HostError('ALREADY_READY', 'ready() was already called');
       ready = true;
-      deps.onReady();
-      const ctx = deps.getLaunchContext();
-      // `resume` informs the game only until the resume was used (a reload then joins the room by id).
-      if (ctx.resume && state.target.join !== 'resume') {
-        const rest = { ...ctx };
-        delete rest.resume;
-        return rest;
-      }
-      return ctx;
+      const answer = (): LaunchContext => {
+        deps.onReady();
+        const ctx = deps.getLaunchContext();
+        // `resume` informs the game only until the resume was used (a reload then joins the room by id).
+        if (ctx.resume && state.target.join !== 'resume') {
+          const rest = { ...ctx };
+          delete rest.resume;
+          return rest;
+        }
+        return ctx;
+      };
+      return deps.beforeReady ? deps.beforeReady().then(answer) : answer();
     },
 
     ping: ({ t }) => ({ t, hostTime: Date.now() }),
@@ -176,7 +206,10 @@ export function createHostHandlers(deps: HostHandlerDeps): HostHandlers {
       joinInFlight = true;
       try {
         if (mm.getAccessToken && !mayAttachToken(mm.httpUrl, mm.allowPrivateHttp === true)) {
-          throw new HostError('MATCHMAKE_FAILED', 'the game server must use https: refusing to send the sign-in token over plain http');
+          throw new HostError(
+            'MATCHMAKE_FAILED',
+            'the game server must use https: refusing to send the sign-in token over plain http',
+          );
         }
         await checkServerVersion(mm, deps.now);
         const token = mm.getAccessToken ? await mm.getAccessToken() : undefined;
@@ -217,14 +250,19 @@ export function createHostHandlers(deps: HostHandlerDeps): HostHandlers {
     'save.put': async ({ slot, data, ifVersion }) => {
       checkSlot(slot);
       if (data === undefined) throw new HostError('INVALID_PARAMS', 'save data must be JSON');
-      if (utf8Length(JSON.stringify(data)) >= MAX_SAVE_BYTES) throw new HostError('INVALID_PARAMS', 'save data exceeds 64 KB');
-      if (!putBucket.tryTake()) throw new HostError('RATE_LIMITED', `save.put is limited to ${SAVE_PUTS_PER_MINUTE} per minute`);
+      if (utf8Length(JSON.stringify(data)) >= MAX_SAVE_BYTES)
+        throw new HostError('INVALID_PARAMS', 'save data exceeds 64 KB');
+      if (!putBucket.tryTake())
+        throw new HostError('RATE_LIMITED', `save.put is limited to ${SAVE_PUTS_PER_MINUTE} per minute`);
       return deps.saves.put(slot, data, ifVersion);
     },
 
     'leaderboard.submit': async ({ boardId, score }) => {
       if (!deps.soloScores) {
-        throw new HostError('NOT_SUPPORTED', 'multiplayer results are recorded by the game server, not leaderboard.submit');
+        throw new HostError(
+          'NOT_SUPPORTED',
+          'multiplayer results are recorded by the game server, not leaderboard.submit',
+        );
       }
       checkBoard(boardId);
       limit(submitBucket, 'leaderboard.submit', PROGRESS_LIMITS_PER_MINUTE.submit);
@@ -240,7 +278,10 @@ export function createHostHandlers(deps: HostHandlerDeps): HostHandlers {
 
     'achievement.unlock': async ({ key }) => {
       if (!deps.soloScores) {
-        throw new HostError('NOT_SUPPORTED', 'multiplayer achievements are unlocked by the game server, not achievement.unlock');
+        throw new HostError(
+          'NOT_SUPPORTED',
+          'multiplayer achievements are unlocked by the game server, not achievement.unlock',
+        );
       }
       if (!isKey(key)) throw new HostError('INVALID_PARAMS', `key must be 1–${MAX_KEY_LENGTH} characters`);
       limit(unlockBucket, 'achievement.unlock', PROGRESS_LIMITS_PER_MINUTE.unlock);
@@ -248,10 +289,38 @@ export function createHostHandlers(deps: HostHandlerDeps): HostHandlers {
       return deps.progress.unlockAchievement(key, sessionId);
     },
 
-    'ui.loading': ({ progress }) => {
-      deps.onLoading(progress);
+    'ui.loading': ({ progress, label }) => {
+      deps.onLoading(progress, label);
       return null;
     },
+
+    ...(deps.onMenuDefine
+      ? {
+          'menu.define': async (def: RequestOutput<'menu.define'>) => {
+            limit(menuBucket, 'menu.define', MENU_DEFINES_PER_MINUTE);
+            return { values: await deps.onMenuDefine!(def) };
+          },
+        }
+      : {}),
+
+    ...(deps.onMenuOpen
+      ? {
+          'menu.open': () => {
+            deps.onMenuOpen!();
+            return null;
+          },
+        }
+      : {}),
+
+    ...(deps.haptics
+      ? {
+          haptics: ({ kind }: RequestOutput<'haptics'>) => {
+            // The player turned haptics off: dropped, without telling the game it failed.
+            if (deps.haptics!.enabled()) deps.haptics!.play(kind);
+            return null;
+          },
+        }
+      : {}),
 
     'party.get': () => null,
 
@@ -301,8 +370,7 @@ export function reservationRoomId(res: Record<string, unknown>): string | null {
  * current game server this is null until the server adds the code to the reservation it answers for `create`.
  */
 export function reservationCode(res: Record<string, unknown>): string | null {
-  const meta = (v: unknown) =>
-    v && typeof v === 'object' ? (v as { metadata?: unknown }).metadata : undefined;
+  const meta = (v: unknown) => (v && typeof v === 'object' ? (v as { metadata?: unknown }).metadata : undefined);
   const codeOf = (v: unknown) => (v && typeof v === 'object' ? (v as { code?: unknown }).code : undefined);
   for (const candidate of [res.code, codeOf(meta(res)), codeOf(meta(res.room))]) {
     const code = normalizeJoinCode(candidate);
@@ -359,7 +427,11 @@ async function joinRoom(
       return joined(await call('joinOrCreate', mm.roomName, {}), null, undefined);
     case 'create':
       // The server routes `joinOrCreate` + `private: true` to `create` (a fresh private room with a code).
-      return joined(await call('joinOrCreate', mm.roomName, t.name ? { private: true, name: t.name } : { private: true }), null, undefined);
+      return joined(
+        await call('joinOrCreate', mm.roomName, t.name ? { private: true, name: t.name } : { private: true }),
+        null,
+        undefined,
+      );
     case 'room':
       return joined(await call('joinById', t.room, t.code ? { code: t.code } : {}), t.room, t.code);
     case 'friend': {

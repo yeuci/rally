@@ -1,6 +1,7 @@
 import type { Json } from "./types.ts";
 
 export * from "./types.ts";
+export * from "./progress.ts";
 
 /**
  * The profile columns clients may select (column-level grant in 20261029000400_m1_review_fixes.sql).
@@ -116,8 +117,21 @@ export const MAX_SERVER_VISITS_PER_CALL = 1000 as const;
 
 // ---- Coins (20261031000400_coins.sql; docs/coins.md) --------------------------------------------------------------
 
-/** `coin_ledger.reason`. Earn reasons are positive; `purchase` is negative; `adjustment` (support) either sign. */
-export type CoinReason = "match" | "win" | "podium" | "achievement" | "solo" | "daily" | "purchase" | "adjustment";
+/**
+ * `coin_ledger.reason`. Earn reasons are positive; `purchase` is negative; `adjustment` (support) either sign.
+ * `level` (ref = the level reached) and `challenge` (ref = the daily challenge id) come from 20261101000100_progress.sql.
+ */
+export type CoinReason =
+  | "match"
+  | "win"
+  | "podium"
+  | "achievement"
+  | "solo"
+  | "daily"
+  | "purchase"
+  | "adjustment"
+  | "level"
+  | "challenge";
 
 /** `coin_rules.key`: every amount, cap and threshold of the economy (tune with an UPDATE, no migration). */
 export type CoinRuleKey =
@@ -176,3 +190,27 @@ export type CoinAwardEvent = {
   note: string | null;
   at: string;
 };
+
+// ---- Social discovery (20261101000200_social_discovery.sql) -------------------------------------------------------
+
+/** Days of match history `recently_played_with` looks back over (`match_results.recorded_at`). */
+export const RECENTLY_PLAYED_WITH_DAYS = 14 as const;
+
+/**
+ * `game_vote_summary(p_game_id)` and `vote_game(p_game_id, p_liked?)`: thumbs up / down on a published game. `my_vote`
+ * is the caller's own vote (null: none, or signed out); `can_vote` is true for a linked account that played the game.
+ */
+export type GameVoteSummary = {
+  game_id: string;
+  up: number;
+  down: number;
+  total: number;
+  my_vote: boolean | null;
+  can_vote: boolean;
+};
+
+/** Size limits of a `bug_reports` row (check constraints): longer values are refused, so the app trims first. */
+export const BUG_REPORT_LIMITS = { note: 2000, logs: 100000, route: 300, screenshotBytes: 5242880 } as const;
+
+/** Private Storage bucket for bug-report screenshots: objects at `<auth.uid()>/<file>`, owner insert only. */
+export const BUG_REPORTS_BUCKET = "bug-reports" as const;

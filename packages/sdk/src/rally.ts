@@ -1,12 +1,26 @@
 import {
   GameEventSchemas,
+  RequestSchemas,
+  type GameSettingValue,
   type HostEvent,
   type HostEventPayload,
   type LaunchContext,
+  type MenuPlayer,
+  type PlayerSettings,
   type RequestParams,
   type RequestResult,
 } from '@rally/protocol';
 import { RallyClient, SDK_VERSION, type RallyClientOptions } from './client.ts';
+import { RallyError } from './errors.ts';
+
+/** Settings outside the shell (a plain browser) or on a host without the game menu. */
+export const DEFAULT_SETTINGS: PlayerSettings = {
+  volume: { master: 1, music: 1, effects: 1 },
+  graphics: 'high',
+  haptics: true,
+  controls: { swapSticks: false, stickSize: 1, stickOpacity: 0.8, aimAssist: true },
+  game: {},
+};
 
 const errorShape = GameEventSchemas['game.error'].shape;
 /** The host validates `game.error` against the protocol and drops it whole when a field is too long. */
@@ -28,9 +42,26 @@ export class Rally {
   readonly client: RallyClient;
   readonly version = SDK_VERSION;
   private readyPromise: Promise<LaunchContext> | null = null;
+  private latestSettings: PlayerSettings | null = null;
+  private gameDefaults: Record<string, GameSettingValue> = {};
+  /** Escape on a keyboard opens the host's game menu (see `bindEscape`). Set false if your game needs Escape. */
+  escapeOpensMenu = true;
 
   constructor(options?: RallyClientOptions) {
     this.client = new RallyClient(options);
+    this.client.events.on('settingsChanged', (settings) => {
+      this.latestSettings = settings;
+    });
+  }
+
+  /**
+   * The player's current settings from the host's game menu (volumes, graphics quality, haptics, and your own
+   * settings under `game`): the launch context's, kept current by `settingsChanged`; defaults outside the shell.
+   * Listen with `rally.on('settingsChanged', …)` to apply changes live.
+   */
+  get settings(): PlayerSettings {
+    const s = this.latestSettings ?? this.context?.settings ?? DEFAULT_SETTINGS;
+    return { ...s, game: { ...this.gameDefaults, ...s.game } };
   }
 
   /** True when running inside the Rally shell; false in a plain browser. */
@@ -93,8 +124,48 @@ export class Rally {
     get: () => this.client.request('party.get', {}),
   };
 
+  readonly menu = {
+    /**
+     * Declare your own settings and "How to play" entries for the host's game menu, after `ready()`. Resolves with
+     * their current values (saved, else your defaults), also outside the shell and on hosts without the menu.
+     */
+    define: async (definition: RequestParams<'menu.define'>): Promise<Record<string, GameSettingValue>> => {
+      const parsed = RequestSchemas['menu.define'].params.safeParse(definition);
+      if (!parsed.success) throw new RallyError('INVALID_PARAMS', `menu.define: ${parsed.error.message}`);
+      this.gameDefaults = Object.fromEntries(parsed.data.settings.map((s) => [s.key, s.default]));
+      if (!this.isHosted) return { ...this.gameDefaults };
+      try {
+        const { values } = await this.client.request('menu.define', definition);
+        return { ...this.gameDefaults, ...values };
+      } catch (err) {
+        if (err instanceof RallyError && err.code === 'NOT_SUPPORTED') return { ...this.gameDefaults };
+        throw err;
+      }
+    },
+    /** Open the host's game menu (Escape does this for you; use it for an in-game menu button of your own). */
+    open: (): Promise<null> => this.client.request('menu.open', {}),
+    /** Who is in the match, for the menu's People list. Send on join and whenever it changes. */
+    players: (players: MenuPlayer[]): void => this.client.emit('menu.players', { players }),
+  };
+
+  readonly net = {
+    /**
+     * Report the connection to your game server: on every state change, and about every 2 s with the round-trip time
+     * while connected. The host shows ping bars in its game menu and its own "Reconnecting…" banner.
+     */
+    status: (state: 'connected' | 'reconnecting' | 'disconnected', rttMs?: number): void =>
+      this.client.emit('net.status', rttMs === undefined ? { state } : { state, rttMs: Math.round(rttMs) }),
+  };
+
   readonly ui = {
-    loading: (progress: number) => this.client.request('ui.loading', { progress }),
+    /**
+     * Report boot progress (0..1) to the host's loading screen, with a short user-facing `label` for what is loading
+     * now ("Downloading characters", "Connecting to the server"). Once a game has sent a label, the host keeps its
+     * loading screen up past `ready()` until `progress` reaches 1, so send 1 when the game is playable (or showing its
+     * own error / menu UI).
+     */
+    loading: (progress: number, label?: string) =>
+      this.client.request('ui.loading', label === undefined ? { progress } : { progress, label }),
   };
 
   readonly telemetry = {
@@ -133,4 +204,17 @@ export class Rally {
     const stack = typeof e.stack === 'string' ? truncate(e.stack, MAX_ERROR_STACK) : undefined;
     this.client.emit('game.error', stack === undefined ? { message } : { message, stack });
   }
+}
+
+/**
+ * Escape on a keyboard (desktop) opens the host's game menu, like the menu button does on a phone. The default `rally`
+ * singleton binds it on `window`; set `rally.escapeOpensMenu = false` to keep Escape for the game.
+ */
+export function bindEscape(rally: Rally, target: Pick<EventTarget, 'addEventListener'>): void {
+  target.addEventListener('keydown', (ev) => {
+    const key = ev as KeyboardEvent;
+    if (key.key !== 'Escape' || key.repeat || !rally.escapeOpensMenu || !rally.isHosted) return;
+    key.preventDefault();
+    void rally.menu.open().catch(() => {});
+  });
 }

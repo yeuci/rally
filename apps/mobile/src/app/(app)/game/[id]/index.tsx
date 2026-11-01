@@ -18,7 +18,7 @@ import {
   UsersIcon,
   type LucideIcon,
 } from 'lucide-react-native';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ActionSheetIOS,
   ActivityIndicator,
@@ -29,6 +29,7 @@ import {
   Share,
   StyleSheet,
   View,
+  type AccessibilityActionEvent,
   type LayoutChangeEvent,
   type ScrollViewInstance,
 } from 'react-native';
@@ -54,6 +55,7 @@ import { AchievementsSection, AchievementsSectionSkeleton } from '@/components/r
 import { LaunchConsentDialog } from '@/components/rally/consent-dialog';
 import { EmptyState, RetryButton } from '@/components/rally/empty-state';
 import { CoverScrim, GameCover } from '@/components/rally/game-cover';
+import { GameFriendsHere, GameLiveLine, GameRating } from '@/components/rally/game-social';
 import { Image } from '@/components/rally/image';
 import { JoinCodeSheet } from '@/components/rally/join-code-sheet';
 import { LeaderboardSection, LeaderboardSectionSkeleton } from '@/components/rally/leaderboard';
@@ -115,6 +117,10 @@ const ROUND_GAP = 8;
  * (`join=quick`), Rooms (`browser` mode: the server browser) and Private (`private` mode: Create room →
  * `join=create`, the game shows the code; Join with code → the code sheet → `join=room&room=<id>&code=<code>`)
  * instead of Play.
+ *
+ * Under the title: "● 23 playing now" (multiplayer games, `game_live_counts`) and "94% liked · 128 votes"; then the
+ * friends in this game right now with Join, and after the details the thumbs up / down card
+ * (components/rally/game-social.tsx).
  */
 export default function GamePage() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -364,6 +370,10 @@ export default function GamePage() {
       onPrivate={openPrivate}
     />
   );
+  // Live players and votes under the title, friends in this game, the ratings card (components/rally/game-social.tsx).
+  const liveLine = <GameLiveLine gameId={g.id} multiplayer={!solo} live={focused} />;
+  const friendsHere = <GameFriendsHere gameId={g.id} launcher={launcher} live={focused} />;
+  const rating = <GameRating gameId={g.id} />;
   const consent = (
     <>
       <LaunchConsentDialog launcher={launcher} />
@@ -400,9 +410,13 @@ export default function GamePage() {
           contentContainerStyle={{ paddingTop: edgeTop + 4, paddingBottom: edgeBottom + 24, paddingLeft: 24, paddingRight: GUTTER }}
           refreshControl={refreshControl}
         >
-          <TitleBlock game={g} orientation={orientation} />
+          <TitleBlock game={g} orientation={orientation}>
+            {liveLine}
+          </TitleBlock>
           {playButton}
+          {friendsHere}
           <About game={g} orientation={orientation} version={version} best={bestLabel} onBestPress={showLeaderboard} />
+          {rating}
           {progress}
         </ScrollView>
         {consent}
@@ -431,8 +445,12 @@ export default function GamePage() {
             boardOffset.current.column = e.nativeEvent.layout.y;
           }}
         >
-          <TitleBlock game={g} orientation={orientation} />
+          <TitleBlock game={g} orientation={orientation}>
+            {liveLine}
+          </TitleBlock>
+          {friendsHere}
           <About game={g} orientation={orientation} version={version} best={bestLabel} onBestPress={showLeaderboard} />
+          {rating}
           {progress}
         </View>
       </Animated.ScrollView>
@@ -516,35 +534,80 @@ function HeroMedia({
   );
 }
 
+/**
+ * The screenshot carousel: one full-width page per screenshot, a page per swipe (`pagingEnabled`; iOS also stops on the
+ * next page however hard the flick), dots that follow the finger (the page more than half in view is the current one),
+ * and the next image warmed up before it slides in. Screen readers get one adjustable element ("Screenshot 2 of 3",
+ * swipe up / down to page).
+ */
 function Gallery({ shots, width, height, dotsClassName }: { shots: string[]; width: number; height: number; dotsClassName: string }) {
   const [page, setPage] = useState(0);
+  const ref = useRef<ScrollViewInstance>(null);
+  const reducedMotion = useReducedMotion();
+  const count = shots.length;
+  const goTo = (next: number) => {
+    const target = Math.max(0, Math.min(count - 1, next));
+    ref.current?.scrollTo({ x: target * width, animated: !reducedMotion });
+    setPage(target);
+  };
   return (
-    <>
+    <View
+      className="flex-1"
+      accessible={count > 1}
+      accessibilityRole={count > 1 ? 'adjustable' : 'image'}
+      accessibilityLabel="Screenshots"
+      accessibilityValue={count > 1 ? { text: `${page + 1} of ${count}` } : undefined}
+      accessibilityActions={count > 1 ? GALLERY_ACTIONS : undefined}
+      onAccessibilityAction={(e: AccessibilityActionEvent) => goTo(e.nativeEvent.actionName === 'increment' ? page + 1 : page - 1)}
+    >
       <ScrollView
+        ref={ref}
         horizontal
         pagingEnabled
+        disableIntervalMomentum
+        decelerationRate="fast"
+        directionalLockEnabled
+        nestedScrollEnabled
         showsHorizontalScrollIndicator={false}
-        onMomentumScrollEnd={(e) => setPage(pageIndex(e.nativeEvent.contentOffset.x, width, shots.length))}
+        scrollEventThrottle={16}
+        onScroll={(e) => {
+          const next = pageIndex(e.nativeEvent.contentOffset.x, width, count);
+          if (next !== page) setPage(next);
+        }}
       >
-        {shots.map((uri) => (
-          <Image key={uri} source={{ uri }} style={{ width, height }} contentFit="cover" transition={200} />
+        {shots.map((uri, i) => (
+          <Image
+            key={uri}
+            source={{ uri }}
+            style={{ width, height }}
+            contentFit="cover"
+            transition={200}
+            // The current page and its neighbours load first; the rest follow.
+            priority={Math.abs(i - page) <= 1 ? 'high' : 'low'}
+          />
         ))}
       </ScrollView>
-      {shots.length > 1 && (
+      {count > 1 && (
         <View className={cn('absolute w-full flex-row justify-center', dotsClassName)} pointerEvents="none">
-          <PageDots
-            count={shots.length}
-            index={page}
-            accessible
-            accessibilityLabel={`Screenshot ${page + 1} of ${shots.length}`}
-          />
+          <PageDots count={count} index={page} />
         </View>
       )}
-    </>
+    </View>
   );
 }
 
-function TitleBlock({ game: g, orientation }: { game: Game; orientation: { label: string; icon: LucideIcon } }) {
+const GALLERY_ACTIONS = [{ name: 'increment' }, { name: 'decrement' }] as const;
+
+function TitleBlock({
+  game: g,
+  orientation,
+  children,
+}: {
+  game: Game;
+  orientation: { label: string; icon: LucideIcon };
+  /** Under the chips: the live line (playing now, liked). */
+  children?: ReactNode;
+}) {
   return (
     <View className="gap-3">
       <Text className="text-[34px] font-extrabold leading-[40px] tracking-tight" role="heading">
@@ -568,6 +631,7 @@ function TitleBlock({ game: g, orientation }: { game: Game; orientation: { label
           <Text>{orientation.label}</Text>
         </Badge>
       </View>
+      {children}
     </View>
   );
 }

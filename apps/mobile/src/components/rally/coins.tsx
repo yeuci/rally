@@ -11,6 +11,7 @@ import { hideCoinToast, useCoinToast } from '@/lib/coin-toast';
 import { COIN_TOAST_MS, coinsLabel, coinToastText, formatCoins } from '@/lib/coins-model';
 import { useToast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
+import { CelebrationToast } from './level-toast';
 
 const TABULAR: TextStyle = { fontVariant: ['tabular-nums'] };
 
@@ -104,7 +105,7 @@ let announcedKey = 0;
  * "+25 coins · Win" (lib/coin-toast.ts): a gold-edged pill under the status bar, in the shell and over a running game
  * (the play route mounts its own host, like the friend-request banner). Awards arriving while it is up add to it.
  * Announced to screen readers; a tap dismisses it, so does time. Sits under the app's regular toast when both show.
- * Touches around it pass through.
+ * Touches around it pass through. Level-ups and finished daily challenges (lib/level-toast.ts) show under it.
  */
 export function CoinToastHost() {
   const toast = useCoinToast();
@@ -125,7 +126,7 @@ export function CoinToastHost() {
   const text = toast ? coinToastText(toast) : null;
   return (
     <View
-      className="absolute left-0 right-0 items-center px-4"
+      className="absolute left-0 right-0 items-center gap-2 px-4"
       style={{ top: insets.top + 8 + (other ? 56 : 0) }}
       pointerEvents="box-none"
     >
@@ -155,6 +156,7 @@ export function CoinToastHost() {
           </Pressable>
         </Animated.View>
       ) : null}
+      <CelebrationToast />
     </View>
   );
 }

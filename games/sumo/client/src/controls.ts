@@ -12,6 +12,8 @@ export interface Controls {
   enabled: boolean;
   /** Drop the current drag (e.g. the window lost focus). Keys release themselves on blur. */
   release(): void;
+  /** The player's touch controls (the game menu): stick size scales the travel and the drawn stick; opacity fades it. */
+  configure(look: { scale: number; opacity: number }): void;
   destroy(): void;
 }
 
@@ -25,11 +27,13 @@ export function createControls(canvas: HTMLCanvasElement, stickEl: HTMLElement):
   let activeId: number | null = null;
   let used = false;
   const knob = stickEl.firstElementChild as HTMLElement | null;
+  let scale = 1;
 
   const show = (x: number, y: number) => {
     stickEl.hidden = false;
-    stickEl.style.transform = `translate(${x}px, ${y}px)`;
+    stickEl.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
   };
+  // The knob moves inside the scaled ring, so its offset is in unscaled units.
   const moveKnob = (v: Vec2) => {
     if (knob) knob.style.transform = `translate(${v.x * STICK_RADIUS * 0.6}px, ${v.y * STICK_RADIUS * 0.6}px)`;
   };
@@ -51,7 +55,7 @@ export function createControls(canvas: HTMLCanvasElement, stickEl: HTMLElement):
         show(e.x + r.left, e.y + r.top);
       },
       onDrag: (e) => {
-        drag = stickFromDrag(e.x - e.startX, e.y - e.startY, STICK_RADIUS);
+        drag = stickFromDrag(e.x - e.startX, e.y - e.startY, STICK_RADIUS * scale);
         moveKnob(drag);
       },
       onDragEnd: release,
@@ -88,6 +92,10 @@ export function createControls(canvas: HTMLCanvasElement, stickEl: HTMLElement):
       if (!on) release();
     },
     release,
+    configure(look) {
+      scale = look.scale;
+      stickEl.style.opacity = String(look.opacity);
+    },
     destroy() {
       input.destroy();
       keys.destroy();

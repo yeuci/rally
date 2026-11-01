@@ -1,4 +1,10 @@
-import { LaunchContextSchema, type LaunchContext, type LaunchIntent } from '@rally/protocol';
+import {
+  LaunchContextSchema,
+  type GameSetting,
+  type GameSettingValue,
+  type LaunchContext,
+  type LaunchIntent,
+} from '@rally/protocol';
 import { HostError, type RequestHandlers } from './host-bridge.ts';
 import { matchmake, roomByCode, splitReconnectionToken, toWsUrl } from './matchmake.ts';
 import type { AchievementDef, BoardDef, HarnessUser, ProgressStore } from './progress.ts';
@@ -289,7 +295,8 @@ export interface HarnessHandlerDeps {
   progress: ProgressStore;
   user: HarnessUser;
   onReady: (ctx: LaunchContext) => void;
-  onLoading: (progress: number) => void;
+  /** `ui.loading`: progress 0…1 and, from games that send them, a short label (the hold contract, src/loading.ts). */
+  onLoading: (progress: number, label?: string) => void;
   onExit: (reason: string) => void;
   /** `kind`: the target this join used (after a resume, later joins report `room`). */
   onJoined: (info: { roomId: unknown; sessionId: unknown; kind: JoinTarget['kind'] }) => void;
@@ -297,6 +304,13 @@ export interface HarnessHandlerDeps {
   onReconnection: (info: { roomId: string; ttlSec: number; stored: boolean; note?: string }) => void;
   onScore?: (info: { boardId: string; score: number; accepted: boolean; best: number | null; note?: string }) => void;
   onUnlock?: (info: { key: string; title: string; alreadyHad: boolean }) => void;
+  /** `menu.define` (the game menu): stores the definition, answers the current values. Absent: NOT_SUPPORTED. */
+  onMenuDefine?: (def: {
+    settings: GameSetting[];
+    help: { title: string; text: string }[];
+  }) => Record<string, GameSettingValue>;
+  /** `menu.open` (Escape in the game). Absent: NOT_SUPPORTED. */
+  onMenuOpen?: () => void;
   now?: () => number;
 }
 
@@ -529,10 +543,27 @@ export function createHarnessHandlers(deps: HarnessHandlerDeps): RequestHandlers
       return result;
     },
 
-    'ui.loading': ({ progress }) => {
-      deps.onLoading(progress);
+    'ui.loading': ({ progress, label }) => {
+      deps.onLoading(progress, label);
       return null;
     },
+
+    ...(deps.onMenuDefine
+      ? {
+          'menu.define': (def: { settings: GameSetting[]; help: { title: string; text: string }[] }) => ({
+            values: deps.onMenuDefine!(def),
+          }),
+        }
+      : {}),
+
+    ...(deps.onMenuOpen
+      ? {
+          'menu.open': () => {
+            deps.onMenuOpen!();
+            return null;
+          },
+        }
+      : {}),
 
     'party.get': () => null,
 

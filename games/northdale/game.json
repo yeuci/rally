@@ -1,0 +1,78 @@
+{
+  "id": "northdale",
+  "version": "0.1.0",
+  "title": "Northdale",
+  "description": "Up to four survivors are trapped in the town of Northdale. By day, roam the open streets: crack open chests, search wrecks and trash for weapons, ammo, medkits and scrap, and fortify the safehouse with barricades. By night the dead come in hordes, and every night they come stronger, with crawlers, bursting chubbies and rock-throwing brutes, and a Blood Moon every fifth night. Find the stray dog, bring home wheels and fuel to fix the armored truck, and from Night 4 make a run for the Northdale gantry, or see how many nights you can last. The boards keep your most nights survived, your most kills in a run, and your total escapes.",
+  "genres": ["action", "survival", "shooter"],
+  "icon": "art/icon.webp",
+  "cover": "art/cover.webp",
+  "screenshots": ["art/shot-1.webp", "art/shot-2.webp", "art/shot-3.webp"],
+  "engine": "playcanvas",
+  "entry": "index.html",
+  "orientation": "landscape",
+  "players": {
+    "min": 1,
+    "max": 4
+  },
+  "modes": ["quick", "browser", "private"],
+  "server": {
+    "room": "northdale",
+    "minVersion": 5
+  },
+  "sdk": "^0.1",
+  "ageRating": "12+",
+  "leaderboards": [
+    {
+      "id": "nights",
+      "sort": "desc"
+    },
+    {
+      "id": "kills",
+      "sort": "desc"
+    },
+    {
+      "id": "escapes",
+      "sort": "desc",
+      "mode": "total"
+    }
+  ],
+  "achievements": [
+    {
+      "key": "first_light",
+      "title": "First Light",
+      "hidden": false,
+      "description": "Survive your first night in Northdale.",
+      "icon": "🌅"
+    },
+    {
+      "key": "blood_moon",
+      "title": "Blood Moon",
+      "hidden": false,
+      "description": "Survive a Blood Moon.",
+      "icon": "🌕"
+    },
+    {
+      "key": "getaway",
+      "title": "Getaway",
+      "hidden": false,
+      "description": "Escape Northdale in the armored truck.",
+      "icon": "🚚"
+    },
+    {
+      "key": "good_boy",
+      "title": "Good Boy",
+      "hidden": false,
+      "description": "Find the stray dog.",
+      "icon": "🐕"
+    },
+    {
+      "key": "unplugged",
+      "title": "Unplugged",
+      "hidden": false,
+      "description": "Take out 25 zombies with the guitar in one run.",
+      "icon": "🎸"
+    }
+  ],
+  "capabilities": [],
+  "minAppVersion": "0.0.0"
+}
