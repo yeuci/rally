@@ -163,7 +163,9 @@ test('the horde spawns out of sight and converges', () => {
   run(m, 20);
   assert.ok(m.zombies.size > 4, `zombies out: ${m.zombies.size}`);
   const a = m.players.get('a')!;
-  const first = [...m.zombies.values()][0]!;
+  // One still on its way (the first may already be at the player's throat).
+  const first = [...m.zombies.values()].find((z) => Math.hypot(z.x - a.x, z.y - a.y) > 6)!;
+  assert.ok(first, 'a zombie still on its way');
   const d0 = Math.hypot(first.x - a.x, first.y - a.y);
   run(m, 6);
   const d1 = m.zombies.has(first.id) ? Math.hypot(first.x - a.x, first.y - a.y) : 0;
