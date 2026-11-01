@@ -18,8 +18,8 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Defs, LinearGradient, RadialGradient, Rect, Stop } from 'react-native-svg';
-import { LogoMark, useSvgId } from '@/components/rally/logo';
+import { LinearGradient } from 'expo-linear-gradient';
+import { LogoMark } from '@/components/rally/logo';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { BRAND } from '@/lib/brand';
@@ -277,8 +277,8 @@ function TopBar({ insets, children }: { insets: { top: number; left: number; rig
 
 /**
  * Full-bleed background: the brand gradient, the game's art blurred over it (fading in once loaded), and a dark scrim
- * for white type. The SVG layers are sized in percent (their gradients in bounding-box units), never from a measured
- * box: the game locks its orientation right after this mounts, and a measured size stayed portrait-wide for a moment.
+ * for white type. The shade layers are native gradient views (expo-linear-gradient), which follow every resize: the
+ * game locks its orientation right after this mounts, and SVG layers kept their first (portrait) width for a while.
  */
 export const GameBackdrop = memo(function GameBackdrop({
   artUri,
@@ -307,45 +307,42 @@ export const GameBackdrop = memo(function GameBackdrop({
 
 /** Near-black to charcoal with a soft light behind the title: the brand's monochrome, for games without art yet. */
 function BrandGradient() {
-  const bg = useSvgId('loading-bg');
-  const glow = useSvgId('loading-glow');
   return (
-    <Svg style={StyleSheet.absoluteFill} width="100%" height="100%">
-      <Defs>
-        <LinearGradient id={bg} x1="0" y1="0" x2="1" y2="1">
-          <Stop offset={0} stopColor="#262626" />
-          <Stop offset={0.55} stopColor="#121212" />
-          <Stop offset={1} stopColor={BRAND.base} />
-        </LinearGradient>
-        <RadialGradient id={glow} cx="50%" cy="44%" rx="60%" ry="45%">
-          <Stop offset={0} stopColor={WHITE} stopOpacity={0.09} />
-          <Stop offset={1} stopColor={WHITE} stopOpacity={0} />
-        </RadialGradient>
-      </Defs>
-      <Rect x={0} y={0} width="100%" height="100%" fill={`url(#${bg})`} />
-      <Rect x={0} y={0} width="100%" height="100%" fill={`url(#${glow})`} />
-    </Svg>
+    <>
+      <LinearGradient
+        style={StyleSheet.absoluteFill}
+        colors={['#262626', '#121212', BRAND.base]}
+        locations={[0, 0.55, 1]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      />
+      {/* The soft light: a faint band across the middle, where the title sits. */}
+      <LinearGradient
+        style={StyleSheet.absoluteFill}
+        colors={['rgba(255,255,255,0)', 'rgba(255,255,255,0.07)', 'rgba(255,255,255,0)']}
+        locations={[0.15, 0.44, 0.8]}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+      />
+    </>
   );
 }
 
 /** Black shade: deeper under the logo and at the bottom, lighter in the middle where the title and bar sit. */
 function Scrim({ strong, photo }: { strong: boolean; photo: boolean }) {
-  const id = useSvgId('loading-scrim');
   // Bright art (a lit arena in the middle of a dark cover) still needs white type to read: a flat dim, then the edges.
   const base = strong ? 0.52 : photo ? 0.4 : 0;
   return (
-    <Svg style={StyleSheet.absoluteFill} width="100%" height="100%">
-      <Defs>
-        <LinearGradient id={id} x1="0" y1="0" x2="0" y2="1">
-          <Stop offset={0} stopColor="#000000" stopOpacity={0.45} />
-          <Stop offset={0.3} stopColor="#000000" stopOpacity={0} />
-          <Stop offset={0.62} stopColor="#000000" stopOpacity={0} />
-          <Stop offset={1} stopColor="#000000" stopOpacity={0.55} />
-        </LinearGradient>
-      </Defs>
-      {base > 0 ? <Rect x={0} y={0} width="100%" height="100%" fill="#000000" opacity={base} /> : null}
-      <Rect x={0} y={0} width="100%" height="100%" fill={`url(#${id})`} />
-    </Svg>
+    <>
+      {base > 0 ? <View style={[StyleSheet.absoluteFill, { backgroundColor: `rgba(0,0,0,${base})` }]} /> : null}
+      <LinearGradient
+        style={StyleSheet.absoluteFill}
+        colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.55)']}
+        locations={[0, 0.3, 0.62, 1]}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+      />
+    </>
   );
 }
 
@@ -435,18 +432,13 @@ function ProgressBar({ progress, reduceMotion, label }: { progress: number; redu
 }
 
 const SheenBand = memo(function SheenBand() {
-  const id = useSvgId('loading-sheen');
   return (
-    <Svg style={StyleSheet.absoluteFill} width="100%" height="100%" viewBox="0 0 1 1" preserveAspectRatio="none">
-      <Defs>
-        <LinearGradient id={id} x1="0" y1="0" x2="1" y2="0">
-          <Stop offset={0} stopColor={WHITE} stopOpacity={0} />
-          <Stop offset={0.5} stopColor={WHITE} stopOpacity={0.42} />
-          <Stop offset={1} stopColor={WHITE} stopOpacity={0} />
-        </LinearGradient>
-      </Defs>
-      <Rect x={0} y={0} width={1} height={1} fill={`url(#${id})`} />
-    </Svg>
+    <LinearGradient
+      style={StyleSheet.absoluteFill}
+      colors={['rgba(255,255,255,0)', 'rgba(255,255,255,0.42)', 'rgba(255,255,255,0)']}
+      start={{ x: 0, y: 0.5 }}
+      end={{ x: 1, y: 0.5 }}
+    />
   );
 });
 

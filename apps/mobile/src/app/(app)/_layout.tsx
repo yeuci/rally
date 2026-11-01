@@ -46,9 +46,18 @@ export default function AppLayout() {
       >
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="game/[id]/index" options={{ headerShown: false }} />
+        {/* Over the page, not instead of it: a full-screen modal takes the page underneath out of the window, so it
+            missed the rotation into a landscape game and came back laid out sideways. A transparent modal keeps it
+            attached (it rotates and lays out with the app); the play screen paints its own opaque background. */}
         <Stack.Screen
           name="game/[id]/play"
-          options={{ headerShown: false, presentation: 'fullScreenModal', animation: 'fade', gestureEnabled: false }}
+          options={{
+            headerShown: false,
+            presentation: 'transparentModal',
+            animation: 'fade',
+            gestureEnabled: false,
+            contentStyle: { backgroundColor: '#0A0A0A' },
+          }}
         />
         <Stack.Screen name="profile/index" options={{ title: 'Profile' }} />
         <Stack.Screen name="profile/edit" options={{ title: 'Edit profile' }} />
