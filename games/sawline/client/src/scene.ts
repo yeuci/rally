@@ -505,6 +505,8 @@ export interface SawlineScene {
   trim(): void;
   /** A sim event the workers react to (the sawyer hits the button on a manual cut). */
   event(e: SimEvent): void;
+  /** Store art (dev only): frame closer (`zoom` < 1) or wider, looking at `at`; null = the game's own framing. */
+  setArtView(view: { zoom: number; at?: { x: number; z: number } } | null): void;
   readonly entityCount: number;
 }
 
@@ -527,6 +529,8 @@ export function createSawlineScene(app: Application, models: Models, opts: { sha
   /** From the south and a little west, ~50° down: the line runs down the screen at a slant, the yard beside it. */
   const CAM = new Vec3(-2.6, 17, 12);
   const LOOK = new Vec3(0.9, 0, 0.4);
+  const look = LOOK.clone();
+  let artView: { zoom: number; at?: { x: number; z: number } } | null = null;
 
   const sun = new Entity('sun');
   sun.addComponent('light', {
@@ -1035,10 +1039,12 @@ export function createSawlineScene(app: Application, models: Models, opts: { sha
       const gd = app.graphicsDevice;
       const base = frame(gd.width, gd.height);
       const k = dt > 0 ? 1 - Math.exp(-dt * 4) : 1;
-      orthoH += ((overview ? base * 1.08 : base) - orthoH) * k;
+      orthoH += ((overview ? base * 1.08 : base) * (artView?.zoom ?? 1) - orthoH) * k;
       if (camera.camera!.orthoHeight !== orthoH) camera.camera!.orthoHeight = orthoH;
-      camera.setPosition(LOOK.x + CAM.x, LOOK.y + CAM.y, LOOK.z + CAM.z);
-      camera.lookAt(LOOK);
+      if (artView?.at) look.set(artView.at.x, 0, artView.at.z);
+      else look.copy(LOOK);
+      camera.setPosition(look.x + CAM.x, look.y + CAM.y, look.z + CAM.z);
+      camera.lookAt(look);
     },
     burst(x, y, z, color, n, speed = 3) {
       if (lowFx) n = Math.min(n, 2);
@@ -1068,6 +1074,9 @@ export function createSawlineScene(app: Application, models: Models, opts: { sha
     },
     setOverview(on) {
       overview = on;
+    },
+    setArtView(view) {
+      artView = view;
     },
     event(e) {
       // A manual cut: the sawyer slams the button (a little jump every 5th perfect in a row).

@@ -30,6 +30,7 @@ pnpm --filter @rally/game-sawline build      # -> client/dist
 pnpm --filter @rally/game-sawline test       # simulation unit tests (node:test)
 pnpm --filter @rally/game-sawline test:e2e   # Playwright through the dev harness (needs Chromium; playwright via NODE_PATH)
 pnpm --filter @rally/game-sawline models     # rebuild client/src/models/ from the art-source release (Models)
+pnpm --filter @rally/game-sawline art        # re-render the store art in art/ (Artwork)
 pnpm --filter @rally/publish-game publish-game sawline --dry-run
 ```
 
@@ -82,8 +83,8 @@ ten perfect cuts in a row, `earn_3000`, `earn_5000`, `full_line` = all eleven up
 `pause` / `resume` / `exitRequested` / `lowMemory` (smaller shadow map, no trees or props, fewer chips);
 telemetry every 10 s.
 
-`window.__sawline` (phase, time, earned, wallet, cuts, sawDepth, upgrades, sim, `autoplay(on)`, `skip(seconds)`)
-exists in `vite dev` only, for the e2e.
+`window.__sawline` (phase, time, earned, wallet, cuts, sawDepth, upgrades, sim, `autoplay(on)`, `skip(seconds)`,
+`hold(on)`, `artView(view)`) exists in `vite dev` only, for the e2e and the art script.
 
 ## Models
 
@@ -119,4 +120,15 @@ procedural primitives). The workers and props are the CC0 Quaternius models abov
 
 ## Artwork
 
-None yet: `game.json` has no icon / cover / screenshots, so the app shows generated art.
+`pnpm --filter @rally/game-sawline art` renders `art/*.webp` (listed in `game.json`) with the game itself: headless
+Chromium, software WebGL, through the dev harness. The greedy bot plays a shift through the dev-only `window.__sawline`
+probe (`skip` runs the seeded, fixed-step sim ahead), and `hold` stops the sim on the frame wanted while the scene keeps
+animating and floating labels stay up; `artView` frames the icon and cover. `ART_ONLY=icon,cover` renders a subset.
+
+- `icon` 1024², the saw over a freshly cut trunk with the sawyer at her desk; `cover` 1920 × 1080, the whole mill late
+  in a shift (no HUD on either).
+- `shot-1` the first seconds of a shift with the tutorial hint, `shot-2` a perfect cut mid-shift (combo, upgrades,
+  busy bays), `shot-3` the shift-over card (1170 × 2532, iPhone portrait @3×; the dev harness' made-up leaderboard
+  line is left out).
+
+Re-render after a visual change.

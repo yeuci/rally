@@ -439,7 +439,16 @@ ui.again.addEventListener('click', () => {
   newShift();
 });
 
+/** Dev only (store art): the sim stands still while the scene keeps rendering and animating. */
+let hold = false;
+
 app.on('update', (dt: number) => {
+  if (hold) {
+    scene.sync(sim, dt);
+    labels.sync(sim);
+    renderHud();
+    return;
+  }
   const live = !lifecycle.isPaused && !lifecycle.isExiting;
   if (autoplay && live) startIfReady();
   if (!autoplay) sim.setDebark(live && (held.pointer || held.keys));
@@ -557,6 +566,15 @@ if (import.meta.env.DEV) {
     /** Let the greedy bot play (true) or hand control back (false). */
     autoplay(on: boolean) {
       autoplay = on ? new Bot() : null;
+    },
+    /** Store art: stop the sim (the scene keeps animating; floating labels and the combo stay up), and frame it. */
+    hold(on: boolean) {
+      hold = on;
+      labels.freeze(on);
+      if (on) clearTimeout(comboTimer);
+    },
+    artView(view: { zoom: number; at?: { x: number; z: number } } | null) {
+      scene.setArtView(view);
     },
     /** Jump the shift clock forward. */
     skip(seconds: number) {
