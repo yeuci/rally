@@ -1,5 +1,25 @@
-import { useEffect, useEffectEvent, useId, useState, type ComponentProps, type ReactNode } from 'react';
-import { KeyboardAvoidingView, Modal, PanResponder, Platform, Pressable, StyleSheet, View } from 'react-native';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useEffectEvent,
+  useId,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+} from 'react';
+import {
+  KeyboardAvoidingView,
+  Modal,
+  PanResponder,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+  type ScrollViewProps,
+} from 'react-native';
 import Animated, {
   Extrapolation,
   ReduceMotion,
@@ -12,7 +32,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Text } from '@/components/ui/text';
 import { setSheetOpen } from '@/lib/open-sheets';
-import { sheetDragCloses, sheetDragOffset, sheetDragStarts } from '@/lib/sheet-drag';
+import { sheetDragCloses, sheetDragOffset, sheetDragStarts, sheetOverscrollCloses } from '@/lib/sheet-drag';
 import { cn } from '@/lib/utils';
 import { UnturnedLayer, useViewport } from '@/lib/viewport';
 
@@ -74,6 +94,30 @@ export function BottomSheet({
   );
 }
 
+/** Inside a sheet: asks it to slide away and close, as a swipe down does (SheetScrollView uses it). */
+const SheetCloseContext = createContext<(() => void) | null>(null);
+
+/**
+ * A ScrollView for a sheet's content. iOS gives a drag that starts inside a scroll view to the scroll view (it cancels
+ * the touch before the sheet's own swipe can take it), so there the swipe down is a pull past the top instead: pull the
+ * content down past its top and let go, and the sheet closes like a swipe (lib/sheet-drag.ts). It always bounces, so
+ * this works when the content fits too.
+ */
+export function SheetScrollView({ onScrollEndDrag, ...props }: ScrollViewProps) {
+  const requestClose = useContext(SheetCloseContext);
+  return (
+    <ScrollView
+      alwaysBounceVertical
+      {...props}
+      onScrollEndDrag={(e) => {
+        onScrollEndDrag?.(e);
+        const { contentOffset, velocity } = e.nativeEvent;
+        if (requestClose && sheetOverscrollCloses(contentOffset.y, velocity?.y ?? 0)) requestClose();
+      }}
+    />
+  );
+}
+
 /** How long a swiped sheet takes to leave, and the spring that brings a let-go sheet back. */
 const CLOSE_MS = 180;
 const SPRING = { damping: 22, stiffness: 260, mass: 0.7, reduceMotion: ReduceMotion.System };
@@ -100,6 +144,7 @@ function SheetBody({
   const height = useSharedValue(0);
   /** Bumped when a swipe lets go far enough: the effect below slides the sheet away and closes it. */
   const [closeRequest, setCloseRequest] = useState(0);
+  const requestClose = useCallback(() => setCloseRequest((n) => n + 1), []);
   // At rest whenever the sheet opens (React Native unmounts a closed Modal's content, but never rely on that).
   useEffect(() => {
     if (open) drag.set(0);
@@ -188,7 +233,7 @@ function SheetBody({
               description
             )}
           </View>
-          {children}
+          <SheetCloseContext.Provider value={requestClose}>{children}</SheetCloseContext.Provider>
         </Animated.View>
       </Animated.View>
     </KeyboardAvoidingView>

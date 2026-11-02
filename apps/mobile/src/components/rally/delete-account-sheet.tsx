@@ -1,6 +1,6 @@
 import { Trash2Icon } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Keyboard, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Alert, Keyboard, View } from 'react-native';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { Input } from '@/components/ui/input';
@@ -8,7 +8,7 @@ import { Text } from '@/components/ui/text';
 import { deleteMyAccount } from '@/lib/delete-account';
 import { confirmsUsername, DELETED_DATA, deleteAccountErrorMessage } from '@/lib/delete-account-model';
 import { useViewport } from '@/lib/viewport';
-import { BottomSheet } from './bottom-sheet';
+import { BottomSheet, SheetScrollView } from './bottom-sheet';
 import { ErrorText, FormField } from './form-field';
 
 /** Height kept free around the scrolling part: title and description, the two buttons, padding, the status bar. */
@@ -94,7 +94,7 @@ function DeleteForm({
 
   return (
     <View className="gap-4">
-      <ScrollView
+      <SheetScrollView
         style={{ maxHeight: Math.max(180, height - insets.top - RESERVED_HEIGHT) }}
         contentContainerClassName="gap-4"
         keyboardShouldPersistTaps="handled"
@@ -130,7 +130,7 @@ function DeleteForm({
           />
         </FormField>
         <ErrorText>{error}</ErrorText>
-      </ScrollView>
+      </SheetScrollView>
       <View className="gap-2">
         <Button
           variant="destructive"
