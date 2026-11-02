@@ -14,7 +14,8 @@
     "lint": "expo lint --max-warnings 0",
     "test": "tsx --test test/*.test.ts",
     "start:go:clear": "expo start --go --clear",
-    "start:go:tunnel": "expo start --go --tunnel --clear"
+    "start:go:tunnel": "expo start --go --tunnel --clear",
+    "start:go:tunnel:fast": "expo start --go --tunnel --clear --no-dev --minify"
   },
   "dependencies": {
     "@rally/db": "workspace:*",
