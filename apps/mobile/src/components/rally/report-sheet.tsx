@@ -1,6 +1,6 @@
 import { BanIcon, CheckIcon, FlagIcon } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { Separator } from '@/components/ui/separator';
@@ -24,7 +24,7 @@ import { usePalette } from '@/lib/use-palette';
 import { cn } from '@/lib/utils';
 import { useViewport } from '@/lib/viewport';
 import { SHEET_ORIENTATIONS } from '@/game-host/orientation';
-import { BottomSheet } from './bottom-sheet';
+import { BottomSheet, SheetScrollView } from './bottom-sheet';
 import { ErrorText } from './form-field';
 
 /**
@@ -121,7 +121,7 @@ function ReportForm({
 
   return (
     <View className="gap-4">
-      <ScrollView
+      <SheetScrollView
         style={{ maxHeight: Math.max(180, height - insets.top - RESERVED_HEIGHT) }}
         contentContainerClassName="gap-4"
         keyboardShouldPersistTaps="handled"
@@ -195,7 +195,7 @@ function ReportForm({
           </TapPressable>
         )}
         <ErrorText>{error}</ErrorText>
-      </ScrollView>
+      </SheetScrollView>
       <Button
         size="lg"
         className="h-14 rounded-2xl"

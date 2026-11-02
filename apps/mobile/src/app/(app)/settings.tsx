@@ -17,16 +17,20 @@ import {
   ShieldIcon,
   SparklesIcon,
   SunMoonIcon,
+  Trash2Icon,
   UserPlusIcon,
   VibrateIcon,
   Volume2Icon,
+  WrenchIcon,
   type LucideIcon,
 } from 'lucide-react-native';
+import { useState } from 'react';
 import { PixelRatio, Platform, ScrollView, View } from 'react-native';
 import { Slider } from '@/components/rally/slider';
 import { GRAPHICS_CHOICES, STICK_OPACITY, STICK_SIZE, autoGraphics, type GraphicsChoice } from '@/game-host/settings';
 import { updatePlatformSettings, usePlatformSettings } from '@/lib/game-settings';
 import { usePalette } from '@/lib/use-palette';
+import { DeleteAccountSheet } from '@/components/rally/delete-account-sheet';
 import { RetryButton } from '@/components/rally/empty-state';
 import { ErrorText } from '@/components/rally/form-field';
 import { LogoMark } from '@/components/rally/logo';
@@ -158,7 +162,7 @@ function ChoiceRow<T extends string>({
  * lib/friend-alerts.ts; Coin popups: the "+25 coins" toast on or off, lib/coin-toast.ts), Feedback & motion
  * (Haptics, `prefs.haptics` → lib/haptics.ts; Reduce motion is the OS setting, shown, not owned), Games (Show FPS in games), Privacy (a summary, opens Edit profile scrolled to its
  * Privacy section), Developer (dev builds and `EXPO_PUBLIC_BUG_REPORTS=1` only: report a bug, your bug reports),
- * Help & support, Sign out, and the app version. Device preferences live in lib/prefs.ts; privacy is account data
+ * Developer tools (dev builds), Help & support, Sign out, Delete account, and the app version. Device preferences live in lib/prefs.ts; privacy is account data
  * (`my_privacy`), edited on Edit profile.
  */
 export default function SettingsScreen() {
@@ -172,6 +176,7 @@ export default function SettingsScreen() {
   const profile = useProfile();
   const privacy = usePrivacy();
   const { signingOut, error: signOutError, signOut } = useSignOut();
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const privacySummary = privacy.data
     ? `Games played: ${visibilityLabel(privacy.data.games)} · Friends list: ${visibilityLabel(privacy.data.friends)} · Online status: ${visibilityLabel(privacy.data.presence)}`
@@ -349,6 +354,12 @@ export default function SettingsScreen() {
 
       <View className="gap-2">
         <SettingsGroup>
+          {config.devTools ? (
+            <>
+              <SettingsRow icon={WrenchIcon} label="Developer" onPress={() => router.push('/dev')} />
+              <Separator className="ml-16" />
+            </>
+          ) : null}
           <SettingsRow
             icon={LifeBuoyIcon}
             label="Help & support"
@@ -365,6 +376,23 @@ export default function SettingsScreen() {
         </SettingsGroup>
         <ErrorText>{signOutError}</ErrorText>
       </View>
+
+      {/* Also on Profile. In-app deletion (App Store 5.1.1(v)): photos, then delete_my_account(), then a sign-out. */}
+      <SettingsGroup>
+        <SettingsRow
+          icon={Trash2Icon}
+          label="Delete account"
+          destructive
+          onPress={() => setDeleteOpen(true)}
+          disabled={!profile.data}
+        />
+      </SettingsGroup>
+      <DeleteAccountSheet
+        open={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
+        userId={profile.data?.id ?? null}
+        username={profile.data?.username ?? null}
+      />
 
       <View className="flex-row items-center justify-center gap-1.5 opacity-70">
         <LogoMark size={16} />

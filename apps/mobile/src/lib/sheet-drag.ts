@@ -28,3 +28,18 @@ export function sheetDragOffset(dy: number): number {
 export function sheetDragCloses(dy: number, vy: number): boolean {
   return dy > CLOSE_PX || (vy > FLICK_VY && dy > FLICK_MIN_PX);
 }
+
+/** Pulled this far past the top of a sheet's scrolling content, letting go closes the sheet... */
+const OVERSCROLL_CLOSE_PX = 56;
+/** ...or a shorter pull flicked down at least this fast (iOS reports a downward flick as a negative velocity). */
+const OVERSCROLL_FLICK_PX = 16;
+const OVERSCROLL_FLICK_VY = -0.6;
+
+/**
+ * Whether letting go of a sheet's scrolling content closes the sheet. iOS gives a drag inside a scroll view to the
+ * scroll view, so the sheet's own swipe never sees it there; pulling the content down past its top (the bounce)
+ * stands in for it. `offsetY` is the content offset when the finger lifts (negative past the top).
+ */
+export function sheetOverscrollCloses(offsetY: number, velocityY: number): boolean {
+  return offsetY < -OVERSCROLL_CLOSE_PX || (offsetY < -OVERSCROLL_FLICK_PX && velocityY < OVERSCROLL_FLICK_VY);
+}
