@@ -62,6 +62,48 @@ export type Database = {
           },
         ]
       }
+      activity: {
+        Row: {
+          actor_id: string
+          created_at: string
+          game_id: string | null
+          id: number
+          kind: string
+          payload: Json
+        }
+        Insert: {
+          actor_id: string
+          created_at?: string
+          game_id?: string | null
+          id?: number
+          kind: string
+          payload?: Json
+        }
+        Update: {
+          actor_id?: string
+          created_at?: string
+          game_id?: string | null
+          id?: number
+          kind?: string
+          payload?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "activity_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "activity_game_id_fkey"
+            columns: ["game_id"]
+            isOneToOne: false
+            referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       banned_words: {
         Row: {
           created_at: string
@@ -1503,6 +1545,22 @@ export type Database = {
         Returns: Json
       }
       friend_join_target: { Args: { p_friend_id: string }; Returns: Json }
+      friends_activity: {
+        Args: { p_before?: string; p_before_id?: number; p_limit?: number }
+        Returns: {
+          actor_id: string
+          avatar_url: string
+          created_at: string
+          display_name: string
+          game_icon_url: string
+          game_id: string
+          game_title: string
+          id: number
+          kind: string
+          payload: Json
+          username: string
+        }[]
+      }
       friends_presence: {
         Args: never
         Returns: {
