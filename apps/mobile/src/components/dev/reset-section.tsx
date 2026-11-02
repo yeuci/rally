@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Image } from 'expo-image';
 import {
   DatabaseIcon,
+  HandIcon,
   ImageOffIcon,
   MoveIcon,
   RotateCwIcon,
@@ -29,9 +30,10 @@ async function removeStoredKeys(prefix: string): Promise<number> {
 const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /**
- * Reset and storage: clear the query cache and expo-image's caches, forget where game menu buttons were moved and
- * what the vote prompt remembers, put the device preferences back to their defaults, and (dev JS) reload to replay
- * the intro. Each asks first and ends with a toast. Account data on the server is never touched.
+ * Reset and storage: clear the query cache and expo-image's caches, forget where game menu buttons were moved, what
+ * the vote prompt remembers and which accounts saw the first-run welcome, put the device preferences back to their
+ * defaults, and (dev JS) reload to replay the intro. Each asks first and ends with a toast. Account data on the
+ * server is never touched.
  */
 export function ResetSection() {
   const qc = useQueryClient();
@@ -90,6 +92,24 @@ export function ResetSection() {
       },
     });
 
+  const resetWelcome = () =>
+    ask({
+      title: 'Forget the welcome?',
+      body: 'Every account on this device counts as not yet welcomed. The welcome still only opens by itself for an account created in the last ten minutes (lib/welcome-model.ts); UI previews shows it any time.',
+      action: 'Reset',
+      onConfirm: () => {
+        removeStoredKeys(STORAGE_RESET_PREFIXES.welcome).then(
+          (n) =>
+            showToast(
+              n
+                ? `The welcome is forgotten for ${count(n, 'account', 'accounts')}`
+                : 'No account had been welcomed here',
+            ),
+          () => showToast("Couldn't reset the welcome"),
+        );
+      },
+    });
+
   const resetPrefs = () =>
     ask({
       title: 'Reset preferences?',
@@ -127,6 +147,8 @@ export function ResetSection() {
         <SettingsRow icon={MoveIcon} label="Reset game menu buttons" chevron={false} onPress={resetMenuButtons} />
         <Separator className="ml-16" />
         <SettingsRow icon={ThumbsUpIcon} label="Reset the vote prompt" chevron={false} onPress={resetVotePrompt} />
+        <Separator className="ml-16" />
+        <SettingsRow icon={HandIcon} label="Forget the welcome" chevron={false} onPress={resetWelcome} />
         <Separator className="ml-16" />
         <SettingsRow icon={SlidersHorizontalIcon} label="Reset preferences" chevron={false} onPress={resetPrefs} />
         {/* DevSettings.reload does nothing in release JS (React Native makes it a no-op there). */}

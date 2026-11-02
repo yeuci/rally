@@ -1,6 +1,7 @@
 import {
   CircleCheckIcon,
   CoinsIcon,
+  HandIcon,
   MessageSquareIcon,
   SparklesIcon,
   ThumbsUpIcon,
@@ -16,6 +17,7 @@ import { VotePromptSheet } from '@/components/rally/vote-prompt';
 import { Separator } from '@/components/ui/separator';
 import { SHEET_ORIENTATIONS } from '@/game-host/orientation';
 import { useLaunchStore } from '@/launch-store';
+import { useSession } from '@/lib/auth/session';
 import { pushCoinAward } from '@/lib/coin-toast';
 import { effectiveGameId, presetById } from '@/lib/dev-launch-model';
 import { devPreviews } from '@/lib/dev-previews';
@@ -48,10 +50,13 @@ function previewChallenge() {
  * level-up and challenge celebrations go through their own stores (lib/toast.ts, lib/coin-toast.ts,
  * lib/level-toast.ts) into the hosts the dev layout mounts; the friend-request banner and the offline pill go through
  * lib/dev-previews.ts (never the real request queue); the vote prompt (the presentational VotePromptSheet) and the
- * intro play in their own modals. Nothing here calls the server.
+ * intro play in their own modals. Nothing here calls the server, except the first-run welcome: that is the real
+ * screen with the signed-in account (its avatar picker and Add buttons work), shown without a new account and without
+ * marking the account as welcomed.
  */
 export function PreviewsSection() {
   const { settings } = useLaunchStore();
+  const { signedIn } = useSession();
   const [voteGame, setVoteGame] = useState<{ id: string; title: string; art: null } | null>(null);
   const [intro, setIntro] = useState(false);
   const closeIntro = useCallback(() => setIntro(false), []);
@@ -103,6 +108,23 @@ export function PreviewsSection() {
         />
         <Separator className="ml-16" />
         <SettingsRow icon={SparklesIcon} label="Intro animation" chevron={false} onPress={() => setIntro(true)} />
+      </SettingsGroup>
+
+      <SettingsGroup
+        title="First run"
+        footer={
+          signedIn
+            ? 'The welcome new players see after signup, with your account: avatar changes and friend requests are real. It does not mark you as welcomed (Reset and storage clears that flag).'
+            : 'The welcome new players see after signup. It needs a signed-in account: it edits that account’s avatar and searches real players.'
+        }
+      >
+        <SettingsRow
+          icon={HandIcon}
+          label="Show welcome"
+          chevron={false}
+          disabled={!signedIn}
+          onPress={devPreviews.showWelcome}
+        />
       </SettingsGroup>
 
       <VotePromptSheet
