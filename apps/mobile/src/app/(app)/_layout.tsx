@@ -8,6 +8,7 @@ import { FriendRequestPrompt } from '@/components/rally/friend-request-sheet';
 import { RejoinPrompt } from '@/components/rally/rejoin-sheet';
 import { ToastHost } from '@/components/rally/toast';
 import { VotePrompt } from '@/components/rally/vote-prompt';
+import { WelcomePrompt } from '@/components/rally/welcome-tour';
 import { useSession } from '@/lib/auth/session';
 import { recoverPlaySession } from '@/lib/launch';
 import { usePresenceHeartbeat } from '@/lib/presence';
@@ -70,12 +71,20 @@ export default function AppLayout() {
         {/* Pushed from the dashboard pill; draws its own bar (search field + Cancel). */}
         <Stack.Screen name="search" options={{ headerShown: false, animation: 'fade' }} />
         <Stack.Screen name="friends" options={{ title: 'Friends' }} />
+        {/* The dashboard's "Friend activity" row's See all (docs/activity.md). */}
+        <Stack.Screen name="activity" options={{ title: 'Friend activity' }} />
         {/* The screen sets the genre's name as its title; the drawer's edge swipe is off here (lib/drawer.ts). */}
         <Stack.Screen name="browse" options={{ title: 'Browse' }} />
         <Stack.Screen name="game/[id]/rooms" options={{ title: 'Rooms' }} />
         <Stack.Screen name="shop" options={{ title: 'Shop' }} />
         <Stack.Screen name="coins" options={{ title: 'Coin history' }} />
         <Stack.Screen name="bug-reports" options={{ title: 'Bug reports' }} />
+        {/* The first-run welcome, pushed once over the dashboard by WelcomePrompt (below): a sheet on iOS, the whole
+            window on Android. Its own Skip / Done close it, so no swipe-down; a flag write marks it seen either way. */}
+        <Stack.Screen
+          name="get-started"
+          options={{ headerShown: false, presentation: 'modal', gestureEnabled: false }}
+        />
       </Stack>
       {/* Over the stack: the toast ("That match has ended") and the rejoin sheet (a match left within its grace,
           m3-phase2 §4; a modal, so it also covers the drawer). Not over a running game: the play route is a native
@@ -88,6 +97,8 @@ export default function AppLayout() {
       <FriendRequestPrompt placement="shell" />
       {/* "Did you enjoy Sumo?" after a match, once the game screen has closed (lib/votes-model.ts has the rules). */}
       <VotePrompt />
+      {/* Opens `/get-started` once for an account created in the last ten minutes (lib/welcome-model.ts). */}
+      <WelcomePrompt />
     </AppDrawer>
   );
 }

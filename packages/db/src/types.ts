@@ -1,5 +1,5 @@
 // Hand-written to match `supabase gen types typescript` output for supabase/migrations (M1 + M2 + M4 social + M3 phase 2
-// + coins + progress + moderation).
+// + coins + progress + moderation + streaks).
 // Regenerate against a real project with `pnpm --filter @rally/db gen:types` once one is linked;
 // keep this file in that exact shape so the swap is a no-op for consumers.
 export type Json =
@@ -55,6 +55,48 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "achievements_game_id_fkey"
+            columns: ["game_id"]
+            isOneToOne: false
+            referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      activity: {
+        Row: {
+          actor_id: string
+          created_at: string
+          game_id: string | null
+          id: number
+          kind: string
+          payload: Json
+        }
+        Insert: {
+          actor_id: string
+          created_at?: string
+          game_id?: string | null
+          id?: number
+          kind: string
+          payload?: Json
+        }
+        Update: {
+          actor_id?: string
+          created_at?: string
+          game_id?: string | null
+          id?: number
+          kind?: string
+          payload?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "activity_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "activity_game_id_fkey"
             columns: ["game_id"]
             isOneToOne: false
             referencedRelation: "games"
@@ -1059,6 +1101,41 @@ export type Database = {
           },
         ]
       }
+      player_streaks: {
+        Row: {
+          bonus_paid_on: string | null
+          current: number
+          last_played_on: string | null
+          longest: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          bonus_paid_on?: string | null
+          current?: number
+          last_played_on?: string | null
+          longest?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          bonus_paid_on?: string | null
+          current?: number
+          last_played_on?: string | null
+          longest?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "player_streaks_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       presence: {
         Row: {
           game_id: string | null
@@ -1503,6 +1580,22 @@ export type Database = {
         Returns: Json
       }
       friend_join_target: { Args: { p_friend_id: string }; Returns: Json }
+      friends_activity: {
+        Args: { p_before?: string; p_before_id?: number; p_limit?: number }
+        Returns: {
+          actor_id: string
+          avatar_url: string
+          created_at: string
+          display_name: string
+          game_icon_url: string
+          game_id: string
+          game_title: string
+          id: number
+          kind: string
+          payload: Json
+          username: string
+        }[]
+      }
       friends_presence: {
         Args: never
         Returns: {
@@ -1590,6 +1683,7 @@ export type Database = {
       }
       my_privacy: { Args: never; Returns: Json }
       my_progress: { Args: never; Returns: Json }
+      my_streak: { Args: never; Returns: Json }
       my_wallet: { Args: never; Returns: Json }
       owns_game: {
         Args: { p_game_id: string; p_user_id: string }

@@ -5,12 +5,14 @@ import { STORAGE_RESET_PREFIXES, keysWithPrefix } from '../src/lib/dev-storage-m
 import { menuButtonKey } from '../src/game-host/menu-button-model';
 import { LogRing, type LogLine } from '../src/lib/log-buffer';
 import { VOTE_PROMPT_KEY_PREFIX } from '../src/lib/votes-model';
+import { WELCOMED_KEY_PREFIX } from '../src/lib/welcome-model';
 
 const STORED = [
   'rally.prefs',
   'rally.menu-button.sumo',
   'rally.menu-button.overrun',
   'rally.vote-prompt.0b9d-uid',
+  'rally.welcomed.0b9d-uid',
   'rally.game-settings.platform',
   'sb-abcd-auth-token',
 ];
@@ -24,6 +26,8 @@ test('resets remove one family of keys by prefix, and an empty prefix never matc
     'rally.menu-button.overrun',
   ]);
   assert.deepEqual(keysWithPrefix(STORED, STORAGE_RESET_PREFIXES.votePrompt), ['rally.vote-prompt.0b9d-uid']);
+  assert.equal(STORAGE_RESET_PREFIXES.welcome, WELCOMED_KEY_PREFIX);
+  assert.deepEqual(keysWithPrefix(STORED, STORAGE_RESET_PREFIXES.welcome), ['rally.welcomed.0b9d-uid']);
   assert.deepEqual(keysWithPrefix(STORED, ''), []);
   assert.deepEqual(keysWithPrefix([], 'rally.'), []);
 });

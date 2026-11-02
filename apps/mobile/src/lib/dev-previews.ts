@@ -2,17 +2,20 @@ import { useSyncExternalStore } from 'react';
 import type { QueuedRequest } from './social-realtime-model';
 
 /**
- * The Developer page's previews that draw at the top of the screen (components/dev/preview-host.tsx, mounted by the
- * dev layout): a made-up friend request for the banner and the offline pill. Kept apart from the real stores, so the
- * shell's own prompt never sees the preview request and nothing reaches the server.
+ * The Developer page's previews that draw over the screen (components/dev/preview-host.tsx, mounted by the dev
+ * layout): a made-up friend request for the banner, the offline pill, and the first-run welcome. The first two are
+ * kept apart from the real stores, so the shell's own prompt never sees the preview request and nothing reaches the
+ * server; the welcome is the real thing with the signed-in account, only its "welcomed" flag is left alone.
  */
 export interface DevPreviews {
   banner: QueuedRequest | null;
   /** When the offline pill preview was asked for (epoch ms); null when hidden. */
   offlineSince: number | null;
+  /** The first-run welcome is up over the Developer page. */
+  welcome: boolean;
 }
 
-let state: DevPreviews = { banner: null, offlineSince: null };
+let state: DevPreviews = { banner: null, offlineSince: null, welcome: false };
 let seq = 0;
 const listeners = new Set<() => void>();
 
@@ -45,6 +48,12 @@ export const devPreviews = {
   /** Hide the pill asked for at `since` (asking again restarts it). */
   hideOffline(since: number) {
     if (state.offlineSince === since) set({ offlineSince: null });
+  },
+  showWelcome() {
+    set({ welcome: true });
+  },
+  hideWelcome() {
+    set({ welcome: false });
   },
 };
 

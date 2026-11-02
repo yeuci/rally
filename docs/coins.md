@@ -31,6 +31,7 @@ profile cosmetics. Schema, RPCs and rules: `packages/db/supabase/migrations/2026
 | `daily` | the first counted match or paying solo run of the UTC day | 50 (`daily`) | once per UTC day | `YYYY-MM-DD` |
 | `level` | reaching a new account level ([progress.md](progress.md)) | 50, +10 per level, at most 250 (`progress_rules`) | once per level | the level |
 | `challenge` | `claim_daily_challenge` ([progress.md](progress.md)) | the challenge's coins (20 / 35 / 50) | once per challenge | challenge id |
+| `streak` | the first counted match or valid solo run of a UTC day, when it grows the daily play streak ([progress.md](progress.md)) | 10, 15, 20, 30, 40, 50, 75 for days 1-7, then 75 (`progress_rules` `streak_coins_1..7`) | once per UTC day | `YYYY-MM-DD` |
 
 Match coins (`match` + `win` + `podium`) are capped at `match_daily_cap` (500) per player per UTC day. The daily
 bonus and achievements are outside the caps. Days roll over at 00:00 UTC, like the daily leaderboards.

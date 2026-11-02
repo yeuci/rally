@@ -285,6 +285,7 @@ describe('report_user', () => {
  * (and the migration header and docs/moderation.md say why).
  */
 const USER_FOREIGN_KEYS: Record<string, 'c' | 'n'> = {
+  'activity.actor_id': 'c',
   'blocks.blocked_id': 'c',
   'blocks.blocker_id': 'c',
   'bug_reports.user_id': 'n',
@@ -302,6 +303,7 @@ const USER_FOREIGN_KEYS: Record<string, 'c' | 'n'> = {
   'leaderboard_entries.user_id': 'c',
   'play_sessions.user_id': 'c',
   'player_progress.user_id': 'c',
+  'player_streaks.user_id': 'c',
   'presence.user_id': 'c',
   'profiles.id': 'c',
   'rate_limits.user_id': 'c',
@@ -333,6 +335,7 @@ async function rowsNaming(db: PGlite, uid: string): Promise<Record<string, numbe
     leaderboard_entries: `select 1 from public.leaderboard_entries where user_id = $1`,
     play_sessions: `select 1 from public.play_sessions where user_id = $1`,
     player_progress: `select 1 from public.player_progress where user_id = $1`,
+    player_streaks: `select 1 from public.player_streaks where user_id = $1`,
     presence: `select 1 from public.presence where user_id = $1`,
     rate_limits: `select 1 from public.rate_limits where user_id = $1`,
     reports: `select 1 from public.reports where $1 in (reporter_id, target_id)`,
