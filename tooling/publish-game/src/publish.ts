@@ -199,7 +199,7 @@ export function printPlan(plan: PublishPlan, log: (l: string) => void): void {
       );
     }
   } else {
-    log(`  art        none (no local icon / cover / screenshots in game.json)`);
+    log(`  art        none (no local icon / cover / feature / screenshots in game.json)`);
   }
   log(`  games      upsert on id (status/featured_rank untouched; new rows start as draft)`);
   log(indent(JSON.stringify(plan.db.games, null, 2), '    '));

@@ -1,11 +1,12 @@
 {
   "id": "sawline",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "title": "Sawline",
   "description": "Run a sawmill line for one shift. Hold to strip the bark, tap to cut the logs right on the mark, and keep the trucks loaded with planks. Spend your earnings on automation, faster belts and lasers before the whistle blows.",
   "genres": ["arcade", "tycoon"],
   "icon": "art/icon.webp",
   "cover": "art/cover.webp",
+  "feature": "art/feature.webp",
   "screenshots": ["art/shot-1.webp", "art/shot-2.webp", "art/shot-3.webp"],
   "engine": "playcanvas",
   "entry": "index.html",

@@ -9,12 +9,14 @@
  *
  *   icon.webp     1024×1024  close on the belt: plates of every colour and the panda at the pass, no text
  *   cover.webp    1920×1080  the restaurant on a busy Friday, four chefs, the dining room open, no HUD
+ *   feature.webp  1200×1500  the same Friday reframed tall: the kitchen, the pass and the bar's stools stacked, empty
+ *                            floor at the bottom (the phone dashboard hero, title block bottom-left)
  *   shot-1.webp   2532×1170  Tuesday's lunch rush at the bar (iPhone landscape, 844×390 @3×, HUD, order bubbles)
  *   shot-2.webp   2532×1170  festival Sunday: the dining room, the alley's truck and the terrace all open
  *   shot-3.webp   2532×1170  the night: the day's summary and the upgrade vote
  *
- * WebP is encoded by Chromium (canvas.toBlob), stepping the quality down until a file fits its budget (icon and
- * cover ≤ 400 KB, screenshots ≤ 500 KB). No game server is needed.
+ * WebP is encoded by Chromium (canvas.toBlob), stepping the quality down until a file fits its budget (icon,
+ * cover and feature ≤ 400 KB, screenshots ≤ 500 KB). No game server is needed.
  * Env: SUSHI_URL (default http://localhost:5185/), ART_ONLY=icon,cover,… to render a subset.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -31,7 +33,7 @@ const KB = 1024;
 
 interface Shot {
   /** `?art=` value (client/src/art.ts). */
-  art: 'icon' | 'cover' | 'bar' | 'festival' | 'night';
+  art: 'icon' | 'cover' | 'feature' | 'bar' | 'festival' | 'night';
   file: string;
   width: number;
   height: number;
@@ -60,6 +62,15 @@ const SHOTS: Shot[] = [
     height: 1080,
     maxBytes: 400 * KB,
     viewport: { width: 960, height: 540 },
+    dpr: 2,
+  },
+  {
+    art: 'feature',
+    file: 'feature.webp',
+    width: 1200,
+    height: 1500,
+    maxBytes: 400 * KB,
+    viewport: { width: 600, height: 750 },
     dpr: 2,
   },
   { art: 'bar', file: 'shot-1.webp', ...PHONE },

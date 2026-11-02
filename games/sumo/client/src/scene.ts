@@ -50,6 +50,17 @@ export interface SumoScene {
   trim(): void;
   /** The game menu: shadows and hit effects (graphics quality, live) and the "Screen shake" setting. */
   setQuality(q: { shadows: boolean; effects: boolean; shake: boolean }): void;
+  /**
+   * Dev art only (src/art.ts): replace the fitted camera with one `distance` from `lookAt` (world units), `elevation`
+   * degrees above it; null restores the fit. Survives resizes.
+   */
+  setView(view: ArtView | null): void;
+}
+
+export interface ArtView {
+  elevation: number;
+  distance: number;
+  lookAt: { x: number; y: number; z: number };
 }
 
 function material(color: Color, opts: { gloss?: number; emissive?: Color } = {}): StandardMaterial {
@@ -101,9 +112,20 @@ export function createSumoScene(
   const camBase = new Vec3();
   const lookAt = new Vec3(0, 0, -0.5);
   const ELEVATION = (58 * Math.PI) / 180;
+  let artView: ArtView | null = null;
 
   /** Fit the full-size platform (plus pucks on its rim) for the current aspect, leaving room for the top HUD. */
   function frame(width: number, height: number) {
+    if (artView) {
+      const { elevation, distance, lookAt: at } = artView;
+      const e = (elevation * Math.PI) / 180;
+      lookAt.set(at.x, at.y, at.z);
+      camBase.set(at.x, at.y + Math.sin(e) * distance, at.z + Math.cos(e) * distance);
+      camera.setPosition(camBase);
+      camera.lookAt(lookAt);
+      return;
+    }
+    lookAt.set(0, 0, -0.5);
     const aspect = width / Math.max(1, height);
     const halfV = Math.tan((40 * Math.PI) / 360);
     const r = ARENA_RADIUS + 1.6;
@@ -347,6 +369,10 @@ export function createSumoScene(
       fx = q.effects;
       shakeOn = q.shake;
       if (!fx || !shakeOn) shakeAmp = 0;
+    },
+    setView(view) {
+      artView = view;
+      frame(app.graphicsDevice.width, app.graphicsDevice.height);
     },
   };
 }

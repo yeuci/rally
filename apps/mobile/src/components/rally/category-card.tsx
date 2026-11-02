@@ -40,7 +40,7 @@ export const CategoryCard = memo(function CategoryCard({
       <GameCover
         id={cover?.id ?? group.key}
         title={group.label}
-        uri={cover ? coverUriFor(cover, 'feature') : null}
+        uri={cover ? coverUriFor(cover, 'banner') : null}
         variant="feature"
         showTitle={false}
         scrim="dark"

@@ -24,6 +24,8 @@ import type { OverrunScene } from './scene.ts';
  * players, frozen at a chosen moment; effects (explosions, blood) are staged on top and time is stopped.
  * - `icon`: two survivors back to back, the horde closing in, close up, no HUD.
  * - `cover`: three survivors in the plaza, a horde pouring in from the gates, a barrel going off; no HUD.
+ * - `feature`: the tall dashboard hero: the survivors mid-frame with the horde pouring down on them from the north
+ *   gate and a barrel going off top right, the floor south of them bare; no HUD.
  * - `horde`: wave 6, a horde closing in on three players, combo x5 (phone landscape, HUD).
  * - `chain`: a chain of barrels going off through the horde (HUD).
  * - `banner`: the "Wave 7" breather banner over a blood-soaked yard (HUD).
@@ -31,7 +33,7 @@ import type { OverrunScene } from './scene.ts';
  *   2.6 s in) and zombies walking, running, punching and dying, with the props; time runs `?t=` seconds (default 2)
  *   before it stops.
  */
-export const ART_SHOTS = ['icon', 'cover', 'horde', 'chain', 'banner', 'closeup'] as const;
+export const ART_SHOTS = ['icon', 'cover', 'feature', 'horde', 'chain', 'banner', 'closeup'] as const;
 export type ArtShot = (typeof ART_SHOTS)[number];
 
 export const isArtShot = (s: string | null): s is ArtShot => ART_SHOTS.includes(s as ArtShot);
@@ -142,12 +144,15 @@ function steer(m: OverrunMatch, strafe = 0.35) {
   }
 }
 
-/** A run of the real rules: `players` survivors, wave `wave`, then `ring` zombies placed around them and stepped. */
+/**
+ * A run of the real rules: `players` survivors, wave `wave`, then `ring` zombies placed around them and stepped. The
+ * ring is a full circle unless `arc` says which angles (radians, clockwise from screen right) it spans.
+ */
 function horde(
   seed: number,
   players: number,
   wave: number,
-  ring: { n: number; r0: number; r1: number; brutes: number; spitters: number },
+  ring: { n: number; r0: number; r1: number; brutes: number; spitters: number; arc?: [number, number] },
   seconds: number,
   place: [number, number][],
 ) {
@@ -162,7 +167,8 @@ function horde(
   }
   place.forEach(([x, y], i) => m.place(`p${i}`, x, y));
   for (let i = 0; i < ring.n; i++) {
-    const a = (i / ring.n) * Math.PI * 2 + (i % 3) * 0.13;
+    const [a0, a1] = ring.arc ?? [0, Math.PI * 2];
+    const a = a0 + (i / ring.n) * (a1 - a0) + (i % 3) * 0.13;
     const r = ring.r0 + (((i * 7919) % 100) / 100) * (ring.r1 - ring.r0);
     const kind =
       i < ring.brutes ? ZombieKind.brute : i < ring.brutes + ring.spitters ? ZombieKind.spitter : ZombieKind.walker;
@@ -219,6 +225,33 @@ export function artPose(shot: ArtShot, seconds = 2): ArtPose {
         shots: m.playerList.map((p) => ({ x: p.x, y: p.y, angle: p.aim, len: 6, weapon: p.slot === 1 ? 2 : 1 })),
         zoom: 0.9,
         aim: { x: 0, y: 0.2 },
+        clean: true,
+      };
+    }
+    case 'feature': {
+      // A tall frame (4:5): the camera centres on us, the horde comes from the north (the arc from screen left over
+      // the top to the lower right), so it stacks up the frame above the survivors; the floor south of them stays
+      // bare for the dashboard's title block.
+      const m = horde(
+        27,
+        3,
+        7,
+        { n: 46, r0: 5, r1: 12.5, brutes: 2, spitters: 3, arc: [Math.PI * 0.95, Math.PI * 2.3] },
+        1.2,
+        [
+          [0.2, 2.0],
+          [-1.7, 0.2],
+          [1.9, 0.4],
+        ],
+      );
+      return {
+        state: view(m),
+        me: 'p0',
+        booms: [{ x: 5.0, y: -6.4, r: 3.6, age: 0.25 }],
+        blood: scatter(7, 36, 8).map((b) => ({ ...b, y: b.y - 2.5 })),
+        shots: m.playerList.map((p) => ({ x: p.x, y: p.y, angle: p.aim, len: 6, weapon: p.slot === 1 ? 2 : 1 })),
+        zoom: 0.55,
+        aim: { x: 0, y: -0.3 },
         clean: true,
       };
     }
@@ -510,14 +543,15 @@ export function stageArt(shot: ArtShot, deps: { app: Application; scene: Overrun
     for (const b of pose.blood) scene.blood(b.x, b.y, b.amount, Math.round(b.x * 977 + b.y * 131) >>> 0);
     // Blood bursts fly off: let them land before freezing.
     if (pose.blood.length) scene.update(1);
-    // (A live pose has been firing all along: no flash over the guns.)
-    if (!live) shoot();
     // Explosions oldest first, each aged to its point in the blast (0.45 s long) when the next one starts.
     const booms = [...pose.booms].sort((p, q) => q.age - p.age);
     booms.forEach((b, i) => {
       scene.explosion(b.x, b.y, b.r);
       scene.update(0.45 * (b.age - (booms[i + 1]?.age ?? 0)));
     });
+    // The shots last, so their tracers (60–90 ms long) are still in the air. (A live pose has been firing all along:
+    // no flash over the guns.)
+    if (!live) shoot();
     app.timeScale = 0;
     await frames(10);
     app.autoRender = false;

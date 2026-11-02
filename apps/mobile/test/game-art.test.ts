@@ -16,8 +16,19 @@ test('tiles: icon, else cover, else the first screenshot', () => {
   assert.equal(coverUriFor(game({}), 'tile'), null);
 });
 
-test('featured card and hero: cover, else the first screenshot; the icon is never stretched wide', () => {
-  for (const slot of ['feature', 'hero'] as const) {
+test('the phone hero: feature art, else the cover, else the first screenshot', () => {
+  const FEATURE = 'https://cdn.example.com/feature.webp';
+  assert.equal(
+    coverUriFor(game({ feature_url: FEATURE, cover_url: COVER, screenshots: [SHOT_1] }), 'feature'),
+    FEATURE,
+  );
+  assert.equal(coverUriFor(game({ feature_url: '  ', cover_url: COVER }), 'feature'), COVER, 'blank: as none');
+  assert.equal(coverUriFor(game({ feature_url: FEATURE, cover_url: COVER }), 'banner'), COVER, 'wide: the cover');
+  assert.equal(coverUriFor(game({ feature_url: FEATURE, icon_url: ICON }), 'tile'), ICON);
+});
+
+test('banner and hero: cover, else the first screenshot; the icon is never stretched wide', () => {
+  for (const slot of ['banner', 'hero'] as const) {
     assert.equal(coverUriFor(game({ icon_url: ICON, cover_url: COVER, screenshots: [SHOT_1] }), slot), COVER);
     assert.equal(coverUriFor(game({ icon_url: ICON, screenshots: [SHOT_2] }), slot), SHOT_2);
     assert.equal(coverUriFor(game({ icon_url: ICON }), slot), null, `${slot}: icon only → generated art`);

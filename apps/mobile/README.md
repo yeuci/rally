@@ -469,8 +469,9 @@ identity, never the real profile.
   accent hue; `destructive` is the only colour), the logo mark's geometry (drawn in the foreground colour) and the
   splash layout (`SPLASH.imageWidth` mirrors `app.json`); `src/lib/cover-art.ts`: generated greyscale covers (grey
   gradient + shapes from a hash of the game id) for games without art; `src/lib/game-art.ts`: which uploaded art each
-  surface shows (`coverUriFor`: tiles = `icon_url` → `cover_url` → first screenshot; dashboard hero, category cards
-  and the game page hero without screenshots = `cover_url` → first screenshot; the hero gallery = `screenshots`).
+  surface shows (`coverUriFor`: tiles = `icon_url` → `cover_url` → first screenshot; the phone's dashboard hero =
+  `feature_url` → `cover_url` → first screenshot; category cards, the wide hero and the game page hero without
+  screenshots = `cover_url` → first screenshot; the hero gallery = `screenshots`).
 - `src/components/rally/`: app components (logo + wordmark, cold-start intro overlay, game cover / cards / rows, faint
   white glows, avatar with ring, empty states, form fields, consent dialog, segmented control, leaderboard and
   achievements sections, app drawer, dashboard hero / top bar / tile rows / category cards and the "Browse all games" row, bottom sheet,

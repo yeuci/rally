@@ -9,12 +9,15 @@
  *
  *   icon.webp     1024×1024  a tall tower with the next piece hovering over it, close up, no HUD
  *   cover.webp    1920×1080  a full table of six round the pedestal and a tall tower, no HUD
+ *   feature.webp  1200×1500  the phone dashboard's tall hero: a tall tower with your piece hovering over it, framed
+ *                            high (the app's title block covers the bottom-left), the table round the pedestal, no HUD
  *   shot-1.webp   1170×2532  the seat setup: you, a pass-and-play friend and bots (iPhone portrait, 390×844 @3×)
  *   shot-2.webp   1170×2532  your turn over a tall tower: the piece, the drop guide, the controls
  *   shot-3.webp   1170×2532  "TOPPLED!": the tower coming down
  *
- * WebP is encoded by Chromium (canvas.toBlob), stepping the quality down until a file fits its budget (icon and cover
- * ≤ 400 KB, screenshots ≤ 500 KB). Env: TOPPLE_URL (default http://localhost:5197/), ART_ONLY=icon,cover,… for a subset.
+ * WebP is encoded by Chromium (canvas.toBlob), stepping the quality down until a file fits its budget (icon, cover
+ * and feature ≤ 400 KB, screenshots ≤ 500 KB). Env: TOPPLE_URL (default http://localhost:5197/),
+ * ART_ONLY=icon,cover,… for a subset.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -54,7 +57,7 @@ const { chromium } = createRequire(import.meta.url)('playwright') as {
 };
 
 interface Shot {
-  name: 'icon' | 'cover' | 'setup' | 'aim' | 'topple';
+  name: 'icon' | 'cover' | 'feature' | 'setup' | 'aim' | 'topple';
   file: string;
   width: number;
   height: number;
@@ -95,6 +98,25 @@ async function seatUp(page: Page, choices: string[], start = true) {
     await page.click('#start');
     await page.waitForFunction('window.__topple.phase === "aim"', null, { timeout: 30_000 });
   }
+}
+
+/** Seat 1's next human turn: wait for it, then hold the piece over the top of the tower, `dx, dz` off centre. */
+async function aimOverTower(page: Page, dx: number, dz: number) {
+  await page.evaluate(() => {
+    const probe = (window as unknown as { __topple: { sim: TSim; skip(s: number): void } }).__topple;
+    const sim = probe.sim;
+    for (let guard = 0; guard < 400 && !(sim.current === 0 && sim.phase === 'aim'); guard++) probe.skip(0.25);
+  });
+  await page.evaluate(
+    ([dx, dz]: [number, number]) => {
+      const probe = (window as unknown as { __topple: { sim: TSim; aim(x: number, z: number): void } }).__topple;
+      const top = probe.sim.pieces.reduce((a, b) => (b.body.translation().y > a.body.translation().y ? b : a));
+      const t = top.body.translation();
+      probe.aim(t.x + dx, t.z + dz);
+    },
+    [dx, dz] as never,
+  );
+  await page.waitForTimeout(600);
 }
 
 /**
@@ -166,6 +188,24 @@ const SHOTS: Shot[] = [
     },
   },
   {
+    name: 'feature',
+    file: 'feature.webp',
+    width: 1200,
+    height: 1500,
+    maxBytes: 400 * KB,
+    viewport: { width: 600, height: 750 },
+    dpr: 2,
+    hud: false,
+    async stage(page) {
+      await seatUp(page, ['normal', 'hard', 'normal', 'easy']);
+      await buildTower(page, 12);
+      await aimOverTower(page, 0.3, -0.15);
+      await page.evaluate('window.__topple.hold(true)');
+      // Focus below the tower's top: the tower and the hovering piece climb into the top two thirds of the frame.
+      await page.evaluate('window.__topple.artView({ zoom: 1.08, yaw: 0.6, lift: -1.0 })');
+    },
+  },
+  {
     name: 'setup',
     file: 'shot-1.webp',
     ...PHONE,
@@ -182,19 +222,7 @@ const SHOTS: Shot[] = [
     async stage(page) {
       await seatUp(page, ['normal', 'hard', 'normal']);
       await buildTower(page, 10);
-      // Seat 1's next turn is a human one: wait for it, then hold the piece over the top of the tower.
-      await page.evaluate(() => {
-        const probe = (window as unknown as { __topple: { sim: TSim; skip(s: number): void } }).__topple;
-        const sim = probe.sim;
-        for (let guard = 0; guard < 400 && !(sim.current === 0 && sim.phase === 'aim'); guard++) probe.skip(0.25);
-      });
-      await page.evaluate(() => {
-        const probe = (window as unknown as { __topple: { sim: TSim; aim(x: number, z: number): void } }).__topple;
-        const top = probe.sim.pieces.reduce((a, b) => (b.body.translation().y > a.body.translation().y ? b : a));
-        const t = top.body.translation();
-        probe.aim(t.x + 0.25, t.z - 0.1);
-      });
-      await page.waitForTimeout(600);
+      await aimOverTower(page, 0.25, -0.1);
       await page.evaluate('window.__topple.hold(true)');
     },
   },
@@ -334,7 +362,7 @@ async function capture(browser: Browser, encoder: Page, shot: Shot) {
     // machine has it.
     await page.addStyleTag({
       content:
-        '#rally-dev-harness, [data-rally-dev-harness] { display: none !important; }\n' +
+        '#rally-dev-harness, [data-rally-dev-harness], #rally-harness-menu { display: none !important; }\n' +
         "body { font-family: ui-rounded, 'SF Pro Rounded', 'Inter', system-ui, sans-serif !important; }",
     });
     await page.waitForSelector('#loading', { state: 'hidden', timeout: 90_000 });

@@ -29,6 +29,7 @@ function game(id: string, extra: Partial<GameCard> = {}): GameCard {
     genres: [],
     icon_url: null,
     cover_url: null,
+    feature_url: null,
     screenshots: [],
     min_players: 1,
     max_players: 1,

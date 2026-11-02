@@ -55,12 +55,14 @@ function wideColumn(width: number) {
 
 /**
  * The dashboard's full-bleed trending hero (lib/catalog.ts `useTrendingGames`): the window's full width, from the top
- * of the window (under the status bar and the floating top bar). Only the art pages: a horizontal pager of covers
- * (`coverUriFor(game, 'feature')`, else generated art) under one static scrim that shades the top
+ * of the window (under the status bar and the floating top bar). Only the art pages: a horizontal pager of key art
+ * (`coverUriFor`: the tall feature art on a phone, the wide cover on a wide window, else generated art) under one
+ * static scrim that shades the top
  * for the bar and fades into the page background. The text block (Trending chip, title, meta chips with the page dots
- * at their end, a quiet "1.2K visits this week" line or the all-time count, Play / Details) stays put over the art and
- * cross-fades to the next game's as the page changes: mid-swipe once the next page is more than half across, and as
- * the auto-advance starts its slide.
+ * at their end, a quiet "1.2K visits this week" line or the all-time count, Play / Details) stays put over the art.
+ * As the page changes (mid-swipe once the next page is more than half across, and as the auto-advance starts its
+ * slide) only the game's own lines cross-fade to the next game's; the chip and the buttons, the same for every game,
+ * stay as they are.
  *
  * Several games advance on their own every `HERO_AUTO_ADVANCE_MS` (lib/dashboard.ts `heroAutoAdvances`: not under
  * reduced motion or a screen reader, not while touched, not while the dashboard is covered or the drawer is open). The
@@ -143,8 +145,8 @@ export function DashboardHero({
   };
 
   const renderItem = useCallback<ListRenderItem<HeroGame>>(
-    ({ item }) => <HeroArt game={item} width={width} height={height} />,
-    [width, height],
+    ({ item }) => <HeroArt game={item} width={width} height={height} wide={wide} />,
+    [width, height, wide],
   );
   const currentGame = games[current];
   // Until the text block is measured: the top half, always clear of it.
@@ -209,27 +211,43 @@ export function DashboardHero({
           pointerEvents="box-none"
           onLayout={(e: LayoutChangeEvent) => setContentTop(e.nativeEvent.layout.y)}
         >
-          {/* Keyed on the game: the old block fades out where it was while the new one fades in. */}
-          <Animated.View
-            key={currentGame.id}
-            entering={INFO_IN}
-            exiting={INFO_OUT}
+          <View
             className="gap-3"
             style={wide ? { width: wideColumn(width) - pad.left } : undefined}
             pointerEvents="box-none"
           >
-            <HeroInfo
+            <View className="flex-row" pointerEvents="none">
+              <Badge variant="subtle" accessibilityLabel="Trending">
+                <Icon as={TrendingUpIcon} className="text-foreground size-3" />
+                <Text>Trending</Text>
+              </Badge>
+            </View>
+            {/* Only what differs between games is keyed on the game, so the old text fades out where it was while
+                the new fades in. The Trending chip above and the buttons below are the same for every game: they
+                stay mounted and never blink (the buttons act on whichever game is showing). */}
+            <Animated.View
+              key={currentGame.id}
+              entering={INFO_IN}
+              exiting={INFO_OUT}
+              className="gap-3"
+              pointerEvents="none"
+            >
+              <HeroInfo
+                game={currentGame}
+                wide={wide}
+                count={count}
+                page={current}
+                live={liveFor?.(currentGame) ?? null}
+              />
+            </Animated.View>
+            <HeroActions
               game={currentGame}
-              wide={wide}
-              count={count}
-              page={current}
               onPlay={onPlay}
               resolving={resolvingId === currentGame.id}
               notice={notice?.gameId === currentGame.id ? notice.message : null}
-              live={liveFor?.(currentGame) ?? null}
               spinnerColor={palette.primaryForeground}
             />
-          </Animated.View>
+          </View>
         </View>
       ) : null}
       {/* The pager's screen-reader control (the dots themselves sit in the meta row, decoratively). */}
@@ -259,14 +277,27 @@ const INFO_OUT = FadeOut.duration(160).reduceMotion(ReduceMotion.System);
 /** A hero page's game: a card, plus its launches over the trending window when the catalog knows them. */
 export type HeroGame = GameCard & { recent_visits?: number };
 
-/** One page of art. Tapping it opens the game page, like Details. */
-const HeroArt = memo(function HeroArt({ game, width, height }: { game: HeroGame; width: number; height: number }) {
+/**
+ * One page of art: the tall feature art on a phone, the wide cover on a wide window (lib/game-art.ts). Tapping it
+ * opens the game page, like Details.
+ */
+const HeroArt = memo(function HeroArt({
+  game,
+  width,
+  height,
+  wide,
+}: {
+  game: HeroGame;
+  width: number;
+  height: number;
+  wide: boolean;
+}) {
   return (
     <View style={{ width, height }}>
       <GameCover
         id={game.id}
         title={game.title}
-        uri={coverUriFor(game, 'feature')}
+        uri={coverUriFor(game, wide ? 'banner' : 'feature')}
         variant="feature"
         showTitle={false}
         scrim="none"
@@ -283,40 +314,25 @@ const HeroArt = memo(function HeroArt({ game, width, height }: { game: HeroGame;
   );
 });
 
-/** The text block for the game showing: chip, title, meta chips with the page dots, the visits line, the buttons. */
+/** The part of the text block that changes with the game: title, meta chips with the page dots, the visits line. */
 const HeroInfo = memo(function HeroInfo({
   game,
   wide,
   count,
   page,
-  onPlay,
-  resolving,
-  notice,
   live,
-  spinnerColor,
 }: {
   game: HeroGame;
   wide: boolean;
   /** Pages in the hero and the one showing now: the dots at the end of the meta row (none with a single page). */
   count: number;
   page: number;
-  onPlay: (game: GameCard) => void;
-  resolving: boolean;
-  notice: string | null;
   live: string | null;
-  spinnerColor: string;
 }) {
-  const details = () => router.push({ pathname: '/game/[id]', params: { id: game.id } });
   const genre = game.genres[0];
   const recent = game.recent_visits ?? 0;
   return (
     <>
-      <View className="flex-row" pointerEvents="none">
-        <Badge variant="subtle" accessibilityLabel="Trending">
-          <Icon as={TrendingUpIcon} className="text-foreground size-3" />
-          <Text>Trending</Text>
-        </Badge>
-      </View>
       <Text
         className={cn(
           'text-foreground font-extrabold tracking-tight',
@@ -361,6 +377,27 @@ const HeroInfo = memo(function HeroInfo({
           {recent > 0 ? weekVisitsLabel(recent) : visitsLabel(game.visits)}
         </Text>
       ) : null}
+    </>
+  );
+});
+
+/** Play / Details for the game showing, and the launch notice under them. Stays mounted across pages. */
+const HeroActions = memo(function HeroActions({
+  game,
+  onPlay,
+  resolving,
+  notice,
+  spinnerColor,
+}: {
+  game: HeroGame;
+  onPlay: (game: GameCard) => void;
+  resolving: boolean;
+  notice: string | null;
+  spinnerColor: string;
+}) {
+  const details = () => router.push({ pathname: '/game/[id]', params: { id: game.id } });
+  return (
+    <>
       <View className="flex-row items-center gap-2.5 pt-1">
         <Button
           className="h-11 min-w-28 rounded-full px-5"

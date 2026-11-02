@@ -19,13 +19,15 @@ import type { SumoScene } from './scene.ts';
  * HUD and frame loop, for the store art that games/sumo/scripts/art.ts captures. main.ts imports this module only
  * behind `import.meta.env.DEV`, so it is never part of a published build.
  *
- * - `icon`, `cover`: hand-posed pucks mid-collision on the platform (on the cover one tumbles off the edge),
- *   time frozen, no HUD or name labels.
+ * - `icon`, `cover`, `feature`: hand-posed pucks mid-collision on the platform (on the cover and the feature one
+ *   tumbles off the edge), time frozen, no HUD or name labels. `feature` is the cover's moment reframed for the
+ *   phone dashboard's tall hero (4:5): a lower, closer camera with the ring in the top two thirds and the void below.
+ *   (The brawl sits top-centre / right, because the app's title block covers the bottom-left.)
  * - `countdown`, `match`, `result`: a real match of the shared rules (`SumoMatch`, the code the server runs) between
  *   six scripted players, frozen at the last round's 3-2-1, at a hard hit early in round 3, and on the match-over
  *   screen. "You" are the match winner, signed in (the result line is a recorded one).
  */
-export const ART_SHOTS = ['icon', 'cover', 'countdown', 'match', 'result'] as const;
+export const ART_SHOTS = ['icon', 'cover', 'feature', 'countdown', 'match', 'result'] as const;
 export type ArtShot = (typeof ART_SHOTS)[number];
 
 export const isArtShot = (s: string | null): s is ArtShot => ART_SHOTS.includes(s as ArtShot);
@@ -209,6 +211,22 @@ export function artPose(shot: ArtShot): ArtPose {
         // Orange tumbles off the front-left edge (the way the fall animation tips a puck).
         { falling: [{ id: 'p5', vx: -2, vy: 2 }], result: null },
       );
+    case 'feature':
+      // The cover's brawl late in a round (the ring has shrunk, so the pucks are big in the frame), pushed up and
+      // right: red and blue collide above the ring's centre, orange tumbles off the far-right edge; the near-left
+      // of the ring stays empty for the dashboard's title block.
+      return posed(
+        6.2,
+        [
+          [0, -0.6, -0.8],
+          [1, 1.3, -1.1],
+          [4, -3.6, -1.8],
+          [2, -0.6, -4.2],
+          [6, 3.9, 1.6],
+          [5, 4.1, -4.6],
+        ],
+        { falling: [{ id: 'p5', vx: 1.8, vy: -2.2 }], result: null },
+      );
     default:
       return playArtMatch()[shot];
   }
@@ -225,6 +243,8 @@ export interface ArtProbe {
 }
 
 const CLEAN_CSS = '#hud, #labels, #stick { display: none !important; }';
+/** Camera for the `feature` shot (a 600×750 page): see scene.ts `setView`. */
+const FEATURE_VIEW = { elevation: 48, distance: 23, lookAt: { x: 0, y: 0, z: 4.4 } };
 
 /**
  * Builds a `Net` look-alike that serves the frozen pose to main.ts' normal frame loop (interpolation, prediction,
@@ -234,12 +254,14 @@ export function stageArt(shot: ArtShot, deps: { app: Application; scene: SumoSce
   const { app, scene, hud } = deps;
   const pose = artPose(shot);
   const state = pose.state;
-  const clean = shot === 'icon' || shot === 'cover';
+  const clean = shot === 'icon' || shot === 'cover' || shot === 'feature';
   if (clean) {
     const style = document.createElement('style');
     style.textContent = CLEAN_CSS;
     document.head.appendChild(style);
   }
+  // The tall hero: the fitted camera would centre the ring; look at a point in front of it instead, from lower down.
+  if (shot === 'feature') scene.setView(FEATURE_VIEW);
   hud.hideHint();
 
   const patchHandlers: ((t: number) => void)[] = [];
@@ -297,8 +319,9 @@ export function stageArt(shot: ArtShot, deps: { app: Application; scene: SumoSce
     }
     // The frame loop sees alive → false and starts the fall; advance just that animation by hand.
     await frames(2);
-    // 0.12 s into the fall: tipping over the rim. (Hit flashes are left out: frozen, they read as a white disc.)
-    if (pose.falling.length) scene.update(0.12);
+    // 0.12 s into the fall: tipping over the rim (0.22 s on the feature, whose closer camera shows the tumble).
+    // (Hit flashes are left out: frozen, they read as a white disc.)
+    if (pose.falling.length) scene.update(shot === 'feature' ? 0.22 : 0.12);
     if (pose.result) resultHandlers.forEach((fn) => fn(pose.result!));
     await frames(10);
     // Stop drawing: the scene is still, and a software-rendered 3× frame per tick would stall the screenshots.

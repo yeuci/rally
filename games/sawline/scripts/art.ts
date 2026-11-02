@@ -10,12 +10,13 @@
  *
  *   icon.webp     1024×1024  the saw coming down on a marked trunk, the sawyer at her button, close up, no HUD
  *   cover.webp    1920×1080  the whole mill late in a shift: forklifts, three bays, trucks, the pile, no HUD
+ *   feature.webp  1200×1500  tall key art: the saw dropping onto a trunk up the line, the pile and bays below, no HUD
  *   shot-1.webp   1170×2532  the first seconds of a shift, with the tutorial hint (iPhone portrait, 390×844 @3×)
  *   shot-2.webp   1170×2532  mid-shift: a perfect cut, upgrades in, loaders and trucks busy
  *   shot-3.webp   1170×2532  the shift-over card
  *
- * WebP is encoded by Chromium (canvas.toBlob), stepping the quality down until a file fits its budget (icon and cover
- * ≤ 400 KB, screenshots ≤ 500 KB). Env: SAWLINE_URL (default http://localhost:5196/), ART_ONLY=icon,cover,… for a
+ * WebP is encoded by Chromium (canvas.toBlob), stepping the quality down until a file fits its budget (icon, cover and
+ * feature ≤ 400 KB, screenshots ≤ 500 KB). Env: SAWLINE_URL (default http://localhost:5196/), ART_ONLY=icon,cover,… for a
  * subset.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -56,7 +57,7 @@ const { chromium } = createRequire(import.meta.url)('playwright') as {
 };
 
 interface Shot {
-  name: 'icon' | 'cover' | 'start' | 'perfect' | 'over';
+  name: 'icon' | 'cover' | 'feature' | 'start' | 'perfect' | 'over';
   file: string;
   width: number;
   height: number;
@@ -126,6 +127,31 @@ const SHOTS: Shot[] = [
         's.trucks.filter((t) => t.state === "bay").length >= 2 && (s.pile = Math.max(s.pile, 90)) > 0',
       );
       await page.evaluate('window.__sawline.artView({ zoom: 1, at: { x: 0.5, z: -2.3 } })');
+    },
+  },
+  {
+    // The dashboard hero (4:5, a title block over the bottom left): a taller slice of the line, closer than the
+    // cover. The blade drops onto a trunk in the top two thirds; the pile and the bays sit lower right, with the
+    // yard and grass calm at the bottom left.
+    name: 'feature',
+    file: 'feature.webp',
+    width: 1200,
+    height: 1500,
+    maxBytes: 400 * KB,
+    viewport: { width: 600, height: 750 },
+    dpr: 2,
+    hud: false,
+    async stage(page) {
+      await playTo(page, 170);
+      await page.evaluate(
+        "for (const u of ['bay2', 'bay3', 'forklift', 'laser1']) window.__sawline.sim.upgrades.add(u)",
+      );
+      await holdWhen(
+        page,
+        's.sawCooldown > 0.12 && s.underSaw && s.trucks.some((t) => t.state === "bay") && ' +
+          '(s.pile = Math.max(s.pile, 90)) > 0',
+      );
+      await page.evaluate('window.__sawline.artView({ zoom: 0.66, at: { x: -1.7, z: -0.8 } })');
     },
   },
   {
@@ -267,7 +293,7 @@ async function capture(browser: Browser, encoder: Page, shot: Shot) {
     // machine has it.
     await page.addStyleTag({
       content:
-        '#rally-dev-harness, [data-rally-dev-harness] { display: none !important; }\n' +
+        '#rally-dev-harness, [data-rally-dev-harness], #rally-harness-menu { display: none !important; }\n' +
         "body { font-family: ui-rounded, 'SF Pro Rounded', 'Inter', system-ui, sans-serif !important; }",
     });
     await page.waitForSelector('#loading', { state: 'hidden', timeout: 90_000 });

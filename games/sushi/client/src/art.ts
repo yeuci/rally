@@ -26,11 +26,13 @@ import type { SushiScene } from './scene.ts';
  * playing for a while, then frozen:
  * - `icon`: close on the bar: the panda at the pass, plates of every colour riding the belt, no HUD.
  * - `cover`: the restaurant on a busy Friday, four chefs, the dining room open, no HUD.
+ * - `feature`: the cover's Friday reframed tall (4:5): the kitchen and the bar's left half stacked top to bottom,
+ *   chefs at the pass, a full belt, customers on the stools; the front floor stays empty for the title block (no HUD).
  * - `bar`: Tuesday's lunch rush at the bar (phone landscape, HUD, order bubbles).
  * - `festival`: Sunday: the dining room, the alley's truck and the festival terrace all open (HUD).
  * - `night`: the night's summary and the upgrade vote (HUD).
  */
-export const ART_SHOTS = ['icon', 'cover', 'bar', 'festival', 'night'] as const;
+export const ART_SHOTS = ['icon', 'cover', 'feature', 'bar', 'festival', 'night'] as const;
 export type ArtShot = (typeof ART_SHOTS)[number];
 export const isArtShot = (s: string | null): s is ArtShot => ART_SHOTS.includes(s as ArtShot);
 
@@ -184,6 +186,54 @@ export function artPose(shot: ArtShot): ArtPose {
     case 'cover': {
       const g = played(11, 5, 4, 70, { arrivals: 1.5 });
       return { state: snapshot(g), me: 'p0', clean: true, result: null };
+    }
+    case 'feature': {
+      const g = played(13, 5, 4, 70, { arrivals: 1.6 });
+      // A full belt past the pass and the stools.
+      const kinds = [
+        Kind.SalmonNigiri,
+        Kind.California,
+        Kind.MaguroNigiri,
+        Kind.SeaUrchinRoll,
+        Kind.UnagiNigiri,
+        Kind.SalmonRoll,
+        Kind.SalmonNigiri,
+        Kind.California,
+      ];
+      kinds.forEach((k, i) => g.putOnBelt(i * 2, k));
+      g.beltS = 0.6;
+      // The crew where the tall frame sees them: the pass, the board, the rice pot and the belt's far end.
+      const [c0, c1, c2, c3] = g.chefList;
+      if (c0)
+        Object.assign(c0, {
+          x: -0.7,
+          y: -1.75,
+          face: Math.PI / 2,
+          held: { kind: Kind.UnagiNigiri, plated: true, n: 1 },
+        });
+      if (c1)
+        Object.assign(c1, {
+          x: -2.5,
+          y: -3.85,
+          face: Math.PI / 2,
+          held: { kind: Kind.SalmonFish, plated: false, n: 1 },
+        });
+      if (c2)
+        Object.assign(c2, { x: 0.6, y: -4.95, face: -Math.PI / 2, held: { kind: Kind.Rice, plated: false, n: 1 } });
+      if (c3)
+        Object.assign(c3, { x: 1.7, y: -1.75, face: Math.PI / 2, held: { kind: Kind.California, plated: true, n: 1 } });
+      // Whoever is walking in or out steps out of the picture (the front floor stays clear for the title block).
+      for (const c of g.customers.values()) {
+        if (c.state === 'walkIn' || c.state === 'walkOut') Object.assign(c, { x: 11, y: 0 });
+      }
+      return {
+        state: snapshot(g),
+        me: 'nobody',
+        clean: true,
+        frame: { x0: -6.2, y0: -6, x1: 2.2, y1: 7.6 },
+        pitch: 50,
+        result: null,
+      };
     }
     case 'bar': {
       const g = played(7, 2, 3, 42, { arrivals: 2.2 });

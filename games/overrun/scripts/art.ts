@@ -9,12 +9,14 @@
  *
  *   icon.webp     1024×1024  two survivors back to back, the horde closing in, close up, no text
  *   cover.webp    1920×1080  three survivors in the plaza, the horde pouring in, a barrel going off
+ *   feature.webp  1200×1500  the phone dashboard hero (tall): the survivors mid-frame, the horde pouring down on them
+ *                            from the north gate, a barrel going off top right, bare floor below
  *   shot-1.webp   2532×1170  a horde closing in on three players (iPhone landscape, 844×390 @3×, HUD)
  *   shot-2.webp   2532×1170  a chain of barrels going off through the horde
  *   shot-3.webp   2532×1170  the "Wave 7" banner over a blood-soaked yard
  *
  * WebP is encoded by Chromium (canvas.toBlob), stepping the quality down until a file fits its budget (icon and
- * cover ≤ 400 KB, screenshots ≤ 500 KB). No game server is needed.
+ * cover and feature ≤ 400 KB, screenshots ≤ 500 KB). No game server is needed.
  * Env: OVERRUN_URL (default http://localhost:5183/), ART_ONLY=icon,cover,… to render a subset.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -31,7 +33,7 @@ const KB = 1024;
 
 interface Shot {
   /** `?art=` value (client/src/art.ts). */
-  art: 'icon' | 'cover' | 'horde' | 'chain' | 'banner';
+  art: 'icon' | 'cover' | 'feature' | 'horde' | 'chain' | 'banner';
   file: string;
   width: number;
   height: number;
@@ -60,6 +62,15 @@ const SHOTS: Shot[] = [
     height: 1080,
     maxBytes: 400 * KB,
     viewport: { width: 960, height: 540 },
+    dpr: 2,
+  },
+  {
+    art: 'feature',
+    file: 'feature.webp',
+    width: 1200,
+    height: 1500,
+    maxBytes: 400 * KB,
+    viewport: { width: 600, height: 750 },
     dpr: 2,
   },
   { art: 'horde', file: 'shot-1.webp', ...PHONE },

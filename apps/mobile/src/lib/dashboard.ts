@@ -85,7 +85,7 @@ function byFeaturedThenNewest(a: Sortable, b: Sortable): number {
 }
 
 /**
- * The game whose art stands for each category card: one with uploaded cover art (`coverUriFor(…, 'feature')`) that no
+ * The game whose art stands for each category card: one with uploaded cover art (`coverUriFor(…, 'banner')`) that no
  * earlier card uses, else any game with art, else the first game not used yet, else the first game (generated art).
  * Earlier (bigger) categories pick first, so neighbouring cards rarely repeat a cover.
  */
@@ -93,7 +93,7 @@ export function categoryCoverGames<T extends GameCard>(groups: readonly GenreGro
   const used = new Set<string>();
   const out = new Map<string, T>();
   for (const group of groups) {
-    const withArt = group.games.filter((g) => coverUriFor(g, 'feature'));
+    const withArt = group.games.filter((g) => coverUriFor(g, 'banner'));
     const pick =
       withArt.find((g) => !used.has(g.id)) ?? withArt[0] ?? group.games.find((g) => !used.has(g.id)) ?? group.games[0];
     if (!pick) continue;

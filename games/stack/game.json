@@ -1,6 +1,6 @@
 {
   "id": "stack",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "title": "Stack",
   "description": "Tap to drop the sliding block onto the tower. Trim the overhang, chain perfect drops, and see how high you can build.",
   "genres": [
@@ -8,6 +8,7 @@
   ],
   "icon": "art/icon.webp",
   "cover": "art/cover.webp",
+  "feature": "art/feature.webp",
   "screenshots": [
     "art/shot-1.webp",
     "art/shot-2.webp"

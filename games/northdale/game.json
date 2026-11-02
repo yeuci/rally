@@ -1,11 +1,12 @@
 {
   "id": "northdale",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "title": "Northdale",
   "description": "Up to four survivors are trapped in the town of Northdale. By day, roam the open streets: crack open chests, search wrecks and trash for weapons, ammo, medkits and scrap, and fortify the safehouse with barricades. By night the dead come in hordes, and every night they come stronger, with crawlers, bursting chubbies and rock-throwing brutes, and a Blood Moon every fifth night. Find the stray dog, bring home wheels and fuel to fix the armored truck, and from Night 4 make a run for the Northdale gantry, or see how many nights you can last. The boards keep your most nights survived, your most kills in a run, and your total escapes.",
   "genres": ["action", "survival", "shooter"],
   "icon": "art/icon.webp",
   "cover": "art/cover.webp",
+  "feature": "art/feature.webp",
   "screenshots": ["art/shot-1.webp", "art/shot-2.webp", "art/shot-3.webp"],
   "engine": "playcanvas",
   "entry": "index.html",

@@ -9,12 +9,15 @@
  *
  *   icon.webp     1024×1024  a few pucks colliding on a shrunken ring, cropped tight around the platform, no text
  *   cover.webp    1920×1080  the arena mid-match, platform centred so the 16:7 and 10:7 card crops keep all of it
+ *   feature.webp  1200×1500  the phone dashboard's tall hero: the brawl from a lower, closer camera, ring in the
+ *                            top two thirds (the app's title block covers the bottom-left), no text
  *   shot-1.webp   2532×1170  countdown (iPhone landscape, 844×390 @3×, HUD and name labels as on a phone)
  *   shot-2.webp   2532×1170  mid-match: six pucks, a hit, the score strip
  *   shot-3.webp   2532×1170  match over: "You win!" with the result line
  *
- * WebP is encoded by Chromium (canvas.toBlob), stepping the quality down until a file fits its budget (icon and
- * cover ≤ 400 KB, screenshots ≤ 500 KB), so the script needs nothing beyond Playwright. No game server is needed.
+ * WebP is encoded by Chromium (canvas.toBlob), stepping the quality down until a file fits its budget (icon, cover
+ * and feature ≤ 400 KB, screenshots ≤ 500 KB), so the script needs nothing beyond Playwright. No game server is
+ * needed.
  * Env: SUMO_URL (default http://localhost:5182/), ART_ONLY=icon,cover,… to render a subset.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -38,7 +41,7 @@ interface Box {
 
 interface Shot {
   /** `?art=` value (client/src/art.ts). */
-  art: 'icon' | 'cover' | 'countdown' | 'match' | 'result';
+  art: 'icon' | 'cover' | 'feature' | 'countdown' | 'match' | 'result';
   file: string;
   width: number;
   height: number;
@@ -92,6 +95,16 @@ const SHOTS: Shot[] = [
     viewport: { width: 1600, height: 900 },
     dpr: 2,
     crop: coverCrop(0.9),
+  },
+  {
+    art: 'feature',
+    file: 'feature.webp',
+    width: 1200,
+    height: 1500,
+    maxBytes: 400 * KB,
+    viewport: { width: 600, height: 750 },
+    dpr: 2,
+    crop: null,
   },
   { art: 'countdown', file: 'shot-1.webp', crop: null, ...PHONE },
   { art: 'match', file: 'shot-2.webp', crop: null, ...PHONE },
