@@ -46,8 +46,14 @@ import { PresenceDot } from './presence-dot';
 type Pad = { left: number; right: number };
 
 /** Space under the content for the page dots (a 20 pt pill 8 pt above the hero's bottom edge). */
-const DOTS_SPACE = 38;
-const CONTENT_BOTTOM = 14;
+const CONTENT_BOTTOM = 16;
+/**
+ * How much the hero's art is softened (expo-image `blurRadius`): a touch, so the type sits on it and the page reads as
+ * one piece, far from the loading screen's full blur. The art is drawn a little larger than its box, since a blur
+ * fades the edges of the picture it is given.
+ */
+const HERO_ART_BLUR = 6;
+const HERO_ART_OVERSCAN = 1.05;
 
 /** Content column width over a wide hero: the left ≈ 48 % (the side scrim fades the art there). */
 function wideColumn(width: number) {
@@ -58,8 +64,8 @@ function wideColumn(width: number) {
  * The dashboard's full-bleed trending hero: one page per trending game (lib/catalog.ts `useTrendingGames`), the
  * window's full width, from the top of the window (under the status bar and the floating top bar). Cover art
  * (`coverUriFor(game, 'feature')`, else generated art) under a scrim that shades the top for the bar and fades into
- * the page background, then the Trending chip, title, meta chips, a quiet "1.2K visits this week" line (or the
- * all-time count) and Play / Details. Several games page horizontally with dots and advance on their own every
+ * the page background, then the Trending chip, title, meta chips with the page dots at their end, a quiet "1.2K
+ * visits this week" line (or the all-time count) and Play / Details. Several games page horizontally and advance on their own every
  * `HERO_AUTO_ADVANCE_MS` (lib/dashboard.ts `heroAutoAdvances`: not under reduced motion or a screen reader, not while
  * touched, not while the dashboard is covered or the drawer is open). The pager loops (`heroLoop`): copies of the last
  * and first pages sit at the ends, so advancing or swiping past either end slides into a copy and the pager then jumps
@@ -152,8 +158,9 @@ export function DashboardHero({
         height={height}
         wide={wide}
         pad={pad}
-        dots={count > 1}
+        count={count}
         background={palette.background}
+        page={current}
         onPlay={onPlay}
         resolving={resolvingId === item.id}
         notice={notice?.gameId === item.id ? notice.message : null}
@@ -168,6 +175,7 @@ export function DashboardHero({
       wide,
       pad,
       count,
+      current,
       palette.background,
       palette.primaryForeground,
       onPlay,
@@ -226,9 +234,10 @@ export function DashboardHero({
           importantForAccessibility="no"
         />
       ) : null}
+      {/* The pager's screen-reader control (the dots themselves are drawn in each page's meta row, decoratively). */}
       {count > 1 && (
         <View
-          className="absolute bottom-2 left-0 right-0 flex-row justify-center"
+          className="absolute bottom-0 left-0 right-0 h-px"
           accessible
           accessibilityRole="adjustable"
           accessibilityLabel="Trending games"
@@ -237,10 +246,8 @@ export function DashboardHero({
           onAccessibilityAction={(e: AccessibilityActionEvent) =>
             goTo(e.nativeEvent.actionName === 'increment' ? current + 1 : current - 1)
           }
-          pointerEvents="box-none"
-        >
-          <PageDots count={count} index={current} />
-        </View>
+          pointerEvents="none"
+        />
       )}
     </View>
   );
@@ -258,7 +265,8 @@ const HeroSlide = memo(function HeroSlide({
   height,
   wide,
   pad,
-  dots,
+  count,
+  page,
   background,
   onPlay,
   resolving,
@@ -272,7 +280,9 @@ const HeroSlide = memo(function HeroSlide({
   height: number;
   wide: boolean;
   pad: Pad;
-  dots: boolean;
+  /** Pages in the hero and the one showing now: the dots at the end of the meta row (none with a single page). */
+  count: number;
+  page: number;
   background: string;
   onPlay: (game: GameCard) => void;
   resolving: boolean;
@@ -286,7 +296,7 @@ const HeroSlide = memo(function HeroSlide({
   const genre = game.genres[0];
   const recent = game.recent_visits ?? 0;
   return (
-    <View style={{ width, height }}>
+    <View style={{ width, height }} className="overflow-hidden">
       <GameCover
         id={game.id}
         title={game.title}
@@ -294,8 +304,9 @@ const HeroSlide = memo(function HeroSlide({
         variant="feature"
         showTitle={false}
         scrim="none"
+        blur={HERO_ART_BLUR}
         className="absolute left-0 top-0"
-        style={{ width, height }}
+        style={{ width, height, transform: [{ scale: HERO_ART_OVERSCAN }] }}
       />
       <HeroScrim width={width} height={height} wide={wide} color={background} />
       <TapPressable
@@ -306,7 +317,7 @@ const HeroSlide = memo(function HeroSlide({
       />
       <View
         className="absolute bottom-0 left-0 right-0"
-        style={{ paddingLeft: pad.left, paddingRight: pad.right, paddingBottom: dots ? DOTS_SPACE : CONTENT_BOTTOM }}
+        style={{ paddingLeft: pad.left, paddingRight: pad.right, paddingBottom: CONTENT_BOTTOM }}
         pointerEvents="box-none"
         onLayout={measure}
       >
@@ -349,6 +360,15 @@ const HeroSlide = memo(function HeroSlide({
                 <PresenceDot />
                 <Text>{live}</Text>
               </Badge>
+            ) : null}
+            {count > 1 ? (
+              <PageDots
+                count={count}
+                index={page}
+                className="ml-auto"
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+              />
             ) : null}
           </View>
           {recent > 0 || game.visits > 0 ? (
@@ -438,8 +458,8 @@ const HeroScrim = memo(function HeroScrim({
 });
 
 /**
- * Same box as the hero while the featured games load: a full-bleed block for the art, then the chip, title, meta
- * chips and the two buttons at their real places (bottom-aligned, same paddings), and the dots.
+ * Same box as the hero while the trending games load: a full-bleed block for the art, then the chip, title, meta
+ * chips with the dots at their end and the two buttons at their real places (bottom-aligned, same paddings).
  */
 export function DashboardHeroSkeleton({
   width,
@@ -460,15 +480,16 @@ export function DashboardHeroSkeleton({
       />
       <View
         className="absolute bottom-0 left-0 right-0"
-        style={{ paddingLeft: pad.left, paddingRight: pad.right, paddingBottom: DOTS_SPACE }}
+        style={{ paddingLeft: pad.left, paddingRight: pad.right, paddingBottom: CONTENT_BOTTOM }}
       >
         <View className="gap-3">
           <Skeleton className="h-[26px] w-20 rounded-full" />
           <Skeleton className="h-9 w-56 rounded-lg" />
-          <View className="flex-row gap-2">
+          <View className="flex-row items-center gap-2">
             <Skeleton className="h-[26px] w-16 rounded-full" />
             <Skeleton className="h-[26px] w-24 rounded-full" />
             <Skeleton className="h-[26px] w-10 rounded-full" />
+            <Skeleton className="ml-auto h-[26px] w-16 rounded-full" />
           </View>
           <View className="flex-row gap-2.5 pt-1">
             <Skeleton className="h-11 w-28 rounded-full" />

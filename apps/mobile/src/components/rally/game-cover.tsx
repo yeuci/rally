@@ -31,6 +31,7 @@ export const GameCover = memo(function GameCover({
   showTitle = variant === 'tile',
   scrim = showTitle ? 'dark' : 'none',
   scrimColor = '#000000',
+  blur,
   className,
   style,
   children,
@@ -44,6 +45,8 @@ export const GameCover = memo(function GameCover({
   scrim?: 'none' | ScrimKind;
   /** End colour of the `fade` scrim. */
   scrimColor?: string;
+  /** Softens a photo (expo-image `blurRadius`, points): the dashboard hero's art under its type. Generated art is left sharp. */
+  blur?: number;
   className?: string;
   style?: StyleProp<ViewStyle>;
   children?: ReactNode;
@@ -51,7 +54,14 @@ export const GameCover = memo(function GameCover({
   return (
     <View className={cn('bg-muted overflow-hidden', className)} style={style}>
       {uri ? (
-        <Image source={{ uri }} className="absolute inset-0" contentFit="cover" transition={200} accessibilityIgnoresInvertColors />
+        <Image
+          source={{ uri }}
+          className="absolute inset-0"
+          contentFit="cover"
+          transition={200}
+          blurRadius={blur}
+          accessibilityIgnoresInvertColors
+        />
       ) : null}
       <FillLayer>
         {(w, h) => (
