@@ -47,13 +47,6 @@ type Pad = { left: number; right: number };
 
 /** Space under the content for the page dots (a 20 pt pill 8 pt above the hero's bottom edge). */
 const CONTENT_BOTTOM = 16;
-/**
- * How much the hero's art is softened (expo-image `blurRadius`): a touch, so the type sits on it and the page reads as
- * one piece, far from the loading screen's full blur. The art is drawn a little larger than its box, since a blur
- * fades the edges of the picture it is given.
- */
-const HERO_ART_BLUR = 6;
-const HERO_ART_OVERSCAN = 1.05;
 
 /** Content column width over a wide hero: the left ≈ 48 % (the side scrim fades the art there). */
 function wideColumn(width: number) {
@@ -63,7 +56,7 @@ function wideColumn(width: number) {
 /**
  * The dashboard's full-bleed trending hero (lib/catalog.ts `useTrendingGames`): the window's full width, from the top
  * of the window (under the status bar and the floating top bar). Only the art pages: a horizontal pager of covers
- * (`coverUriFor(game, 'feature')`, else generated art, softened a touch) under one static scrim that shades the top
+ * (`coverUriFor(game, 'feature')`, else generated art) under one static scrim that shades the top
  * for the bar and fades into the page background. The text block (Trending chip, title, meta chips with the page dots
  * at their end, a quiet "1.2K visits this week" line or the all-time count, Play / Details) stays put over the art and
  * cross-fades to the next game's as the page changes: mid-swipe once the next page is more than half across, and as
@@ -269,7 +262,7 @@ export type HeroGame = GameCard & { recent_visits?: number };
 /** One page of art. Tapping it opens the game page, like Details. */
 const HeroArt = memo(function HeroArt({ game, width, height }: { game: HeroGame; width: number; height: number }) {
   return (
-    <View style={{ width, height }} className="overflow-hidden">
+    <View style={{ width, height }}>
       <GameCover
         id={game.id}
         title={game.title}
@@ -277,9 +270,8 @@ const HeroArt = memo(function HeroArt({ game, width, height }: { game: HeroGame;
         variant="feature"
         showTitle={false}
         scrim="none"
-        blur={HERO_ART_BLUR}
         className="absolute left-0 top-0"
-        style={{ width, height, transform: [{ scale: HERO_ART_OVERSCAN }] }}
+        style={{ width, height }}
       />
       <TapPressable
         onPress={() => router.push({ pathname: '/game/[id]', params: { id: game.id } })}
