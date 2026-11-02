@@ -42,7 +42,7 @@ export type GameCard = Pick<
 >;
 
 export const catalogKeys = {
-  featured: ['catalog', 'featured'] as const,
+  trending: ['catalog', 'trending'] as const,
   newest: ['catalog', 'new'] as const,
   all: ['catalog', 'all'] as const,
   game: (id: string) => ['catalog', 'game', id] as const,
@@ -71,17 +71,26 @@ export function useLiveCounts(live = true) {
   });
 }
 
-export function useFeaturedGames() {
+/** A hero game: a card plus its launches over the trending window (`trending_games`, 20261102000600_trending.sql). */
+export type TrendingGame = GameCard & { recent_visits: number };
+
+/** Days of launches the hero ranks on ("visits this week"): the server's default window. */
+export const TRENDING_DAYS = 7;
+/** How many games the hero pages through. */
+export const TRENDING_COUNT = 3;
+
+/**
+ * The dashboard hero's games: the published games with the most launches over the last `TRENDING_DAYS` UTC days,
+ * then all-time visits, then newest (`trending_games`), so the hero follows what players actually open instead of a
+ * hand-set `featured_rank`. Refetched with the dashboard (focus, pull to refresh); the order moves slowly, so a
+ * five-minute stale time keeps the pager still while the player is on the screen.
+ */
+export function useTrendingGames() {
   return useQuery({
-    queryKey: catalogKeys.featured,
-    queryFn: async (): Promise<GameCard[]> => {
-      const { data, error } = await supabase
-        .from('games')
-        .select(CARD)
-        .eq('status', 'published')
-        .not('featured_rank', 'is', null)
-        .order('featured_rank', { ascending: true })
-        .limit(10);
+    queryKey: catalogKeys.trending,
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<TrendingGame[]> => {
+      const { data, error } = await supabase.rpc('trending_games', { p_days: TRENDING_DAYS, p_limit: TRENDING_COUNT });
       if (error) throw error;
       return data;
     },
@@ -131,7 +140,7 @@ export function useGame(id: string | undefined) {
 
 /**
  * Visits per UTC day over the last `VISITS_DAILY_DAYS` days (today included) from `game_visits_daily`, oldest first,
- * missing days as 0 (lib/dashboard.ts `toVisitsDaily`). For a later "trending" view; nothing renders it yet. Keyed
+ * missing days as 0 (lib/dashboard.ts `toVisitsDaily`). For a per-game trend line; nothing renders it yet. Keyed
  * under the game's catalog entry, so `invalidateAfterPlay` refreshes it with the total.
  */
 export function useVisitsDaily(gameId: string | undefined) {

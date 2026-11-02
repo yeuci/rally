@@ -152,7 +152,7 @@ export function welcomeStepLabel(step: WelcomeStep): string {
   return `Step ${welcomeStepIndex(step) + 1} of ${WELCOME_STEPS.length}`;
 }
 
-/** The game "Play something" opens: the dashboard hero's first page (the lowest `featured_rank`), else none. */
+/** The game "Play something" opens: the dashboard hero's first page (the game launched most this week), else none. */
 export function featuredForWelcome<T extends { id: string }>(featured: readonly T[] | null | undefined): T | null {
   return featured?.[0] ?? null;
 }

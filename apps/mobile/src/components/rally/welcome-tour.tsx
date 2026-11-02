@@ -19,7 +19,7 @@ import { Separator } from '@/components/ui/separator';
 import { TapPressable } from '@/components/ui/tap-pressable';
 import { Text } from '@/components/ui/text';
 import { useSession } from '@/lib/auth/session';
-import { useFeaturedGames, type GameCard } from '@/lib/catalog';
+import { useTrendingGames, type GameCard } from '@/lib/catalog';
 import { usePeopleSearch } from '@/lib/friends';
 import { useProfile } from '@/lib/profile';
 import { isGameScreen } from '@/lib/rejoin';
@@ -77,7 +77,7 @@ export function WelcomeTour({ sheet, onEnd }: { sheet: boolean; onEnd: (how: Wel
   const [step, setStep] = useState<WelcomeStep>('look');
   // Steps entered after the first fade in; the first one arrives with the screen itself.
   const [moves, setMoves] = useState(0);
-  const featured = useFeaturedGames();
+  const featured = useTrendingGames();
   const game = featuredForWelcome(featured.data);
   const copy = WELCOME_COPY[step];
   const next = nextWelcomeStep(step);
