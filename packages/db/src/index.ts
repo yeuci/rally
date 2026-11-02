@@ -226,3 +226,24 @@ export const REPORT_LIMITS = { note: 500, roomId: 128 } as const;
 
 /** `reports.status`, set by moderators in Studio (changing it stamps `reviewed_at`). */
 export type ReportStatus = "open" | "actioned" | "dismissed";
+
+// ---- Friends activity (20261102000500_activity.sql; docs/activity.md) -------------------------------------------------
+
+/** `activity.kind`: what a friend did (the `activity_kind` check). */
+export type ActivityKind = "level_up" | "new_best" | "achievement" | "match_win" | "coop_escape";
+
+/**
+ * `activity.payload` per kind, as the triggers write it. `boards` on a new best is how many best boards the game
+ * has (one: show the score alone; more: name the board); `players` on a match is every seat, guests included.
+ */
+export type ActivityPayload =
+  | { level: number; from: number }
+  | { board: string; score: number; previous?: number; boards: number }
+  | { key: string; title?: string }
+  | { match_id: string; players: number };
+
+/** Days an `activity` row is kept (the `purge-activity` cron job). */
+export const ACTIVITY_RETENTION_DAYS = 30 as const;
+
+/** Most rows one `friends_activity` call returns (`p_limit` is clamped to it). */
+export const FRIENDS_ACTIVITY_MAX_LIMIT = 100 as const;

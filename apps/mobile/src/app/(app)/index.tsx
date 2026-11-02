@@ -13,6 +13,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import { useUniwind } from 'uniwind';
+import { ActivityFeed } from '@/components/rally/activity-feed';
 import { BrowseAllRow, CategoryRow } from '@/components/rally/category-card';
 import { LaunchConsentDialog } from '@/components/rally/consent-dialog';
 import { DailyChallenges } from '@/components/rally/daily-challenges';
@@ -225,6 +226,7 @@ export default function Dashboard() {
                 subtitleFor={(g) => timeAgo(lastPlayed.get(g.id))}
               />
               <DailyChallenges inset />
+              <ActivityFeed pad={pad} width={width} live={focused} refreshing={refreshing} />
               <TileRow
                 title="New on Rally"
                 games={newest.data}

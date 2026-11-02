@@ -285,6 +285,7 @@ describe('report_user', () => {
  * (and the migration header and docs/moderation.md say why).
  */
 const USER_FOREIGN_KEYS: Record<string, 'c' | 'n'> = {
+  'activity.actor_id': 'c',
   'blocks.blocked_id': 'c',
   'blocks.blocker_id': 'c',
   'bug_reports.user_id': 'n',

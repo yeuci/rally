@@ -478,6 +478,15 @@ the `supabase_realtime` publication: `postgres_changes` neither filters DELETE e
 awarded only inside `server_record_match`, `submit_solo_score` and `unlock_achievement` (their answers are unchanged);
 every write goes through `private.apply_coins`, which locks the wallet row first.
 
+## Friends activity
+
+`20261102000500_activity.sql` (pinned by `test/activity.test.ts`; rules and the owner step in
+[docs/activity.md](../../docs/activity.md)): `activity` (no client grants; one row per level-up, new best, achievement,
+match win or co-op escape), written only by AFTER INSERT triggers on `xp_ledger`, `leaderboard_entries` and
+`match_results` (never failing the writer), read through `friends_activity` (accepted friends only; blocks, bans and
+`privacy.games = 'private'` hide an actor; keyset pages on `created_at, id`), purged after 30 days by the
+`purge-activity` cron job.
+
 ## Moderation and account deletion
 
 `20261102000100_moderation.sql` (pinned by `test/moderation.test.ts`; the moderator's guide, the per-table deletion
