@@ -84,6 +84,12 @@ export const VOTE_PROMPT_MAX_ASKS = 3;
 /** The play route closes with a native animation first: the sheet waits this long after the game screen is gone. */
 export const VOTE_PROMPT_DELAY_MS = 900;
 
+/**
+ * The AsyncStorage key of an account's prompt memory is this prefix plus the user id (lib/votes.ts). Exported so the
+ * Developer page can forget every account's memory on the device.
+ */
+export const VOTE_PROMPT_KEY_PREFIX = 'rally.vote-prompt.';
+
 /** What the device remembers per game (AsyncStorage, per account). */
 export interface VotePromptEntry {
   asks: number;
