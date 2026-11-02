@@ -1820,6 +1820,25 @@ export type Database = {
         }
         Returns: boolean
       }
+      trending_games: {
+        Args: { p_days?: number; p_limit?: number }
+        Returns: {
+          age_rating: Database["public"]["Enums"]["age_rating"]
+          cover_url: string
+          created_at: string
+          description: string
+          featured_rank: number
+          genres: string[]
+          icon_url: string
+          id: string
+          max_players: number
+          min_players: number
+          recent_visits: number
+          screenshots: string[]
+          title: string
+          visits: number
+        }[]
+      }
       unblock_user: { Args: { p_user_id: string }; Returns: undefined }
       unlock_achievement: {
         Args: { p_game_id: string; p_key: string }

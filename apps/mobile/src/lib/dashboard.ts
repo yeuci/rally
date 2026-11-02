@@ -111,6 +111,35 @@ export function gamesCountLabel(n: number): string {
 /** Time a hero page stays before the next one slides in. */
 export const HERO_AUTO_ADVANCE_MS = 6000;
 
+/** How long the pager's slide to the next page takes (the native animated scroll), for the silent jump after it. */
+export const HERO_SLIDE_MS = 450;
+
+/**
+ * The pager's items: with several pages, a copy of the last page before the first and a copy of the first after the
+ * last. Advancing past either end slides into the copy, which looks like the real page, and the pager then jumps
+ * without animation to the real one (`heroLanding`); so the auto-advance never rewinds across every page to get from
+ * the last back to the first, and a swipe past the end carries on round.
+ */
+export function heroLoop<T>(pages: readonly T[]): T[] {
+  return pages.length > 1 ? [pages[pages.length - 1]!, ...pages, pages[0]!] : [...pages];
+}
+
+/** The pager index of a real page (the copies shift everything by one when there are several pages). */
+export function heroLoopIndex(page: number, count: number): number {
+  return count > 1 ? page + 1 : 0;
+}
+
+/**
+ * Where a scroll landed: the real page it shows and, when it stopped on a copy, the pager index to jump to (the
+ * matching real page) without animation.
+ */
+export function heroLanding(index: number, count: number): { page: number; jumpTo: number | null } {
+  if (count <= 1) return { page: 0, jumpTo: null };
+  if (index <= 0) return { page: count - 1, jumpTo: count };
+  if (index >= count + 1) return { page: 0, jumpTo: 1 };
+  return { page: index - 1, jumpTo: null };
+}
+
 /** Next hero page, wrapping to the first. */
 export function nextHeroPage(page: number, count: number): number {
   if (count <= 1) return 0;

@@ -61,3 +61,8 @@ export function visitsLabel(n: number): string {
   const count = Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
   return `${formatCount(count)} ${count === 1 ? 'visit' : 'visits'}`;
 }
+
+/** "1.2K visits this week", "1 visit this week" (the hero's `recent_visits`). */
+export function weekVisitsLabel(n: number): string {
+  return `${visitsLabel(n)} this week`;
+}

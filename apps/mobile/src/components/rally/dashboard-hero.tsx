@@ -1,6 +1,6 @@
 import { router, useIsFocused } from 'expo-router';
-import { InfoIcon, PlayIcon, UsersIcon } from 'lucide-react-native';
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { InfoIcon, PlayIcon, TrendingUpIcon, UsersIcon } from 'lucide-react-native';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -20,9 +20,18 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { TapPressable } from '@/components/ui/tap-pressable';
 import { Text } from '@/components/ui/text';
 import { playersLabel, type GameCard } from '@/lib/catalog';
-import { genreLabel, HERO_AUTO_ADVANCE_MS, heroAutoAdvances, nextHeroPage } from '@/lib/dashboard';
+import {
+  genreLabel,
+  HERO_AUTO_ADVANCE_MS,
+  HERO_SLIDE_MS,
+  heroAutoAdvances,
+  heroLanding,
+  heroLoop,
+  heroLoopIndex,
+  nextHeroPage,
+} from '@/lib/dashboard';
 import { DRAWER_EDGE_WIDTH } from '@/lib/drawer';
-import { visitsLabel } from '@/lib/format';
+import { visitsLabel, weekVisitsLabel } from '@/lib/format';
 import { dashboardHeroFade, dashboardHeroFadeWide, dashboardHeroSide } from '@/lib/gradient';
 import { coverUriFor } from '@/lib/game-art';
 import { pageIndex } from '@/lib/layout';
@@ -46,14 +55,17 @@ function wideColumn(width: number) {
 }
 
 /**
- * The dashboard's full-bleed featured hero: one page per featured game, the window's full width, from the top of the
- * window (under the status bar and the floating top bar). Cover art (`coverUriFor(game, 'feature')`, else generated
- * art) under a scrim that shades the top for the bar and fades into the page background, then the Featured chip,
- * title, meta chips, a quiet "12.4K visits" line (once the game has visits) and Play / Details. Several games page
- * horizontally with dots and advance on their own every `HERO_AUTO_ADVANCE_MS` (lib/dashboard.ts `heroAutoAdvances`:
- * not under reduced motion or a screen reader, not while touched, not while the dashboard is covered or the drawer is
- * open). The list is keyed on its size, so a rotation
- * re-lays it out at the same page.
+ * The dashboard's full-bleed trending hero: one page per trending game (lib/catalog.ts `useTrendingGames`), the
+ * window's full width, from the top of the window (under the status bar and the floating top bar). Cover art
+ * (`coverUriFor(game, 'feature')`, else generated art) under a scrim that shades the top for the bar and fades into
+ * the page background, then the Trending chip, title, meta chips, a quiet "1.2K visits this week" line (or the
+ * all-time count) and Play / Details. Several games page horizontally with dots and advance on their own every
+ * `HERO_AUTO_ADVANCE_MS` (lib/dashboard.ts `heroAutoAdvances`: not under reduced motion or a screen reader, not while
+ * touched, not while the dashboard is covered or the drawer is open). The pager loops (`heroLoop`): copies of the last
+ * and first pages sit at the ends, so advancing or swiping past either end slides into a copy and the pager then jumps
+ * silently to the real page; the slide is always one page forward, never a rewind across them all. Every page is
+ * rendered up front, so a slide never reveals a blank page. The list is keyed on its size, so a rotation re-lays it
+ * out at the same page.
  *
  * The drawer's edge swipe owns the left `DRAWER_EDGE_WIDTH` points: a strip over the art there (a sibling above the
  * pager, so the pager's native scroll never sees touches that start in it) keeps the pager from fighting the swipe;
@@ -71,7 +83,7 @@ export function DashboardHero({
   notice,
   liveFor,
 }: {
-  games: GameCard[];
+  games: HeroGame[];
   width: number;
   height: number;
   wide: boolean;
@@ -83,7 +95,7 @@ export function DashboardHero({
   liveFor?: (game: GameCard) => string | null;
 }) {
   const palette = usePalette();
-  const listRef = useRef<FlatList<GameCard>>(null);
+  const listRef = useRef<FlatList<HeroGame>>(null);
   const [page, setPage] = useState(0);
   const [touching, setTouching] = useState(false);
   // Top of each page's text block (from its layout), so the edge strip covers only the art above it.
@@ -94,21 +106,37 @@ export function DashboardHero({
   const drawer = useAppDrawer();
   const count = games.length;
   const current = Math.min(page, Math.max(0, count - 1));
+  const pages = useMemo(() => heroLoop(games), [games]);
+  /** A pager index to jump to without animation once a slide onto a copy has landed (`heroLanding`). */
+  const [jumpTo, setJumpTo] = useState<number | null>(null);
 
   const auto = heroAutoAdvances({ count, reducedMotion, screenReader, touching, focused, drawerOpen: drawer.isOpen });
   useEffect(() => {
     if (!auto) return;
     const timer = setTimeout(() => {
       const next = nextHeroPage(current, count);
-      listRef.current?.scrollToOffset({ offset: next * width, animated: true });
+      // One page forward in the loop: from the last page that is the copy of the first, after which the pager jumps
+      // to the real first page (below, once the slide has landed; the momentum handler does the same if it fires).
+      const index = heroLoopIndex(current, count) + 1;
+      listRef.current?.scrollToOffset({ offset: index * width, animated: true });
       setPage(next);
+      if (next === 0 && count > 1) setJumpTo(heroLoopIndex(0, count));
     }, HERO_AUTO_ADVANCE_MS);
     return () => clearTimeout(timer);
   }, [auto, current, count, width]);
 
+  useEffect(() => {
+    if (jumpTo === null) return;
+    const timer = setTimeout(() => {
+      listRef.current?.scrollToOffset({ offset: jumpTo * width, animated: false });
+      setJumpTo(null);
+    }, HERO_SLIDE_MS);
+    return () => clearTimeout(timer);
+  }, [jumpTo, width]);
+
   const goTo = (target: number) => {
     const next = ((target % count) + count) % count;
-    listRef.current?.scrollToOffset({ offset: next * width, animated: !reducedMotion });
+    listRef.current?.scrollToOffset({ offset: heroLoopIndex(next, count) * width, animated: !reducedMotion });
     setPage(next);
   };
 
@@ -116,7 +144,7 @@ export function DashboardHero({
     setContentTops((prev) => (prev[id] === top ? prev : { ...prev, [id]: top }));
   }, []);
 
-  const renderItem = useCallback<ListRenderItem<GameCard>>(
+  const renderItem = useCallback<ListRenderItem<HeroGame>>(
     ({ item }) => (
       <HeroSlide
         game={item}
@@ -153,7 +181,7 @@ export function DashboardHero({
   // Until the text block is measured: the top half, always clear of it.
   const stripHeight = Math.max(0, Math.round((currentGame && contentTops[currentGame.id]) ?? height * 0.5));
   const getItemLayout = useCallback(
-    (_: ArrayLike<GameCard> | null | undefined, index: number) => ({ length: width, offset: width * index, index }),
+    (_: ArrayLike<HeroGame> | null | undefined, index: number) => ({ length: width, offset: width * index, index }),
     [width],
   );
 
@@ -165,22 +193,28 @@ export function DashboardHero({
         ref={listRef}
         horizontal
         pagingEnabled
-        data={games}
-        keyExtractor={(g) => g.id}
+        data={pages}
+        // The copies share a game with a real page: the key carries the position.
+        keyExtractor={(g, i) => `${g.id}:${i}`}
         renderItem={renderItem}
         getItemLayout={getItemLayout}
-        initialScrollIndex={current}
-        initialNumToRender={2}
-        windowSize={3}
+        initialScrollIndex={heroLoopIndex(current, count)}
+        initialNumToRender={pages.length}
+        windowSize={Math.max(3, pages.length)}
         showsHorizontalScrollIndicator={false}
-        bounces={count > 1}
+        bounces={false}
         onTouchStart={() => setTouching(true)}
         onTouchEnd={() => setTouching(false)}
         onTouchCancel={() => setTouching(false)}
         onScrollBeginDrag={() => setTouching(true)}
         onMomentumScrollEnd={(e) => {
           setTouching(false);
-          setPage(pageIndex(e.nativeEvent.contentOffset.x, width, count));
+          const landing = heroLanding(pageIndex(e.nativeEvent.contentOffset.x, width, pages.length), count);
+          setPage(landing.page);
+          if (landing.jumpTo !== null) {
+            listRef.current?.scrollToOffset({ offset: landing.jumpTo * width, animated: false });
+            setJumpTo(null);
+          }
         }}
       />
       {currentGame && stripHeight > 0 ? (
@@ -197,7 +231,7 @@ export function DashboardHero({
           className="absolute bottom-2 left-0 right-0 flex-row justify-center"
           accessible
           accessibilityRole="adjustable"
-          accessibilityLabel="Featured games"
+          accessibilityLabel="Trending games"
           accessibilityValue={{ text: `${current + 1} of ${count}` }}
           accessibilityActions={ADJUST_ACTIONS}
           onAccessibilityAction={(e: AccessibilityActionEvent) =>
@@ -213,6 +247,9 @@ export function DashboardHero({
 }
 
 const ADJUST_ACTIONS = [{ name: 'increment' }, { name: 'decrement' }] as const;
+
+/** A hero page's game: a card, plus its launches over the trending window when the catalog knows them. */
+export type HeroGame = GameCard & { recent_visits?: number };
 
 /** One hero page. Tapping the art opens the game page, like Details. */
 const HeroSlide = memo(function HeroSlide({
@@ -230,7 +267,7 @@ const HeroSlide = memo(function HeroSlide({
   spinnerColor,
   onContentTop,
 }: {
-  game: GameCard;
+  game: HeroGame;
   width: number;
   height: number;
   wide: boolean;
@@ -247,6 +284,7 @@ const HeroSlide = memo(function HeroSlide({
   const details = () => router.push({ pathname: '/game/[id]', params: { id: game.id } });
   const measure = (e: LayoutChangeEvent) => onContentTop(game.id, e.nativeEvent.layout.y);
   const genre = game.genres[0];
+  const recent = game.recent_visits ?? 0;
   return (
     <View style={{ width, height }}>
       <GameCover
@@ -278,8 +316,9 @@ const HeroSlide = memo(function HeroSlide({
           pointerEvents="box-none"
         >
           <View className="flex-row" pointerEvents="none">
-            <Badge variant="subtle">
-              <Text>Featured</Text>
+            <Badge variant="subtle" accessibilityLabel="Trending">
+              <Icon as={TrendingUpIcon} className="text-foreground size-3" />
+              <Text>Trending</Text>
             </Badge>
           </View>
           <Text
@@ -312,9 +351,9 @@ const HeroSlide = memo(function HeroSlide({
               </Badge>
             ) : null}
           </View>
-          {game.visits > 0 ? (
+          {recent > 0 || game.visits > 0 ? (
             <Text className="text-muted-foreground -mt-1 text-[13px] font-medium leading-[18px]" numberOfLines={1}>
-              {visitsLabel(game.visits)}
+              {recent > 0 ? weekVisitsLabel(recent) : visitsLabel(game.visits)}
             </Text>
           ) : null}
           <View className="flex-row items-center gap-2.5 pt-1">

@@ -12,6 +12,9 @@ import {
   genreLabel,
   groupByGenre,
   heroAutoAdvances,
+  heroLanding,
+  heroLoop,
+  heroLoopIndex,
   nextHeroPage,
   toVisitsDaily,
   VISITS_DAILY_DAYS,
@@ -191,4 +194,18 @@ test('visits daily: the last 7 UTC days, today included, oldest first, missing d
     { day: '2026-10-30', visits: 0 },
   ]);
   assert.equal(toVisitsDaily(null, now).length, 7);
+});
+
+test('hero loop: copies at both ends, pager indexes shifted by one, landings on a copy jump to the real page', () => {
+  assert.deepEqual(heroLoop(['a', 'b', 'c']), ['c', 'a', 'b', 'c', 'a']);
+  assert.deepEqual(heroLoop(['a']), ['a'], 'one page: no copies');
+  assert.deepEqual(heroLoop([]), []);
+  assert.equal(heroLoopIndex(0, 3), 1);
+  assert.equal(heroLoopIndex(2, 3), 3);
+  assert.equal(heroLoopIndex(0, 1), 0);
+  assert.deepEqual(heroLanding(1, 3), { page: 0, jumpTo: null });
+  assert.deepEqual(heroLanding(3, 3), { page: 2, jumpTo: null });
+  assert.deepEqual(heroLanding(4, 3), { page: 0, jumpTo: 1 }, 'past the last page: the copy of the first');
+  assert.deepEqual(heroLanding(0, 3), { page: 2, jumpTo: 3 }, 'before the first page: the copy of the last');
+  assert.deepEqual(heroLanding(0, 1), { page: 0, jumpTo: null });
 });

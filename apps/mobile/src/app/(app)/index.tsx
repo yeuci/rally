@@ -30,7 +30,7 @@ import { Text } from '@/components/ui/text';
 import {
   useAllGames,
   useFavorites,
-  useFeaturedGames,
+  useTrendingGames,
   useLiveCounts,
   useNewGames,
   useRecentlyPlayed,
@@ -60,7 +60,7 @@ import { useLaunchGame } from '@/lib/use-launch-game';
 const GENRE_SKELETON_ROWS = [0, 1];
 
 /**
- * Dashboard: a full-bleed featured hero (paged, auto-advancing) under a floating top bar (menu → drawer, greeting,
+ * Dashboard: a full-bleed trending hero (the games launched most this week, paged, auto-advancing) under a floating top bar (menu → drawer, greeting,
  * avatar), the search pill, then rows of square tiles (Continue playing, New on Rally, Favorites), "Browse by
  * category" (wide genre cards, then "Browse all games") and one row per genre with "See all": the cards and every
  * "See all" push Browse on that genre (`/browse?genre=`). Multiplayer games with players right now show "12 playing" on
@@ -78,7 +78,7 @@ export default function Dashboard() {
 
   const profile = useProfile();
   const requests = useFriendRequests();
-  const featured = useFeaturedGames();
+  const trending = useTrendingGames();
   const newest = useNewGames();
   const recent = useRecentlyPlayed();
   const favorites = useFavorites();
@@ -90,12 +90,12 @@ export default function Dashboard() {
   // "Continue playing") would otherwise pop it up and shift the content.
   const [refreshing, setRefreshing] = useState(false);
 
-  const failed = featured.isError && newest.isError;
-  const featuredGames = featured.data ?? [];
-  const showHero = !failed && (featured.isLoading || featuredGames.length > 0);
+  const failed = trending.isError && newest.isError;
+  const heroGames = trending.data ?? [];
+  const showHero = !failed && (trending.isLoading || heroGames.length > 0);
   // Art under the top bar and the status bar: only once the hero has games. Over its skeleton (a light grey block on
   // the light theme) the bar is solid with dark type, like a page without a hero.
-  const overHeroArt = showHero && featuredGames.length > 0;
+  const overHeroArt = showHero && heroGames.length > 0;
   const heroHeight = dashboardHeroHeight({ width, height }, wide);
   const barHeight = insets.top + TOP_BAR_ROW;
   const tileWidth = rowTileWidth(width, pad.left, wide);
@@ -135,7 +135,7 @@ export default function Dashboard() {
     try {
       // refetch() resolves, never throws.
       await Promise.all([
-        featured.refetch(),
+        trending.refetch(),
         newest.refetch(),
         recent.refetch(),
         favorites.refetch(),
@@ -173,11 +173,11 @@ export default function Dashboard() {
         }
       >
         {showHero ? (
-          featured.isLoading ? (
+          trending.isLoading ? (
             <DashboardHeroSkeleton width={width} height={heroHeight} wide={wide} pad={pad} />
           ) : (
             <DashboardHero
-              games={featuredGames}
+              games={heroGames}
               width={width}
               height={heroHeight}
               wide={wide}
