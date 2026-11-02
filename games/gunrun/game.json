@@ -1,11 +1,12 @@
 {
   "id": "gunrun",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "title": "Gun Run",
   "description": "Every kill hands you the next gun. Up to eight players drop into a sunny container yard and race up the ladder: pistol, revolver, SMG, shotgun, assault rifle, sniper, grenade launcher, rocket launcher, and finally the knife. Three kills promote you; one kill with the knife wins the match, and a stab sends the victim down a rung. Twin-stick shooting, exploding barrels, med kits and quick respawns. The boards keep your total wins and your most kills in a single match.",
   "genres": ["action", "shooter"],
   "icon": "art/icon.webp",
   "cover": "art/cover.webp",
+  "feature": "art/feature.webp",
   "screenshots": ["art/shot-1.webp", "art/shot-2.webp", "art/shot-3.webp"],
   "engine": "playcanvas",
   "entry": "index.html",

@@ -9,12 +9,14 @@
  *
  *   icon.webp     1024×1024  a survivor swinging the guitar into a zombie under a street lamp, no text
  *   cover.webp    1920×1080  the group holding a street at night against the horde, a brute winding up, the dog biting
+ *   feature.webp  1200×1500  the same stand reframed tall: the horde pouring down the street onto the group, empty
+ *                            road at the bottom (the phone dashboard hero, title block bottom-left)
  *   shot-1.webp   2532×1170  scavenging the Junction by day (iPhone landscape, 844×390 @3×, HUD)
  *   shot-2.webp   2532×1170  night 3 at the safehouse barricades: flashlights and a horde with chubbies
  *   shot-3.webp   2532×1170  the armored truck racing for the Northdale gantry
  *
- * WebP is encoded by Chromium (canvas.toBlob), stepping the quality down until a file fits its budget (icon and
- * cover ≤ 400 KB, screenshots ≤ 500 KB). No game server is needed.
+ * WebP is encoded by Chromium (canvas.toBlob), stepping the quality down until a file fits its budget (icon,
+ * cover and feature ≤ 400 KB, screenshots ≤ 500 KB). No game server is needed.
  * Env: NORTHDALE_URL (default http://localhost:5186/), ART_ONLY=icon,cover,… to render a subset.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -31,7 +33,7 @@ const KB = 1024;
 
 interface Shot {
   /** `?art=` value (client/src/art.ts). */
-  art: 'icon' | 'cover' | 'day' | 'night' | 'escape';
+  art: 'icon' | 'cover' | 'feature' | 'day' | 'night' | 'escape';
   file: string;
   width: number;
   height: number;
@@ -60,6 +62,15 @@ const SHOTS: Shot[] = [
     height: 1080,
     maxBytes: 400 * KB,
     viewport: { width: 960, height: 540 },
+    dpr: 2,
+  },
+  {
+    art: 'feature',
+    file: 'feature.webp',
+    width: 1200,
+    height: 1500,
+    maxBytes: 400 * KB,
+    viewport: { width: 600, height: 750 },
     dpr: 2,
   },
   { art: 'day', file: 'shot-1.webp', ...PHONE },

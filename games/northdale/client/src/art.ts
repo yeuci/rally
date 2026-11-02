@@ -32,12 +32,14 @@ import type { NorthdaleScene } from './scene.ts';
  * zombies, the dog and the truck are put where the shot needs them, effects are staged on top and time is stopped.
  * - `icon`: a survivor swinging the guitar into a zombie under a street lamp (close up, no HUD).
  * - `cover`: the group holding a street at night against the horde, a brute winding up, the dog biting (no HUD).
+ * - `feature`: the cover's stand reframed for a tall (4:5) frame: the horde pouring down the street from the top,
+ *   the group mid-frame, empty road below for the dashboard's title block (no HUD).
  * - `day`: scavenging the Junction by day: a chest, a wreck, the wheel to take home (HUD).
  * - `night`: night 3 at the safehouse barricades, flashlights and a horde with chubbies (HUD).
  * - `escape`: the armored truck racing for the Northdale gantry (HUD).
  * - `town`, `townnight`: overviews for iterating on the map (not store art).
  */
-export const ART_SHOTS = ['icon', 'cover', 'day', 'night', 'escape', 'town', 'townnight'] as const;
+export const ART_SHOTS = ['icon', 'cover', 'feature', 'day', 'night', 'escape', 'town', 'townnight'] as const;
 export type ArtShot = (typeof ART_SHOTS)[number];
 
 export const isArtShot = (s: string | null): s is ArtShot => ART_SHOTS.includes(s as ArtShot);
@@ -151,6 +153,8 @@ interface Pose {
   me: string;
   zoom: number;
   clean: boolean;
+  /** Fixed camera focus instead of following `me` (frames the shot off-centre). */
+  focus?: { x: number; y: number };
   /** Effects staged once everyone is drawn. */
   stage(scene: NorthdaleScene, hud: Hud): void;
 }
@@ -220,17 +224,8 @@ export function artPose(shot: ArtShot): Pose {
       spots.forEach((s, i) =>
         put(m, `p${i}`, at.x + s.x, at.y + s.y, -Math.PI / 2 + (i - 1) * 0.35, guns[i]!, melees[i]!),
       );
-      // The horde up the street: loose ranks, a little jostled (a fixed seed), all heading for the survivors.
-      const rng = new Rng(shot === 'cover' ? 5 : 6);
       const front = shot === 'cover' ? 4.4 : 6.5;
-      for (let i = 0; i < 26; i++) {
-        const row = Math.floor(i / 6);
-        const x = at.x - 4.6 + (i % 6) * 1.75 + (row % 2) * 0.8 + rng.range(-0.45, 0.45);
-        const y = at.y - front - row * 1.9 + rng.range(-0.5, 0.5);
-        const k = i % 9 === 4 ? ZombieKind.chubby : i % 5 === 2 ? ZombieKind.crawler : ZombieKind.basic;
-        const z = m.spawnZombie(k, x, y);
-        z.facing = Math.atan2(at.y - y, at.x - x) + rng.range(-0.25, 0.25);
-      }
+      horde(m, at, front, shot === 'cover' ? 5 : 6, 6);
       const brute = m.spawnZombie(ZombieKind.brute, at.x + 3.2, at.y - front - 6.5);
       brute.facing = Math.PI / 2 + 0.3;
       // The dog with the group, biting the nearest.
@@ -265,6 +260,54 @@ export function artPose(shot: ArtShot): Pose {
           scene.horde.windup(brute.id);
           scene.blood(at.x - 1, at.y - 6.6, 1);
           scene.blood(at.x + 2, at.y - 6.4, 1);
+        },
+      };
+    }
+    case 'feature': {
+      // The cover's stand, restaged for a tall frame: the street runs top to bottom, the horde fills the top third,
+      // the group stands just above the middle and the road below them stays empty for the dashboard's title block.
+      const m = run(23, 4);
+      m.skipToNight(3, []);
+      m.timer = 64;
+      const at = { x: corridor(3), y: -26 };
+      const guns = [Item.shotgun, Item.smg, Item.rifle, Item.pistol];
+      const melees = [Item.guitar, Item.bat_barbed, Item.axe, Item.knife];
+      const spots = [
+        { x: 0.3, y: 0.5 },
+        { x: -1.8, y: -0.8 },
+        { x: -3.1, y: 1.3 },
+        { x: -0.9, y: 2 },
+      ];
+      spots.forEach((s, i) =>
+        put(m, `p${i}`, at.x + s.x, at.y + s.y, -Math.PI / 2 + (i - 1.5) * 0.3, guns[i]!, melees[i]!),
+      );
+      const front = 4.6;
+      horde(m, at, front, 7, 5);
+      const brute = m.spawnZombie(ZombieKind.brute, at.x + 4.1, at.y - front - 1.7);
+      brute.facing = Math.PI / 2 + 0.4;
+      m.dog.state = 1;
+      m.dog.x = at.x - 3.4;
+      m.dog.y = at.y - 3.2;
+      m.dog.facing = -Math.PI / 2;
+      m.dog.biting = 0.4;
+      m.teamKills = 87;
+      m.players.get('p0')!.kills = 31;
+      return {
+        state: view(m),
+        me: 'p0',
+        zoom: 0.6,
+        clean: true,
+        focus: { x: at.x + 0.4, y: at.y + 1.3 },
+        stage(scene) {
+          for (const p of m.playerList) {
+            const a = p.aim;
+            const ends = [p.x + Math.cos(a) * 8, p.y + Math.sin(a) * 8];
+            if (p.gun !== Item.rifle) scene.shot(p.id, p.x, p.y, a, ends, p.gun === Item.shotgun);
+          }
+          scene.telegraph(at.x - 1.2, at.y - 1.6, 3);
+          scene.horde.windup(brute.id);
+          scene.blood(at.x - 0.8, at.y - 6.2, 1);
+          scene.blood(at.x + 2.2, at.y - 7.4, 1);
         },
       };
     }
@@ -344,6 +387,20 @@ export function artPose(shot: ArtShot): Pose {
 
 const corridor = (i: number) => -TOWN_HALF + 6 + i * 44;
 
+/** The horde up the street from `at`: `cols` loose ranks a little jostled (seed), all heading for the survivors. */
+function horde(m: NorthdaleMatch, at: { x: number; y: number }, front: number, seed: number, cols: number) {
+  const rng = new Rng(seed);
+  const pitch = 10.5 / cols;
+  for (let i = 0; i < 26; i++) {
+    const row = Math.floor(i / cols);
+    const x = at.x - 4.6 + (i % cols) * pitch + (row % 2) * 0.8 + rng.range(-0.45, 0.45);
+    const y = at.y - front - row * 1.9 + rng.range(-0.5, 0.5);
+    const k = i % 9 === 4 ? ZombieKind.chubby : i % 5 === 2 ? ZombieKind.crawler : ZombieKind.basic;
+    const z = m.spawnZombie(k, x, y);
+    z.facing = Math.atan2(at.y - y, at.x - x) + rng.range(-0.25, 0.25);
+  }
+}
+
 // --- staging in the page ---------------------------------------------------------------------------------------------
 
 export interface ArtProbe {
@@ -367,6 +424,12 @@ export function stageArt(shot: ArtShot, deps: { app: Application; scene: Northda
   document.head.appendChild(style);
   hud.hideHint();
   scene.setZoom(pose.zoom);
+  if (pose.focus) {
+    // main.ts refocuses on the local survivor every frame: pin the camera on the pose's point instead.
+    const { x, y } = pose.focus;
+    const follow = scene.focus.bind(scene);
+    scene.focus = (_x, _y, _aim, snap) => follow(x, y, null, snap);
+  }
   const patchHandlers: ((t: number) => void)[] = [];
   const patch = () => patchHandlers.forEach((fn) => fn(performance.now()));
   setInterval(patch, 50);

@@ -29,11 +29,13 @@ import type { GunRunScene } from './scene.ts';
  * are staged on top and time is stopped.
  * - `icon`: a knife lunge at a shotgunner, close up, no HUD.
  * - `cover`: six players across the yard, tracers, a rocket and a barrel going off; no HUD.
+ * - `feature`: the tall dashboard hero: the same fight stacked up the centre lane (the rocket on its way north, a
+ *   barrel going off top right), the shooter behind the sandbags mid-frame, calm ground below; no HUD.
  * - `fight`: a six-player match in full swing (phone landscape, HUD, kill feed).
  * - `rocket`: a rocket on its way and a barrel chain going off (HUD).
  * - `winner`: the match-over banner, the winner waving (HUD).
  */
-export const ART_SHOTS = ['icon', 'cover', 'fight', 'rocket', 'winner'] as const;
+export const ART_SHOTS = ['icon', 'cover', 'feature', 'fight', 'rocket', 'winner'] as const;
 export type ArtShot = (typeof ART_SHOTS)[number];
 
 export const isArtShot = (s: string | null): s is ArtShot => ART_SHOTS.includes(s as ArtShot);
@@ -192,6 +194,41 @@ export function artPose(shot: ArtShot): ArtPose {
         clean: true,
       };
     }
+    case 'feature': {
+      // A tall frame (4:5): the camera centres on us (the rocket launcher, east of the sandbags) and shows the yard
+      // from the north lane down to the south barrels, so the action stacks up the frame: the rocket flies north up
+      // the centre lane at a shotgunner by the med kit, a barrel goes off by the blue container, AK fire comes
+      // across from the west. The dashboard's title block covers the bottom left: grass, the path and a barrel.
+      const me: [number, number] = [3.2, 1.2];
+      const rosa: [number, number] = [0.6, -4.8];
+      const mika: [number, number] = [-1.6, 0.0];
+      const dex: [number, number] = [6.2, -5.0];
+      const jun: [number, number] = [-2.4, -5.4];
+      const ace: [number, number] = [6.8, 3.2];
+      const m = fight(21, 6, 2, [
+        [me[0], me[1], toward(me, rosa), tier('rocket'), 23, 4],
+        [rosa[0], rosa[1], toward(rosa, me), tier('shotgun'), 11, 6],
+        [mika[0], mika[1], toward(mika, me), tier('ak'), 17, 5],
+        [dex[0], dex[1], toward(dex, mika), tier('sniper'), 14, 7],
+        [jun[0], jun[1], toward(jun, rosa), tier('revolver'), 6, 9],
+        [ace[0], ace[1], toward(ace, me), tier('smg'), 9, 8],
+      ]);
+      // The barrel by the blue container is the one going off.
+      m.barrels &= ~(1 << 1);
+      return {
+        state: view(m, { phase: 'playing', timer: 174 }, [{ kind: 0, x: 1.8, y: -1.6, h: 1.1 }]),
+        me: 'p0',
+        booms: [{ x: 7.4, y: -1.0, r: 3.2, age: 0.22 }],
+        headings: { s0: toward(me, rosa) },
+        result: null,
+        shots: m.playerList
+          .filter((p) => p.tier !== tier('rocket'))
+          .map((p) => ({ x: p.x, y: p.y, angle: p.aim, len: 4.5, weapon: LADDER[p.tier]! })),
+        feed: [],
+        zoom: 0.56,
+        clean: true,
+      };
+    }
     case 'fight': {
       const spots: [number, number][] = [
         [-1.2, 1.0],
@@ -325,8 +362,10 @@ export function stageArt(shot: ArtShot, deps: { app: Application; scene: GunRunS
     });
 
   void (async () => {
-    // Let the frame loop build everyone (and the render clock settle), then stage the effects and stop the clock.
+    // Let the frame loop build everyone (and the render clock settle), then stop the clock and stage the effects:
+    // a tracer lives 60 ms, less than a frame of the software renderer, so nothing staged may age on its own.
     await frames(12);
+    app.timeScale = 0;
     for (const f of pose.feed) {
       const victim = state.players.get(f.victim);
       if (!victim) continue;
@@ -359,9 +398,7 @@ export function stageArt(shot: ArtShot, deps: { app: Application; scene: GunRunS
       const pr = state.projectiles.get(key);
       if (pr) scene.setProjectile(key, pr.kind, pr.x - Math.cos(a) * 0.3, pr.y - Math.sin(a) * 0.3, pr.h);
     }
-    await frames(2);
-    app.timeScale = 0;
-    await frames(10);
+    await frames(12);
     app.autoRender = false;
     probe.ready = true;
   })();

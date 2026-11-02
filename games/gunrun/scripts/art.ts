@@ -9,12 +9,14 @@
  *
  *   icon.webp     1024×1024  a knife lunge at a shotgunner, close up, no text
  *   cover.webp    1920×1080  six players across the yard, tracers, a rocket and a barrel going off
+ *   feature.webp  1200×1500  the phone dashboard hero (tall): the rocket's flight up the centre lane, a barrel going
+ *                            off top right, the shooter behind the sandbags in the middle of the frame
  *   shot-1.webp   2532×1170  a six-player match in full swing (iPhone landscape, 844×390 @3×, HUD, kill feed)
  *   shot-2.webp   2532×1170  a rocket on its way and a barrel chain going off
  *   shot-3.webp   2532×1170  the match-over banner, the winner waving
  *
  * WebP is encoded by Chromium (canvas.toBlob), stepping the quality down until a file fits its budget (icon and
- * cover ≤ 400 KB, screenshots ≤ 500 KB). No game server is needed.
+ * cover and feature ≤ 400 KB, screenshots ≤ 500 KB). No game server is needed.
  * Env: GUNRUN_URL (default http://localhost:5184/), ART_ONLY=icon,cover,… to render a subset.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -31,7 +33,7 @@ const KB = 1024;
 
 interface Shot {
   /** `?art=` value (client/src/art.ts). */
-  art: 'icon' | 'cover' | 'fight' | 'rocket' | 'winner';
+  art: 'icon' | 'cover' | 'feature' | 'fight' | 'rocket' | 'winner';
   file: string;
   width: number;
   height: number;
@@ -60,6 +62,15 @@ const SHOTS: Shot[] = [
     height: 1080,
     maxBytes: 400 * KB,
     viewport: { width: 960, height: 540 },
+    dpr: 2,
+  },
+  {
+    art: 'feature',
+    file: 'feature.webp',
+    width: 1200,
+    height: 1500,
+    maxBytes: 400 * KB,
+    viewport: { width: 600, height: 750 },
     dpr: 2,
   },
   { art: 'fight', file: 'shot-1.webp', ...PHONE },
