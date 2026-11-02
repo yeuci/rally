@@ -23,8 +23,8 @@ test('dry run end to end against the real spike build', { timeout: 60_000 }, asy
   const written = JSON.parse(await readFile(out, 'utf8')) as PublishPlan;
   assert.deepEqual(written, JSON.parse(JSON.stringify(plan)));
   assert.equal(written.slug, 'spike');
-  assert.equal(written.prefix, 'spike/0.1.0/');
-  assert.equal(written.entryUrl, 'https://abc.supabase.co/storage/v1/object/public/games/spike/0.1.0/index.html');
+  assert.equal(written.prefix, 'spike/0.1.1/');
+  assert.equal(written.entryUrl, 'https://abc.supabase.co/storage/v1/object/public/games/spike/0.1.1/index.html');
 
   // Processed index.html: CSP with the CDN + Colyseus origins, SRI matching the files on disk.
   const html = await readFile(path.join(dist, 'index.html'), 'utf8');
@@ -55,7 +55,7 @@ test('dry run end to end against the real spike build', { timeout: 60_000 }, asy
 
   // Upload headers.
   for (const u of written.uploads) {
-    assert.equal(u.objectKey, `spike/0.1.0/${u.path}`);
+    assert.equal(u.objectKey, `spike/0.1.1/${u.path}`);
     assert.equal(
       u.headers['cache-control'],
       u.path === 'index.html' ? 'public, max-age=60' : 'public, max-age=31536000, immutable',
@@ -77,8 +77,7 @@ test('dry run end to end against the real spike build', { timeout: 60_000 }, asy
     screenshots: written.db.games.screenshots,
     icon_url: written.db.games.icon_url,
     cover_url: written.db.games.cover_url,
-    // No feature art yet: the hero falls back to the cover.
-    feature_url: null,
+    feature_url: written.db.games.feature_url,
     engine: 'playcanvas',
     orientation: 'landscape',
     min_players: 1,
@@ -90,10 +89,15 @@ test('dry run end to end against the real spike build', { timeout: 60_000 }, asy
   // spike declares no leaderboards or achievements: the plan lists none (and the printout says so).
   assert.deepEqual(written.db.leaderboards, []);
   assert.deepEqual(written.db.achievements, []);
-  // The spike ships an icon, a cover and two screenshots; every art URL must be one of the planned uploads.
-  assert.equal(written.art.length, 4);
+  // The spike ships an icon, a cover, feature art and two screenshots; every art URL must be one of the planned uploads.
+  assert.equal(written.art.length, 5);
   const artUrls = new Set(written.art.map((a) => a.url));
-  for (const url of [written.db.games.icon_url, written.db.games.cover_url, ...written.db.games.screenshots]) {
+  for (const url of [
+    written.db.games.icon_url,
+    written.db.games.cover_url,
+    written.db.games.feature_url,
+    ...written.db.games.screenshots,
+  ]) {
     assert.ok(url && artUrls.has(url), `art URL not planned for upload: ${url}`);
   }
   assert.ok(written.art.every((a) => a.objectKey.startsWith('spike/art/') && a.headers['cache-control'].includes('immutable')));
