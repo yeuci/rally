@@ -1,3 +1,4 @@
+import { isRunningInExpoGo } from 'expo';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -31,12 +32,22 @@ const ZOOM = { start: 520, duration: 450, scale: 14 };
 const FADE = { duration: 260 }; // Reduce Motion: a plain cross-fade
 const NEVER = ReduceMotion.Never; // Reduce Motion is handled explicitly below
 
+// Before the turn starts, the overlay holds still, looking exactly like the native splash, so nothing visible waits:
+// - Expo Go fades its splash out (a build hides it instantly, app/_layout.tsx), and the static mark fading over a
+//   turning one read as a stutter: the turn waits for that fade.
+// - The first screen mounts underneath at the same time (a large commit on the UI thread, then the first queries), and
+//   a frame lost to it made the turn and the zoom jitter: the turn waits until JavaScript is idle, at most IDLE_MS.
+const EXPO_GO_SPLASH_FADE_MS = 400;
+const IDLE_MS = 700;
+/** Whatever happens to layout or the animation, the splash never stays longer than this. */
+const SAFETY_MS = 4000;
+
 /**
  * Cold-start intro. Mounts in the root layout on top of the first screen, drawing the native splash exactly (same
  * white mark at `SPLASH.imageWidth`, centred in the window on `SPLASH.backgroundColor`, whatever the theme). Once it
- * has laid out and a frame has passed, it hides the native splash (no visible change), turns the mark once around,
- * zooms it ~14× as the turn lands while it and the background fade, revealing the page, then unmounts. Blocks touches
- * only while it runs (≈ 1 s).
+ * has laid out and a frame has passed, it hides the native splash (no visible change), holds still until the first
+ * screen has settled, turns the mark once around, zooms it ~14× as the turn lands while it and the background fade,
+ * revealing the page, then unmounts. Blocks touches only while it runs (about 1–2 s).
  */
 export function IntroOverlay() {
   const reduceMotion = useReducedMotion();
@@ -53,7 +64,7 @@ export function IntroOverlay() {
     const t = setTimeout(() => {
       void SplashScreen.hideAsync().catch(() => {});
       setDone(true);
-    }, 2500);
+    }, SAFETY_MS);
     return () => clearTimeout(t);
   }, []);
 
@@ -101,11 +112,15 @@ export function IntroOverlay() {
   function onLayout() {
     if (started.current) return;
     started.current = true;
-    // Two frames: the overlay has been drawn before the native splash goes away.
+    // Two frames: the overlay has been drawn before the native splash goes away. Then hold still until the splash has
+    // gone and the first screen has settled (see EXPO_GO_SPLASH_FADE_MS / IDLE_MS above), and turn.
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
         void SplashScreen.hideAsync().catch(() => {});
-        run();
+        setTimeout(
+          () => requestIdleCallback(() => requestAnimationFrame(run), { timeout: IDLE_MS }),
+          isRunningInExpoGo() ? EXPO_GO_SPLASH_FADE_MS : 0,
+        );
       }),
     );
   }

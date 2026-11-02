@@ -26,7 +26,8 @@
     "ship:db": "tsx tooling/release/src/cli.ts db",
     "ship:server": "tsx tooling/release/src/cli.ts server",
     "ship:games": "tsx tooling/release/src/cli.ts games",
-    "app": "pnpm --filter @rally/mobile start:go:tunnel"
+    "app": "pnpm --filter @rally/mobile start:go:tunnel",
+    "app:fast": "pnpm --filter @rally/mobile start:go:tunnel:fast"
   },
   "devDependencies": {
     "@rally/model-pipeline": "workspace:*",

@@ -24,6 +24,7 @@ docs/                architecture.md, decisions/ (ADRs)
 pnpm ship          # pull main, push migrations, redeploy the game server if its code changed, publish new game versions
 pnpm ship:status   # what `pnpm ship` would do, without doing it
 pnpm app           # start the app for Expo Go (tunnel)
+pnpm app:fast      # the same at release speed (no dev tools, minified): judge smoothness and startup with this
 ```
 
 Single steps: `pnpm ship:db`, `pnpm ship:server`, `pnpm ship:games [ids]`. Setup and details:
