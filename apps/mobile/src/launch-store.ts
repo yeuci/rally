@@ -2,24 +2,27 @@ import { useSyncExternalStore } from 'react';
 import { config } from './config';
 
 /**
- * Tiny module-level store for the Developer launcher (M0 spike path): what to launch (bundle, game server, room
- * type and join mode) and what the last run reported. The catalog path uses React Query + Supabase instead.
+ * Tiny module-level store for the Developer page's game launcher: what to launch (bundle, game server, room type,
+ * join mode, game id and orientation) and what the last run reported. The presets that fill it live in
+ * lib/dev-launch-model.ts. The catalog path uses React Query + Supabase instead.
  */
 export interface LaunchSettings {
   bundleUrl: string;
   colyseusUrl: string;
-  /** Colyseus room type to matchmake into: `hello` (the spike) by default, `sumo` preset. */
+  /** Colyseus room type to matchmake into (`hello`, the spike, by default); empty for a solo game (no matchmaking). */
   roomName: string;
   /** How `session.join` matchmakes; mapped to the play route's `JoinTarget` (lib/join-target.ts). */
   join: DevJoinMode;
   /** The join code (`code`) or room id (`room`); ignored for `quick` / `create`. */
   joinValue: string;
+  /** The game id handed to the game; empty derives it from the room as before (lib/dev-launch-model.ts `effectiveGameId`). */
+  gameId: string;
+  /** The orientation the host locks the screen to while the game runs (game.json `orientation`). */
+  orientation: 'portrait' | 'landscape';
 }
 
 /** quick → `joinOrCreate`; create → a private room; code → `GET /rooms/code` then `joinById` + code; room → `joinById`. */
 export type DevJoinMode = 'quick' | 'create' | 'code' | 'room';
-
-export const DEV_ROOM_PRESETS = ['hello', 'sumo'] as const;
 
 export interface RunReport {
   endedAt: number;
@@ -38,7 +41,15 @@ interface State {
 }
 
 let state: State = {
-  settings: { bundleUrl: config.spikeBundleUrl, colyseusUrl: config.colyseusUrl, roomName: 'hello', join: 'quick', joinValue: '' },
+  settings: {
+    bundleUrl: config.spikeBundleUrl,
+    colyseusUrl: config.colyseusUrl,
+    roomName: 'hello',
+    join: 'quick',
+    joinValue: '',
+    gameId: '',
+    orientation: 'landscape',
+  },
   lastRun: null,
 };
 const listeners = new Set<() => void>();

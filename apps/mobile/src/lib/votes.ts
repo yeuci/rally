@@ -7,6 +7,7 @@ import { socialErrorKind } from '@/lib/social';
 import { supabase } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
 import {
+  VOTE_PROMPT_KEY_PREFIX,
   afterVote,
   applyVote,
   parseVotePromptState,
@@ -101,7 +102,7 @@ export function useVoteGame() {
 
 // --- the post-match prompt's memory (per account, on the device) ---------------------------------------------------
 
-const promptKey = (uid: string) => `rally.vote-prompt.${uid}`;
+const promptKey = (uid: string) => `${VOTE_PROMPT_KEY_PREFIX}${uid}`;
 
 export const votePromptStore = {
   async get(uid: string): Promise<VotePromptState> {

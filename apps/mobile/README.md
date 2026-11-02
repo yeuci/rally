@@ -2,8 +2,8 @@
 
 The Rally shell (Expo SDK 58, expo-router with typed routes, New Architecture). M1: Supabase auth with the 13+ age
 gate, profiles, the catalog (dashboard + game page), the per-game consent sheet, and `GameHost`: a full-screen
-`react-native-webview` plus the host side of the Rally SDK bridge (SDK v1). The M0 spike launcher lives on as the
-**Developer** screen.
+`react-native-webview` plus the host side of the Rally SDK bridge (SDK v1). Dev builds add a **Developer** page
+(`/dev`): environment and game server health, a game launcher, UI previews, resets and the log buffer.
 
 ```bash
 cp .env.example .env                  # Supabase URL + anon key, Colyseus URL, spike URL (see below)
@@ -111,7 +111,7 @@ when they do surface (profile edits go through PostgREST, which passes them on).
 | `/settings` | `src/app/(app)/settings.tsx` | Appearance (System / Dark / Light: `prefs.appearance` → `Uniwind.setTheme`), Haptics (`prefs.haptics`, read by `lib/haptics.ts`), Reduce motion (the OS setting, shown live, no toggle), Notifications (Friend requests / While playing → Pop-up / Banner / Off: `prefs.friendAlerts`, `prefs.friendAlertsInGame`), Show FPS in games, Profile privacy (summary → Edit profile's Privacy section), Developer (dev builds and `EXPO_PUBLIC_BUG_REPORTS=1`: Report a bug, Bug reports → `/bug-reports`), Help & support, Sign out, app version |
 | `/bug-reports` | `src/app/(app)/bug-reports.tsx` | your own recent bug reports (`bug_reports`, select-own), Report a bug; dev builds and `EXPO_PUBLIC_BUG_REPORTS=1` only (docs/bug-reports.md) |
 | `/u/:username` | `src/app/(app)/u/[username].tsx` | public profile: avatar, names, bio, member since, status line (`public_presence`: "Online" / "Playing Sumo"), friendship button (`friendship_with`), games played · achievements · friends (`public_profile_stats`), games played (`public_profile_games`), friends row (`public_friends`), unlocked achievements; Report (reason, note, Also block: `report_user`, docs/moderation.md) and Block / Unblock in the ⋯ menu; your own username redirects to `/profile` |
-| `/dev`, `/dev/play` | `src/app/dev/…` | Developer launcher (M0 spike path: direct bundle + Colyseus URL, room type `hello` / `sumo`, join mode quick / create / code / room id, last-run metrics) |
+| `/dev`, `/dev/play` | `src/app/dev/…`, `src/components/dev/…` | Developer page (`config.devTools`, works signed out), in folding sections: Environment (build, version, Supabase host, game server with a live `/healthz` + `/versions` check, account, device, window and insets; tap a row to copy), Launch a game (a preset per game in `games/*`: its Vite dev port, room type and orientation, or Custom; join mode quick / create / code / room id; raw fields under Advanced; last-run metrics; `lib/dev-launch-model.ts`), UI previews (toast, coin pill, level-up and challenge celebrations, friend-request banner, vote prompt, offline pill, intro; nothing is sent), Reset and storage (query cache, image cache, menu button positions, vote prompt memory, preferences, reload; each confirmed), Diagnostics (bug reports link, haptics tester, render-error check, log buffer viewer with Copy all / Clear) |
 
 `src/app/_layout.tsx` gates `(app)` on a signed-in, non-anonymous session and `(auth)` on its absence
 (`Stack.Protected`); `auth/*` is reachable either way and `dev` only when dev tools are on. It also mounts the
@@ -350,9 +350,9 @@ per board, every key unlocks) and no play-session service, so `/dev/play` never 
   (`GET /rooms/<name>`), `roomByCode(httpUrl, code)` (`GET /rooms/code/<CODE>`; 404 → `NO_ROOM`, 429 →
   `RATE_LIMITED`, as `RoomLookupError`), `serverVersion(httpUrl)`, and `targetForCode(input, room, lookup)` in
   join-target.ts (normalise the code, refuse another game's code, → `join=room&room=<id>&code=<code>`).
-- **Developer launcher**: the room type (`hello`, preset `sumo`) and join mode (quick / create / code / room id) map
-  to the same `JoinTarget` (a code is looked up before launch). Still a guest: no token is sent; rejoin records are
-  kept in memory.
+- **Developer launcher**: a game preset (or the raw room type) and the join mode (quick / create / code / room id) map
+  to the same `JoinTarget` (a code is looked up before launch); an empty room is a solo launch (no matchmaking). Still
+  a guest: no token is sent; rejoin records are kept in memory.
 - **Launching** (`lib/use-launch-game.ts`, `useLaunchGame()`): every Play in the shell (dashboard hero, game page,
   rooms screen, code sheet, rejoin sheet) resolves the plan, then the 4.7.3 consent (`LaunchConsentDialog`), then
   pushes `/game/[id]/play` with `joinTargetParams(target)`; a plan that cannot start leaves a per-game `notice`.
