@@ -296,7 +296,7 @@ export function markClaimed(list: readonly Challenge[], id: string): Challenge[]
 
 // --- Realtime ------------------------------------------------------------------------------------------------------
 
-const XP_REASONS: readonly XpReason[] = ['match', 'win', 'solo', 'achievement', 'challenge', 'adjustment'];
+const XP_REASONS: readonly XpReason[] = ['match', 'win', 'solo', 'achievement', 'challenge', 'adjustment', 'streak'];
 
 /** A `progress` broadcast (`{type: 'xp' | 'level' | 'challenge', …}`, or `{ payload }` around it) → event; null if malformed. */
 export function parseProgressEvent(raw: unknown): ProgressEvent | null {
@@ -372,11 +372,13 @@ export function applyLevelEvent(
   return { ...progressForXp(e.total_xp), next_level_coins: current?.next_level_coins ?? 0 };
 }
 
-// --- celebrations (the level-up and challenge-complete toasts) -----------------------------------------------------
+// --- celebrations (the level-up, challenge-complete and streak toasts) ----------------------------------------------
 
 export type Celebration =
   | { key: number; kind: 'level'; level: number; coins: number }
-  | { key: number; kind: 'challenge'; id: string; title: string; coins: number; xp: number };
+  | { key: number; kind: 'challenge'; id: string; title: string; coins: number; xp: number }
+  /** A new day of the play streak (lib/streak-model.ts `streakCelebration`): `days` in a row, the bonus it paid. */
+  | { key: number; kind: 'streak'; days: number; coins: number; xp: number };
 
 /** How long a celebration stays up. */
 export const CELEBRATION_MS = 4200;
@@ -399,7 +401,8 @@ export function celebrationFor(
 
 /**
  * Adds a celebration to the queue (the head is on screen). A level-up merges into a level-up already queued (the
- * higher level, the coins added); a challenge already queued is not queued twice. At most `max` wait.
+ * higher level, the coins added); a challenge already queued is not queued twice; a streak day already queued is
+ * replaced by a later day (never by an earlier one). At most `max` wait.
  */
 export function queueCelebration(queue: readonly Celebration[], c: Celebration, max = 4): Celebration[] {
   if (c.kind === 'level') {
@@ -414,16 +417,33 @@ export function queueCelebration(queue: readonly Celebration[], c: Celebration, 
       };
       return queue.map((x, j) => (j === i ? merged : x));
     }
+  } else if (c.kind === 'streak') {
+    const i = queue.findIndex((q) => q.kind === 'streak');
+    if (i >= 0) {
+      const q = queue[i] as Extract<Celebration, { kind: 'streak' }>;
+      return queue.map((x, j) => (j === i && c.days >= q.days ? c : x));
+    }
   } else if (queue.some((q) => q.kind === 'challenge' && q.id === c.id)) {
     return [...queue];
   }
   return [...queue, c].slice(0, max);
 }
 
-/** The toast's lines: "Level 5" / "+80 coins", "Challenge complete" / "Play 3 matches". */
+/**
+ * The toast's lines: "Level 5" / "You levelled up" / "+80 coins", "Challenge complete" / "Play 3 matches" /
+ * "+35 coins · +50 XP", "3-day streak" / "Streak kept up" / "+20 coins · +10 XP".
+ */
 export function celebrationText(c: Celebration): { title: string; body: string; reward: string } {
   if (c.kind === 'level') {
     return { title: `Level ${c.level}`, body: 'You levelled up', reward: c.coins > 0 ? `+${c.coins} coins` : '' };
+  }
+  if (c.kind === 'streak') {
+    // The title as lib/streak-model.ts `streakTitle` spells it.
+    return {
+      title: `${c.days}-day streak`,
+      body: c.days > 1 ? 'Streak kept up' : 'Streak started',
+      reward: rewardLine(c),
+    };
   }
   return { title: 'Challenge complete', body: c.title, reward: rewardLine(c) };
 }

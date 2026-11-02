@@ -1,10 +1,11 @@
-# Account progress: levels and daily challenges
+# Account progress: levels, daily challenges and the play streak
 
 Part of M6 "Progression" (docs/architecture.md §10), next to [coins](coins.md). Players gain XP by playing, which
 raises an account level; each level reached pays coins once. Three optional daily challenges pay coins and XP when
-claimed. Schema, RPCs and rules: `packages/db/supabase/migrations/20261101000100_progress.sql`, pinned by
-`packages/db/test/progress.test.ts`. The level curve also lives in `packages/db/src/progress.ts`, the one formula the
-app uses.
+claimed. A daily play streak counts consecutive days with a game and pays a climbing bonus. Schema, RPCs and rules:
+`packages/db/supabase/migrations/20261101000100_progress.sql`, pinned by `packages/db/test/progress.test.ts`, and
+`20261102000400_streaks.sql`, pinned by `packages/db/test/streaks.test.ts`. The level curve also lives in
+`packages/db/src/progress.ts`, the one formula the app uses.
 
 ## Rules
 
@@ -28,6 +29,7 @@ app uses.
 | `solo`        | `submit_solo_score`, a valid run (accepted or `not_best`)                                                                        | 10 (`solo`)                         | once per play session; `solo_daily_cap` (100) per UTC day | play session id   |
 | `achievement` | `unlock_achievement` and `server_record_match`, on a new unlock                                                                  | 25 (`achievement`)                  | once per achievement                                      | `<game_id>:<key>` |
 | `challenge`   | `claim_daily_challenge`                                                                                                          | the challenge's `xp` (30 / 50 / 70) | once per challenge                                        | challenge id      |
+| `streak`      | the first counted match or valid solo run of a UTC day, when it grows the play streak (see below)                                | 10 (`streak_xp`)                    | once per UTC day                                          | `YYYY-MM-DD`      |
 | `adjustment`  | support, with the service role (see below)                                                                                       | any > 0                             | unique ref                                                | a ticket id       |
 
 **Why these numbers.** A 2-3 minute match is 20 XP (30 for a win), so a 15-20 minute session of five or six matches
@@ -153,6 +155,69 @@ values ('gunrun_win', 'play_game', 'gunrun', 3, 'Play {game} three times', 2, 35
 - Retention: the `purge-progress` cron job (`private.purge_progress_rows`) deletes XP rows older than 365 days
   (`player_progress` stays authoritative; no ref can pay again) and challenges older than 30 days.
 
+## Daily play streak
+
+`20261102000400_streaks.sql`, pinned by `packages/db/test/streaks.test.ts`. A player's streak is the number of
+consecutive UTC days (the daily challenges' day boundary) on which they played at least one **counted** game: a
+counted multiplayer match or a valid solo run, exactly the events that pay `match` / `solo` XP above. Missing a day
+resets it to 0 and the next game starts it at 1 again; the longest streak is kept.
+
+### What counts, and how it is counted
+
+- **The source of truth is the XP ledger.** An `xp_ledger` row with reason `match` or `solo` already means "a counted
+  match" / "a valid solo run" for an eligible (linked, unbanned) player; guests, anonymous sessions, short and
+  private-alone matches and refused runs never get one, so they never count. The daily XP caps do not matter: a capped
+  player already played, and was counted, earlier that day.
+- **A trigger, not a rewrite of the earning paths.** `server_record_match` and `submit_solo_score` are untouched. A
+  constraint trigger on `xp_ledger` (`xp_ledger_streak`: AFTER INSERT, FOR EACH ROW, `WHEN reason in ('match',
+'solo')`, **DEFERRABLE INITIALLY DEFERRED**) calls `private.count_streak_day(user, day)` at commit of the transaction
+  that wrote the row. Deferring matters: an immediate trigger would run between `private.apply_xp`'s ledger insert and
+  its `player_progress` update, and a nested `apply_xp` there would have its XP overwritten. At commit the RPC has
+  returned and the stored total is exact (the tests check `player_progress.xp` = the sum of the ledger after a streak
+  bonus, and a level-up the bonus causes).
+- **Lock order.** At commit the transaction still holds every lock it took, in particular the earner's wallet lock
+  (`private.lock_wallet`, which every coin, XP and challenge write takes first), so paying the bonus through
+  `private.apply_coins` / `private.apply_xp` re-enters locks the transaction already owns. `count_streak_day` itself
+  takes the wallet lock first, then the `player_streaks` row: the economy keeps its one order (wallet, then progress /
+  challenge / streak rows), `server_record_match` still locks its players' wallets in user-id order before anything
+  else, and nothing deadlocks. A failure in the trigger rolls the whole match or run back, like any failing award.
+- **The day** is the UTC day of the ledger row (`created_at`, the recording transaction's `now()`), as for the daily
+  coin bonus. The first counted game of a day sets `current` to `current + 1` when `last_played_on` is yesterday, else
+  to 1, keeps `longest` and sets `last_played_on`; later games that day change nothing.
+- **`player_streaks`:** one row per user who ever played a counted game: `current`, `longest`, `last_played_on` and
+  `bonus_paid_on` (the UTC day the latest bonus was paid). Owner-read only; written only by `count_streak_day`; cascades
+  from `profiles` on account deletion ([moderation.md](moderation.md)).
+
+### The bonus
+
+Each day the streak grows pays coins (coin ledger reason `streak`) and XP (`xp_ledger` reason `streak`), both with
+ref = the UTC date, so a day pays once whatever happens (the ledgers' unique `(user_id, reason, ref)`; a replayed match
+pays nothing twice). The coins climb over the first week, then stay; every amount is a `progress_rules` row:
+
+| Streak day | Coins (rule)          | XP (rule)        |
+| ---------- | --------------------- | ---------------- |
+| 1          | 10 (`streak_coins_1`) | 10 (`streak_xp`) |
+| 2          | 15 (`streak_coins_2`) | 10               |
+| 3          | 20 (`streak_coins_3`) | 10               |
+| 4          | 30 (`streak_coins_4`) | 10               |
+| 5          | 40 (`streak_coins_5`) | 10               |
+| 6          | 50 (`streak_coins_6`) | 10               |
+| 7 and on   | 75 (`streak_coins_7`) | 10               |
+
+**Why these numbers.** A week of daily play is worth 240 coins on top of the daily bonuses: enough that keeping the
+streak feels like something (a cheap cosmetic a week), small next to a session's match coins, so nobody plays only to
+tick the box. The XP is a nudge, not a level: ten days of streak are one match's worth.
+
+Tune in the SQL editor, no migration or release (`private.streak_coins(day)` reads day 7's rule for every later day):
+
+```sql
+update public.progress_rules set value = 100 where key = 'streak_coins_7';
+update public.progress_rules set value = 0 where key = 'streak_xp';   -- coins only
+```
+
+A rule at 0 pays nothing, and the day still counts. Retention: `streak` rows leave both ledgers with the other earn rows
+after 365 days (refs are past dates, so none can pay again); `player_streaks` stays authoritative.
+
 ## RPCs
 
 | RPC                         | Who                            | Returns                                                                                                                                                                                                           |
@@ -161,9 +226,10 @@ values ('gunrun_win', 'play_game', 'gunrun', 3, 'Play {game} three times', 2, 35
 | `public_progress(user_id)`  | anyone                         | `{level, xp_into_level, xp_for_next, total_xp}`, or null when the viewer may not see the player's games (`profiles.privacy.games`: public / friends / private) or a block hides them, like `public_profile_games` |
 | `my_daily_challenges()`     | signed in (anonymous: none)    | rows `id, day, slot, kind, game_id, title, target, progress, coins, xp, completed_at, claimed_at, resets_at, expires_at`                                                                                          |
 | `claim_daily_challenge(id)` | linked accounts                | see above                                                                                                                                                                                                         |
+| `my_streak()`               | signed in (anonymous: zeros)   | `{current, longest, last_played_on, today_done, next_coins, next_xp}`: `current` reads 0 once a day was missed (the row is reset by the next game); `next_*` is what the next day's first game pays               |
 
-RLS: `progress_rules` and `challenge_templates` are public; `player_progress`, `xp_ledger` and `daily_challenges` are
-owner-read only; nobody but the internal functions writes them.
+RLS: `progress_rules` and `challenge_templates` are public; `player_progress`, `xp_ledger`, `daily_challenges` and
+`player_streaks` are owner-read only; nobody but the internal functions writes them.
 
 ## Realtime
 
@@ -176,6 +242,9 @@ never fails an award):
 - `{type: 'challenge', id, day, kind, title, progress, target, coins, xp, completed, claimed, at}` whenever a challenge
   moves, completes or is claimed.
 
+Event `streak` on the same topic, once per day the streak grows: `{type: 'streak', current, longest, last_played_on,
+coins, xp, at}` (its bonus also arrives as `coins` and `progress` events with reason `streak`).
+
 ## App
 
 - **Level ring:** `ProfileAvatar`'s opt-in `progress` prop draws the XP into the level as a monochrome ring (eased in,
@@ -185,10 +254,18 @@ never fails an award):
 - **Daily challenges card** (`components/rally/daily-challenges.tsx`) on the dashboard and on the coin history: each
   challenge with its bar and "1/3", its reward, a Claim button when done, yesterday's unclaimed ones, "2 of 3 done" and
   the time to the reset. Skeleton, empty and error states as elsewhere.
-- **Celebrations:** a level-up ("Level 5 · +80 coins") or a finished challenge shows a card under the coin toast, in the
-  shell and over games (Settings → Coin popups turns both off). Level-up coins do not pop a second coin toast.
-- **Coin history:** each award shows the XP that came with it ("+10 XP"); level-ups and claimed challenges have their
-  own rows.
+- **Daily streak card** (`components/rally/streak-card.tsx`, above the challenges on the dashboard): the current
+  streak with a flame (lit once today's game is in), "Done for today" / "Play today to keep it" / "Play a game to start
+  one", the longest streak, and the next bonus ("Tomorrow" or "Today", its coins and XP). The day turns at 00:00 UTC
+  without a refetch (`lib/streak-model.ts` re-derives the state from `last_played_on`) and the card asks the server
+  again shortly after. Live through the `streak` event (`lib/streak.ts`).
+- **Celebrations:** a level-up ("Level 5 · +80 coins"), a finished challenge or a new streak day ("3-day streak · Streak
+  kept up · +20 coins", with a flame) shows a card under the coin toast, in the shell and over games (Settings → Coin
+  popups turns them all off; enter and exit follow Reduce Motion). Level-up and streak coins do not pop a second coin
+  toast. A streak day is celebrated once: only when the event's day is newer than the one the app had. The Developer
+  page previews it ("Streak day 3").
+- **Coin history:** each award shows the XP that came with it ("+10 XP"); level-ups, claimed challenges and streak days
+  ("Daily streak · Day 3") have their own rows.
 
 Screenshots: `docs/screenshots/progress/`.
 
@@ -203,4 +280,6 @@ npx supabase db push
 
 Nothing else: the rules and the 27 templates are seeded (`20261101000100_progress.sql` and
 `20261102000300_more_content.sql`), existing players start at level 1 with 0 XP, and the purge job schedules itself
-where pg_cron is enabled.
+where pg_cron is enabled. The streak (`20261102000400_streaks.sql`) seeds its rules the same way and starts every player
+at 0: the first counted game after the push is day 1 (the app's card and celebration need the build from the same
+change).

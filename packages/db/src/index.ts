@@ -119,7 +119,8 @@ export const MAX_SERVER_VISITS_PER_CALL = 1000 as const;
 
 /**
  * `coin_ledger.reason`. Earn reasons are positive; `purchase` is negative; `adjustment` (support) either sign.
- * `level` (ref = the level reached) and `challenge` (ref = the daily challenge id) come from 20261101000100_progress.sql.
+ * `level` (ref = the level reached) and `challenge` (ref = the daily challenge id) come from 20261101000100_progress.sql;
+ * `streak` (ref = the UTC date) from 20261102000400_streaks.sql.
  */
 export type CoinReason =
   | "match"
@@ -131,7 +132,8 @@ export type CoinReason =
   | "purchase"
   | "adjustment"
   | "level"
-  | "challenge";
+  | "challenge"
+  | "streak";
 
 /** `coin_rules.key`: every amount, cap and threshold of the economy (tune with an UPDATE, no migration). */
 export type CoinRuleKey =

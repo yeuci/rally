@@ -23,6 +23,7 @@ import { EmptyState } from '@/components/rally/empty-state';
 import { FriendsPlayingRow } from '@/components/rally/friends-playing-row';
 import { Glow } from '@/components/rally/glow';
 import { SearchPillButton } from '@/components/rally/search-pill';
+import { StreakCard } from '@/components/rally/streak-card';
 import { TileRow, TileRowSkeleton } from '@/components/rally/tile-row';
 import { Button } from '@/components/ui/button';
 import { Text } from '@/components/ui/text';
@@ -225,6 +226,7 @@ export default function Dashboard() {
                 liveFor={liveFor}
                 subtitleFor={(g) => timeAgo(lastPlayed.get(g.id))}
               />
+              <StreakCard inset />
               <DailyChallenges inset />
               <ActivityFeed pad={pad} width={width} live={focused} refreshing={refreshing} />
               <TileRow

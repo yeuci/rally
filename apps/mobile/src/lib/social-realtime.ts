@@ -8,6 +8,7 @@ import { clearCoinToast } from '@/lib/coin-toast';
 import { handleCoinBroadcast, invalidateCoins } from '@/lib/coins';
 import { clearCelebrations } from '@/lib/level-toast';
 import { handleProgressBroadcast, invalidateLevels } from '@/lib/levels';
+import { handleStreakBroadcast, invalidateStreak } from '@/lib/streak';
 import { currentAlertStyle } from '@/lib/friend-alerts';
 import { createBannerCountdown, showsAcceptedToast } from '@/lib/friend-alerts-model';
 import { fetchFriendRequests, invalidateSocial, socialKeys } from '@/lib/friends';
@@ -47,7 +48,9 @@ import { showToast } from '@/lib/toast';
  * refreshes the wallet and shows the "+25 coins" toast (Settings → Coin popups). A (re)subscribe refreshes the wallet,
  * since awards sent while the channel was down are not replayed. Account progress (event `progress`,
  * 20261101000100_progress.sql) goes to lib/levels.ts `handleProgressBroadcast`: XP moves the level ring, challenge
- * events update the Daily challenges card, a level-up or a finished challenge shows a celebration.
+ * events update the Daily challenges card, a level-up or a finished challenge shows a celebration. The daily play
+ * streak (event `streak`, 20261102000400_streaks.sql) goes to lib/streak.ts `handleStreakBroadcast`: the streak card
+ * takes the new day and a day the app had not seen shows the streak celebration.
  *
  * supabase-js (2.118) hands the session's JWT to Realtime itself on INITIAL_SESSION / SIGNED_IN / TOKEN_REFRESHED
  * (and pushes refreshed tokens to joined channels); `setAuth()` is called once more before each subscribe so a
@@ -174,6 +177,13 @@ function routeProgress(topic: string, payload: unknown) {
   handleProgressBroadcast(s.qc, s.uid, payload);
 }
 
+/** A `streak` broadcast (a new day of the play streak) for the signed-in user. */
+function routeStreak(topic: string, payload: unknown) {
+  const s = live;
+  if (!s || s.stopped || topic !== `user:${s.uid}`) return;
+  handleStreakBroadcast(s.qc, s.uid, payload);
+}
+
 function routeStatus(topic: string, status: string, err?: Error) {
   log(topic.replace(/^(user:.{8}).*/, '$1…'), status, err?.message ?? '');
   const s = live;
@@ -183,6 +193,7 @@ function routeStatus(topic: string, status: string, err?: Error) {
     void s.qc.invalidateQueries({ queryKey: socialKeys.all(s.uid) });
     invalidateCoins(s.qc, s.uid);
     invalidateLevels(s.qc, s.uid);
+    invalidateStreak(s.qc, s.uid);
     void catchUp(s);
   }
 }
@@ -207,6 +218,7 @@ async function subscribe(s: LiveSession) {
     ch.on('broadcast', { event: 'social' }, (msg) => route(topic, msg.payload));
     ch.on('broadcast', { event: 'coins' }, (msg) => routeCoins(topic, msg.payload));
     ch.on('broadcast', { event: 'progress' }, (msg) => routeProgress(topic, msg.payload));
+    ch.on('broadcast', { event: 'streak' }, (msg) => routeStreak(topic, msg.payload));
   }
   s.channel = ch;
   if (ch.state === 'closed' || ch.state === 'errored') {

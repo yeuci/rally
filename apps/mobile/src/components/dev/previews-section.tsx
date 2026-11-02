@@ -1,6 +1,7 @@
 import {
   CircleCheckIcon,
   CoinsIcon,
+  FlameIcon,
   HandIcon,
   MessageSquareIcon,
   SparklesIcon,
@@ -45,9 +46,14 @@ function previewChallenge() {
   pushCelebration({ key, kind: 'challenge', id: `preview-${key}`, title: 'Play 3 matches', coins: 35, xp: 50 });
 }
 
+/** Day 3 of a play streak, with the bonus the live rules pay for it (20261102000400_streaks.sql). */
+function previewStreak() {
+  pushCelebration({ key: nextCelebrationKey(), kind: 'streak', days: 3, coins: 20, xp: 10 });
+}
+
 /**
  * UI previews: the app's real UI with made-up data, without playing. The toast, the "+250 coins" pill and the
- * level-up and challenge celebrations go through their own stores (lib/toast.ts, lib/coin-toast.ts,
+ * level-up, challenge and streak celebrations go through their own stores (lib/toast.ts, lib/coin-toast.ts,
  * lib/level-toast.ts) into the hosts the dev layout mounts; the friend-request banner and the offline pill go through
  * lib/dev-previews.ts (never the real request queue); the vote prompt (the presentational VotePromptSheet) and the
  * intro play in their own modals. Nothing here calls the server, except the first-run welcome: that is the real
@@ -84,6 +90,8 @@ export function PreviewsSection() {
         />
         <Separator className="ml-16" />
         <SettingsRow icon={CircleCheckIcon} label="Challenge complete" chevron={false} onPress={previewChallenge} />
+        <Separator className="ml-16" />
+        <SettingsRow icon={FlameIcon} label="Streak day 3" chevron={false} onPress={previewStreak} />
         <Separator className="ml-16" />
         <SettingsRow icon={WifiOffIcon} label="Offline banner" chevron={false} onPress={devPreviews.showOffline} />
       </SettingsGroup>

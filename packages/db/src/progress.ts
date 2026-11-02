@@ -56,10 +56,17 @@ export function progressForXp(totalXp: number): LevelProgress {
   return { level, xp_into_level: xp - xpForLevel(level), xp_for_next: xpToNextLevel(level), total_xp: xp };
 }
 
-/** `xp_ledger.reason`. Every award is positive; `adjustment` is a support grant. */
-export type XpReason = 'match' | 'win' | 'solo' | 'achievement' | 'challenge' | 'adjustment';
+/**
+ * `xp_ledger.reason`. Every award is positive; `adjustment` is a support grant; `streak` (ref = the UTC date) is the
+ * daily play streak's bonus (20261102000400_streaks.sql).
+ */
+export type XpReason = 'match' | 'win' | 'solo' | 'achievement' | 'challenge' | 'adjustment' | 'streak';
 
-/** `progress_rules.key`: XP amounts and caps, and the coins a level-up pays (tune with an UPDATE, no migration). */
+/**
+ * `progress_rules.key`: XP amounts and caps, the coins a level-up pays, and the play streak's bonus (`streak_coins_1`
+ * .. `streak_coins_7` for days 1-7, day 8 and on pay `streak_coins_7`; `streak_xp` with each). Tune with an UPDATE, no
+ * migration.
+ */
 export type ProgressRuleKey =
   | 'match'
   | 'win'
@@ -69,7 +76,18 @@ export type ProgressRuleKey =
   | 'solo_daily_cap'
   | 'level_coins'
   | 'level_coins_step'
-  | 'level_coins_max';
+  | 'level_coins_max'
+  | 'streak_coins_1'
+  | 'streak_coins_2'
+  | 'streak_coins_3'
+  | 'streak_coins_4'
+  | 'streak_coins_5'
+  | 'streak_coins_6'
+  | 'streak_coins_7'
+  | 'streak_xp';
+
+/** The streak day from which the coin bonus stops climbing: day 7 and every day after it pay `streak_coins_7`. */
+export const STREAK_BONUS_DAYS = 7;
 
 /** `my_progress()`: the caller's level plus the coins reaching the next one pays. */
 export type MyProgress = LevelProgress & { next_level_coins: number };
@@ -136,3 +154,33 @@ export type ChallengeProgressEvent = {
 };
 
 export type ProgressEvent = XpAwardEvent | LevelUpEvent | ChallengeProgressEvent;
+
+// ---- Daily play streak (20261102000400_streaks.sql; docs/progress.md) ----------------------------------------------
+
+/**
+ * `my_streak()`: consecutive UTC days with a counted game. `current` is 0 once a day was missed; `last_played_on` is
+ * the UTC day ('YYYY-MM-DD') of the latest counted game; `today_done` says today's game is in; `next_coins` /
+ * `next_xp` are what the next day's first game pays (today's, or tomorrow's when today is done).
+ */
+export type MyStreak = {
+  current: number;
+  longest: number;
+  last_played_on: string | null;
+  today_done: boolean;
+  next_coins: number;
+  next_xp: number;
+};
+
+/**
+ * Realtime, private topic `user:<uid>`, event `streak`: sent once per day the streak grows, with the bonus it paid
+ * (`coins` / `xp`, also announced as `coins` / `progress` events with reason `streak`).
+ */
+export type StreakEvent = {
+  type: 'streak';
+  current: number;
+  longest: number;
+  last_played_on: string;
+  coins: number;
+  xp: number;
+  at: string;
+};

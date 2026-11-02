@@ -4,6 +4,7 @@ import {
   CalendarCheckIcon,
   CircleAlertIcon,
   CoinsIcon,
+  FlameIcon,
   Gamepad2Icon,
   MedalIcon,
   ShoppingBagIcon,
@@ -49,6 +50,7 @@ const REASON_ICONS: Record<CoinReason, LucideIcon> = {
   adjustment: SparklesIcon,
   level: TrendingUpIcon,
   challenge: TargetIcon,
+  streak: FlameIcon,
 };
 
 /**
