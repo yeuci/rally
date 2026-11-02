@@ -137,21 +137,25 @@ function ChoiceRow<T extends string>({
   onChange: (next: T) => void;
 }) {
   return (
-    <View className="flex-row flex-wrap items-center gap-x-3.5 gap-y-2 px-4 py-3">
+    <View className="flex-row items-center gap-3.5 px-4 py-3">
       <View className="bg-muted size-9 items-center justify-center rounded-xl">
         <Icon as={icon} className="text-secondary-foreground size-[18px]" />
       </View>
-      <Text className="flex-1 text-[15px] font-medium">{label}</Text>
-      <Segmented
-        options={options}
-        value={value}
-        onChange={(next) => {
-          if (next === value) return;
-          tapHaptic();
-          onChange(next);
-        }}
-        accessibilityLabel={label}
-      />
+      {/* The label keeps its natural width; when label and choices don't fit on one line (Graphics' four choices on a
+          phone), the choices wrap under the label instead of squeezing it to a letter per line. */}
+      <View className="flex-1 flex-row flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <Text className="grow text-[15px] font-medium">{label}</Text>
+        <Segmented
+          options={options}
+          value={value}
+          onChange={(next) => {
+            if (next === value) return;
+            tapHaptic();
+            onChange(next);
+          }}
+          accessibilityLabel={label}
+        />
+      </View>
     </View>
   );
 }
