@@ -11,7 +11,7 @@ import {
   type LayoutChangeEvent,
   type ListRenderItem,
 } from 'react-native';
-import { useReducedMotion } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, ReduceMotion, useReducedMotion } from 'react-native-reanimated';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -61,22 +61,25 @@ function wideColumn(width: number) {
 }
 
 /**
- * The dashboard's full-bleed trending hero: one page per trending game (lib/catalog.ts `useTrendingGames`), the
- * window's full width, from the top of the window (under the status bar and the floating top bar). Cover art
- * (`coverUriFor(game, 'feature')`, else generated art) under a scrim that shades the top for the bar and fades into
- * the page background, then the Trending chip, title, meta chips with the page dots at their end, a quiet "1.2K
- * visits this week" line (or the all-time count) and Play / Details. Several games page horizontally and advance on their own every
- * `HERO_AUTO_ADVANCE_MS` (lib/dashboard.ts `heroAutoAdvances`: not under reduced motion or a screen reader, not while
- * touched, not while the dashboard is covered or the drawer is open). The pager loops (`heroLoop`): copies of the last
- * and first pages sit at the ends, so advancing or swiping past either end slides into a copy and the pager then jumps
- * silently to the real page; the slide is always one page forward, never a rewind across them all. Every page is
- * rendered up front, so a slide never reveals a blank page. The list is keyed on its size, so a rotation re-lays it
- * out at the same page.
+ * The dashboard's full-bleed trending hero (lib/catalog.ts `useTrendingGames`): the window's full width, from the top
+ * of the window (under the status bar and the floating top bar). Only the art pages: a horizontal pager of covers
+ * (`coverUriFor(game, 'feature')`, else generated art, softened a touch) under one static scrim that shades the top
+ * for the bar and fades into the page background. The text block (Trending chip, title, meta chips with the page dots
+ * at their end, a quiet "1.2K visits this week" line or the all-time count, Play / Details) stays put over the art and
+ * cross-fades to the next game's as the page changes: mid-swipe once the next page is more than half across, and as
+ * the auto-advance starts its slide.
+ *
+ * Several games advance on their own every `HERO_AUTO_ADVANCE_MS` (lib/dashboard.ts `heroAutoAdvances`: not under
+ * reduced motion or a screen reader, not while touched, not while the dashboard is covered or the drawer is open). The
+ * pager loops (`heroLoop`): copies of the last and first pages sit at the ends, so advancing or swiping past either end
+ * slides into a copy and the pager then jumps silently to the real page; the slide is always one page forward, never a
+ * rewind across them all. Every page is rendered up front, so a slide never reveals a blank page. The list is keyed on
+ * its size, so a rotation re-lays it out at the same page.
  *
  * The drawer's edge swipe owns the left `DRAWER_EDGE_WIDTH` points: a strip over the art there (a sibling above the
  * pager, so the pager's native scroll never sees touches that start in it) keeps the pager from fighting the swipe;
- * a tap on it still opens the game. It stops at the text block (measured per page) so Play and the title keep their
- * whole hit area.
+ * a tap on it still opens the game. It stops at the text block (measured) so Play and the title keep their whole hit
+ * area.
  */
 export function DashboardHero({
   games,
@@ -104,8 +107,8 @@ export function DashboardHero({
   const listRef = useRef<FlatList<HeroGame>>(null);
   const [page, setPage] = useState(0);
   const [touching, setTouching] = useState(false);
-  // Top of each page's text block (from its layout), so the edge strip covers only the art above it.
-  const [contentTops, setContentTops] = useState<Record<string, number>>({});
+  // Top of the text block (from its layout), so the edge strip covers only the art above it.
+  const [contentTop, setContentTop] = useState<number | null>(null);
   const screenReader = useScreenReaderEnabled();
   const reducedMotion = useReducedMotion();
   const focused = useIsFocused();
@@ -146,48 +149,13 @@ export function DashboardHero({
     setPage(next);
   };
 
-  const onContentTop = useCallback((id: string, top: number) => {
-    setContentTops((prev) => (prev[id] === top ? prev : { ...prev, [id]: top }));
-  }, []);
-
   const renderItem = useCallback<ListRenderItem<HeroGame>>(
-    ({ item }) => (
-      <HeroSlide
-        game={item}
-        width={width}
-        height={height}
-        wide={wide}
-        pad={pad}
-        count={count}
-        background={palette.background}
-        page={current}
-        onPlay={onPlay}
-        resolving={resolvingId === item.id}
-        notice={notice?.gameId === item.id ? notice.message : null}
-        live={liveFor?.(item) ?? null}
-        spinnerColor={palette.primaryForeground}
-        onContentTop={onContentTop}
-      />
-    ),
-    [
-      width,
-      height,
-      wide,
-      pad,
-      count,
-      current,
-      palette.background,
-      palette.primaryForeground,
-      onPlay,
-      resolvingId,
-      notice,
-      liveFor,
-      onContentTop,
-    ],
+    ({ item }) => <HeroArt game={item} width={width} height={height} />,
+    [width, height],
   );
   const currentGame = games[current];
   // Until the text block is measured: the top half, always clear of it.
-  const stripHeight = Math.max(0, Math.round((currentGame && contentTops[currentGame.id]) ?? height * 0.5));
+  const stripHeight = Math.max(0, Math.round(contentTop ?? height * 0.5));
   const getItemLayout = useCallback(
     (_: ArrayLike<HeroGame> | null | undefined, index: number) => ({ length: width, offset: width * index, index }),
     [width],
@@ -215,6 +183,12 @@ export function DashboardHero({
         onTouchEnd={() => setTouching(false)}
         onTouchCancel={() => setTouching(false)}
         onScrollBeginDrag={() => setTouching(true)}
+        // The text block follows the nearest page while the art moves (a swipe past half-way cross-fades it); the
+        // silent jump off a copy waits for the scroll to settle.
+        scrollEventThrottle={32}
+        onScroll={(e) => {
+          setPage(heroLanding(pageIndex(e.nativeEvent.contentOffset.x, width, pages.length), count).page);
+        }}
         onMomentumScrollEnd={(e) => {
           setTouching(false);
           const landing = heroLanding(pageIndex(e.nativeEvent.contentOffset.x, width, pages.length), count);
@@ -225,6 +199,7 @@ export function DashboardHero({
           }
         }}
       />
+      <HeroScrim width={width} height={height} wide={wide} color={palette.background} />
       {currentGame && stripHeight > 0 ? (
         <TapPressable
           onPress={() => router.push({ pathname: '/game/[id]', params: { id: currentGame.id } })}
@@ -234,7 +209,37 @@ export function DashboardHero({
           importantForAccessibility="no"
         />
       ) : null}
-      {/* The pager's screen-reader control (the dots themselves are drawn in each page's meta row, decoratively). */}
+      {currentGame ? (
+        <View
+          className="absolute bottom-0 left-0 right-0"
+          style={{ paddingLeft: pad.left, paddingRight: pad.right, paddingBottom: CONTENT_BOTTOM }}
+          pointerEvents="box-none"
+          onLayout={(e: LayoutChangeEvent) => setContentTop(e.nativeEvent.layout.y)}
+        >
+          {/* Keyed on the game: the old block fades out where it was while the new one fades in. */}
+          <Animated.View
+            key={currentGame.id}
+            entering={INFO_IN}
+            exiting={INFO_OUT}
+            className="gap-3"
+            style={wide ? { width: wideColumn(width) - pad.left } : undefined}
+            pointerEvents="box-none"
+          >
+            <HeroInfo
+              game={currentGame}
+              wide={wide}
+              count={count}
+              page={current}
+              onPlay={onPlay}
+              resolving={resolvingId === currentGame.id}
+              notice={notice?.gameId === currentGame.id ? notice.message : null}
+              live={liveFor?.(currentGame) ?? null}
+              spinnerColor={palette.primaryForeground}
+            />
+          </Animated.View>
+        </View>
+      ) : null}
+      {/* The pager's screen-reader control (the dots themselves sit in the meta row, decoratively). */}
       {count > 1 && (
         <View
           className="absolute bottom-0 left-0 right-0 h-px"
@@ -254,47 +259,15 @@ export function DashboardHero({
 }
 
 const ADJUST_ACTIONS = [{ name: 'increment' }, { name: 'decrement' }] as const;
+/** The text block's cross-fade between games (skipped under Reduce Motion: the block just changes). */
+const INFO_IN = FadeIn.duration(220).reduceMotion(ReduceMotion.System);
+const INFO_OUT = FadeOut.duration(160).reduceMotion(ReduceMotion.System);
 
 /** A hero page's game: a card, plus its launches over the trending window when the catalog knows them. */
 export type HeroGame = GameCard & { recent_visits?: number };
 
-/** One hero page. Tapping the art opens the game page, like Details. */
-const HeroSlide = memo(function HeroSlide({
-  game,
-  width,
-  height,
-  wide,
-  pad,
-  count,
-  page,
-  background,
-  onPlay,
-  resolving,
-  notice,
-  live,
-  spinnerColor,
-  onContentTop,
-}: {
-  game: HeroGame;
-  width: number;
-  height: number;
-  wide: boolean;
-  pad: Pad;
-  /** Pages in the hero and the one showing now: the dots at the end of the meta row (none with a single page). */
-  count: number;
-  page: number;
-  background: string;
-  onPlay: (game: GameCard) => void;
-  resolving: boolean;
-  notice: string | null;
-  live: string | null;
-  spinnerColor: string;
-  onContentTop: (id: string, top: number) => void;
-}) {
-  const details = () => router.push({ pathname: '/game/[id]', params: { id: game.id } });
-  const measure = (e: LayoutChangeEvent) => onContentTop(game.id, e.nativeEvent.layout.y);
-  const genre = game.genres[0];
-  const recent = game.recent_visits ?? 0;
+/** One page of art. Tapping it opens the game page, like Details. */
+const HeroArt = memo(function HeroArt({ game, width, height }: { game: HeroGame; width: number; height: number }) {
   return (
     <View style={{ width, height }} className="overflow-hidden">
       <GameCover
@@ -308,110 +281,128 @@ const HeroSlide = memo(function HeroSlide({
         className="absolute left-0 top-0"
         style={{ width, height, transform: [{ scale: HERO_ART_OVERSCAN }] }}
       />
-      <HeroScrim width={width} height={height} wide={wide} color={background} />
       <TapPressable
-        onPress={details}
+        onPress={() => router.push({ pathname: '/game/[id]', params: { id: game.id } })}
         style={StyleSheet.absoluteFill}
         accessible={false}
         importantForAccessibility="no"
       />
-      <View
-        className="absolute bottom-0 left-0 right-0"
-        style={{ paddingLeft: pad.left, paddingRight: pad.right, paddingBottom: CONTENT_BOTTOM }}
-        pointerEvents="box-none"
-        onLayout={measure}
-      >
-        <View
-          className="gap-3"
-          style={wide ? { width: wideColumn(width) - pad.left } : undefined}
-          pointerEvents="box-none"
-        >
-          <View className="flex-row" pointerEvents="none">
-            <Badge variant="subtle" accessibilityLabel="Trending">
-              <Icon as={TrendingUpIcon} className="text-foreground size-3" />
-              <Text>Trending</Text>
-            </Badge>
-          </View>
-          <Text
-            className={cn(
-              'text-foreground font-extrabold tracking-tight',
-              wide ? 'text-[30px] leading-[36px]' : 'text-[34px] leading-[40px]',
-            )}
-            role="heading"
-            numberOfLines={2}
-          >
-            {game.title}
-          </Text>
-          <View className="flex-row flex-wrap gap-2" pointerEvents="none">
-            {genre ? (
-              <Badge variant="subtle">
-                <Text>{genreLabel(genre)}</Text>
-              </Badge>
-            ) : null}
-            <Badge variant="secondary" accessibilityLabel={playersLabel(game)}>
-              <Icon as={UsersIcon} className="text-secondary-foreground size-3" />
-              <Text>{playersLabel(game)}</Text>
-            </Badge>
-            <Badge variant="outline">
-              <Text>{game.age_rating}</Text>
-            </Badge>
-            {live ? (
-              <Badge variant="subtle" accessibilityLabel={live}>
-                <PresenceDot />
-                <Text>{live}</Text>
-              </Badge>
-            ) : null}
-            {count > 1 ? (
-              <PageDots
-                count={count}
-                index={page}
-                className="ml-auto"
-                accessibilityElementsHidden
-                importantForAccessibility="no-hide-descendants"
-              />
-            ) : null}
-          </View>
-          {recent > 0 || game.visits > 0 ? (
-            <Text className="text-muted-foreground -mt-1 text-[13px] font-medium leading-[18px]" numberOfLines={1}>
-              {recent > 0 ? weekVisitsLabel(recent) : visitsLabel(game.visits)}
-            </Text>
-          ) : null}
-          <View className="flex-row items-center gap-2.5 pt-1">
-            <Button
-              className="h-11 min-w-28 rounded-full px-5"
-              onPress={() => onPlay(game)}
-              disabled={resolving}
-              accessibilityLabel={`Play ${game.title}`}
-            >
-              {resolving ? (
-                <ActivityIndicator size="small" color={spinnerColor} />
-              ) : (
-                <Icon as={PlayIcon} className="text-primary-foreground fill-primary-foreground size-4" />
-              )}
-              <Text className="font-bold">Play</Text>
-            </Button>
-            <Button
-              variant="secondary"
-              className="h-11 rounded-full px-5"
-              onPress={details}
-              accessibilityLabel={`${game.title} details`}
-            >
-              <Icon as={InfoIcon} className="text-secondary-foreground size-4" />
-              <Text className="font-semibold">Details</Text>
-            </Button>
-          </View>
-          {notice ? (
-            <Text
-              className="text-muted-foreground text-[13px] leading-[18px]"
-              numberOfLines={2}
-              accessibilityLiveRegion="polite"
-            >
-              {notice}
-            </Text>
-          ) : null}
-        </View>
-      </View>
     </View>
+  );
+});
+
+/** The text block for the game showing: chip, title, meta chips with the page dots, the visits line, the buttons. */
+const HeroInfo = memo(function HeroInfo({
+  game,
+  wide,
+  count,
+  page,
+  onPlay,
+  resolving,
+  notice,
+  live,
+  spinnerColor,
+}: {
+  game: HeroGame;
+  wide: boolean;
+  /** Pages in the hero and the one showing now: the dots at the end of the meta row (none with a single page). */
+  count: number;
+  page: number;
+  onPlay: (game: GameCard) => void;
+  resolving: boolean;
+  notice: string | null;
+  live: string | null;
+  spinnerColor: string;
+}) {
+  const details = () => router.push({ pathname: '/game/[id]', params: { id: game.id } });
+  const genre = game.genres[0];
+  const recent = game.recent_visits ?? 0;
+  return (
+    <>
+      <View className="flex-row" pointerEvents="none">
+        <Badge variant="subtle" accessibilityLabel="Trending">
+          <Icon as={TrendingUpIcon} className="text-foreground size-3" />
+          <Text>Trending</Text>
+        </Badge>
+      </View>
+      <Text
+        className={cn(
+          'text-foreground font-extrabold tracking-tight',
+          wide ? 'text-[30px] leading-[36px]' : 'text-[34px] leading-[40px]',
+        )}
+        role="heading"
+        numberOfLines={2}
+      >
+        {game.title}
+      </Text>
+      <View className="flex-row flex-wrap items-center gap-2" pointerEvents="none">
+        {genre ? (
+          <Badge variant="subtle">
+            <Text>{genreLabel(genre)}</Text>
+          </Badge>
+        ) : null}
+        <Badge variant="secondary" accessibilityLabel={playersLabel(game)}>
+          <Icon as={UsersIcon} className="text-secondary-foreground size-3" />
+          <Text>{playersLabel(game)}</Text>
+        </Badge>
+        <Badge variant="outline">
+          <Text>{game.age_rating}</Text>
+        </Badge>
+        {live ? (
+          <Badge variant="subtle" accessibilityLabel={live}>
+            <PresenceDot />
+            <Text>{live}</Text>
+          </Badge>
+        ) : null}
+        {count > 1 ? (
+          <PageDots
+            count={count}
+            index={page}
+            className="ml-auto"
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+          />
+        ) : null}
+      </View>
+      {recent > 0 || game.visits > 0 ? (
+        <Text className="text-muted-foreground -mt-1 text-[13px] font-medium leading-[18px]" numberOfLines={1}>
+          {recent > 0 ? weekVisitsLabel(recent) : visitsLabel(game.visits)}
+        </Text>
+      ) : null}
+      <View className="flex-row items-center gap-2.5 pt-1">
+        <Button
+          className="h-11 min-w-28 rounded-full px-5"
+          onPress={() => onPlay(game)}
+          disabled={resolving}
+          accessibilityLabel={`Play ${game.title}`}
+        >
+          {resolving ? (
+            <ActivityIndicator size="small" color={spinnerColor} />
+          ) : (
+            <Icon as={PlayIcon} className="text-primary-foreground fill-primary-foreground size-4" />
+          )}
+          <Text className="font-bold">Play</Text>
+        </Button>
+        <Button
+          variant="secondary"
+          className="h-11 rounded-full px-5"
+          onPress={details}
+          accessibilityLabel={`${game.title} details`}
+        >
+          <Icon as={InfoIcon} className="text-secondary-foreground size-4" />
+          <Text className="font-semibold">Details</Text>
+        </Button>
+      </View>
+      {notice ? (
+        <Text
+          className="text-muted-foreground text-[13px] leading-[18px]"
+          numberOfLines={2}
+          accessibilityLiveRegion="polite"
+        >
+          {notice}
+        </Text>
+      ) : null}
+    </>
   );
 });
 
