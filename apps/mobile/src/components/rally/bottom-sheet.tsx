@@ -5,6 +5,7 @@ import {
   useEffect,
   useEffectEvent,
   useId,
+  useMemo,
   useState,
   type ComponentProps,
   type ReactNode,
@@ -94,17 +95,21 @@ export function BottomSheet({
   );
 }
 
-/** Inside a sheet: asks it to slide away and close, as a swipe down does (SheetScrollView uses it). */
-const SheetCloseContext = createContext<(() => void) | null>(null);
+/**
+ * Inside a sheet: `requestClose` slides it away and closes it, as a swipe down does; `markScrollTouch` tells the sheet
+ * that the touch now starting is inside scrolling content, which keeps its own swipe out of the way (SheetScrollView).
+ */
+const SheetContext = createContext<{ requestClose: () => void; markScrollTouch: () => void } | null>(null);
 
 /**
  * A ScrollView for a sheet's content. iOS gives a drag that starts inside a scroll view to the scroll view (it cancels
  * the touch before the sheet's own swipe can take it), so there the swipe down is a pull past the top instead: pull the
  * content down past its top and let go, and the sheet closes like a swipe (lib/sheet-drag.ts). It always bounces, so
- * this works when the content fits too.
+ * this works when the content fits too. Its children sit in one wrapper (which takes `contentContainerClassName`) so
+ * every touch in them is known to be a scrolling one.
  */
-export function SheetScrollView({ onScrollEndDrag, ...props }: ScrollViewProps) {
-  const requestClose = useContext(SheetCloseContext);
+export function SheetScrollView({ onScrollEndDrag, contentContainerClassName, children, ...props }: ScrollViewProps) {
+  const sheet = useContext(SheetContext);
   return (
     <ScrollView
       alwaysBounceVertical
@@ -112,9 +117,19 @@ export function SheetScrollView({ onScrollEndDrag, ...props }: ScrollViewProps) 
       onScrollEndDrag={(e) => {
         onScrollEndDrag?.(e);
         const { contentOffset, velocity } = e.nativeEvent;
-        if (requestClose && sheetOverscrollCloses(contentOffset.y, velocity?.y ?? 0)) requestClose();
+        if (sheet && sheetOverscrollCloses(contentOffset.y, velocity?.y ?? 0)) sheet.requestClose();
       }}
-    />
+    >
+      <View
+        className={contentContainerClassName}
+        onStartShouldSetResponderCapture={() => {
+          sheet?.markScrollTouch();
+          return false;
+        }}
+      >
+        {children}
+      </View>
+    </ScrollView>
   );
 }
 
@@ -150,11 +165,26 @@ function SheetBody({
     if (open) drag.set(0);
   }, [open, drag]);
 
+  /** Whether the touch in progress started inside scrolling content (SheetScrollView marks it; reset per touch). */
+  const touchInScroll = useSharedValue(false);
+  const sheetContext = useMemo(
+    () => ({ requestClose, markScrollTouch: () => touchInScroll.set(true) }),
+    [requestClose, touchInScroll],
+  );
+
   // Swipe down to close: the sheet follows the finger, the backdrop fades with it; let go far enough (or flick) and it
-  // slides away and closes, else it springs back. Captured on a clear downward move, so taps and buttons work as usual.
+  // slides away and closes, else it springs back. A touch on the sheet's own surface (handle, title, text, artwork)
+  // makes it the responder at once, as the game menu's draggable button does; a touch on a button stays the button's
+  // until it clearly moves down, then the sheet takes it. Touches in scrolling content are left to the scroll view.
   const [pan] = useState(() =>
     PanResponder.create({
-      onMoveShouldSetPanResponderCapture: (_e, g) => sheetDragStarts(g.dx, g.dy),
+      onStartShouldSetPanResponderCapture: () => {
+        touchInScroll.set(false);
+        return false;
+      },
+      onStartShouldSetPanResponder: () => !touchInScroll.get(),
+      onMoveShouldSetPanResponderCapture: (_e, g) => !touchInScroll.get() && sheetDragStarts(g.dx, g.dy),
+      onMoveShouldSetPanResponder: (_e, g) => !touchInScroll.get() && sheetDragStarts(g.dx, g.dy),
       onPanResponderTerminationRequest: () => false,
       onPanResponderMove: (_e, g) => drag.set(sheetDragOffset(g.dy)),
       onPanResponderRelease: (_e, g) => {
@@ -202,40 +232,43 @@ function SheetBody({
           accessibilityLabel="Close"
         />
       </Animated.View>
-      <Animated.View
-        entering={SlideInDown.duration(260).reduceMotion(ReduceMotion.System)}
-        className="w-full max-w-md self-center"
-      >
+      {/* The animated views carry plain styles only (the transform, the column); the sheet's look is on the plain View
+          inside. Same split as the game menu's draggable button, whose drag works on iPhone. */}
+      <Animated.View entering={SlideInDown.duration(260).reduceMotion(ReduceMotion.System)} style={styles.column}>
         <Animated.View
           {...pan.panHandlers}
           onLayout={(e) => height.set(e.nativeEvent.layout.height)}
-          className={cn('bg-background border-border rounded-t-3xl border border-b-0 px-5 pt-2', className)}
-          style={[
-            {
-              paddingBottom: Math.max(insets.bottom, 16) + 8,
-              paddingLeft: insets.left + 20,
-              paddingRight: insets.right + 20,
-            },
-            sheetStyle,
-          ]}
+          style={sheetStyle}
           accessibilityViewIsModal
           onAccessibilityEscape={onClose}
         >
-          {/* Grabber: the muted foreground at 40 % (a token with an opacity modifier would compile to no colour on native). */}
-          <View className="bg-muted-foreground mb-4 h-1 w-10 self-center rounded-full opacity-40" />
-          <View className="mb-4 gap-1">
-            <Text className="text-xl font-bold leading-7 tracking-tight" role="heading">
-              {title}
-            </Text>
-            {typeof description === 'string' ? (
-              <Text className="text-muted-foreground text-sm leading-5">{description}</Text>
-            ) : (
-              description
-            )}
+          <View
+            className={cn('bg-background border-border rounded-t-3xl border border-b-0 px-5 pt-2', className)}
+            style={{
+              paddingBottom: Math.max(insets.bottom, 16) + 8,
+              paddingLeft: insets.left + 20,
+              paddingRight: insets.right + 20,
+            }}
+          >
+            {/* Grabber: the muted foreground at 40 % (a token with an opacity modifier would compile to no colour on native). */}
+            <View className="bg-muted-foreground mb-4 h-1 w-10 self-center rounded-full opacity-40" />
+            <View className="mb-4 gap-1">
+              <Text className="text-xl font-bold leading-7 tracking-tight" role="heading">
+                {title}
+              </Text>
+              {typeof description === 'string' ? (
+                <Text className="text-muted-foreground text-sm leading-5">{description}</Text>
+              ) : (
+                description
+              )}
+            </View>
+            <SheetContext.Provider value={sheetContext}>{children}</SheetContext.Provider>
           </View>
-          <SheetCloseContext.Provider value={requestClose}>{children}</SheetCloseContext.Provider>
         </Animated.View>
       </Animated.View>
     </KeyboardAvoidingView>
   );
 }
+
+/** The sheet's column: full width on a phone, a centred 28 rem one on wide windows. */
+const styles = StyleSheet.create({ column: { width: '100%', maxWidth: 448, alignSelf: 'center' } });

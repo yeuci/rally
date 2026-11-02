@@ -26,6 +26,8 @@ import { GameCover } from './game-cover';
 import { openPerson } from './person-row';
 import { ProfileAvatar, ProfileAvatarSkeleton } from './profile-avatar';
 import { HeaderAction, SectionHeader } from './section-header';
+import { RowPressable } from './settings-rows';
+import { RowHighlight } from './row-highlight';
 
 const TABULAR: TextStyle = { fontVariant: ['tabular-nums'] };
 
@@ -252,19 +254,24 @@ function PlayedGameRow({ game: g }: { game: PlayedGame }) {
       accessibilityRole="button"
       accessibilityLabel={[g.title, meta, when && `last played ${when}`].filter(Boolean).join(', ')}
       onPress={() => router.push({ pathname: '/game/[id]', params: { id: g.gameId } })}
-      className={cn(GAME_ROW, 'active:bg-accent')}
+      className={GAME_ROW}
     >
-      <GameCover id={g.gameId} title={g.title} uri={coverUriFor(g.art, 'tile')} showTitle={false} className="border-border size-12 rounded-xl border" />
-      <View className="shrink grow">
-        <Text className="text-[15px] font-semibold leading-5" numberOfLines={1}>
-          {g.title}
-        </Text>
-        <Text className="text-muted-foreground text-[13px] leading-[18px]" numberOfLines={1} style={TABULAR}>
-          {meta}
-        </Text>
-      </View>
-      {when ? <Text className="text-muted-foreground text-[12px]">{when}</Text> : null}
-      <Icon as={ChevronRightIcon} className="text-muted-foreground size-4" />
+      {({ pressed }) => (
+        <>
+          <RowHighlight pressed={pressed} />
+          <GameCover id={g.gameId} title={g.title} uri={coverUriFor(g.art, 'tile')} showTitle={false} className="border-border size-12 rounded-xl border" />
+          <View className="shrink grow">
+            <Text className="text-[15px] font-semibold leading-5" numberOfLines={1}>
+              {g.title}
+            </Text>
+            <Text className="text-muted-foreground text-[13px] leading-[18px]" numberOfLines={1} style={TABULAR}>
+              {meta}
+            </Text>
+          </View>
+          {when ? <Text className="text-muted-foreground text-[12px]">{when}</Text> : null}
+          <Icon as={ChevronRightIcon} className="text-muted-foreground size-4" />
+        </>
+      )}
     </TapPressable>
   );
 }
@@ -376,11 +383,10 @@ export function LinkRow({
   onPress: () => void;
 }) {
   return (
-    <TapPressable
+    <RowPressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={[label, value, badge && `${badge} new`].filter(Boolean).join(', ')}
-      className="active:bg-accent flex-row items-center gap-3.5 px-4 py-3"
     >
       <View className="bg-muted size-9 items-center justify-center rounded-xl">
         <Icon as={icon} className="text-secondary-foreground size-[18px]" />
@@ -397,6 +403,6 @@ export function LinkRow({
         </Text>
       ) : null}
       <Icon as={ChevronRightIcon} className="text-muted-foreground size-4" />
-    </TapPressable>
+    </RowPressable>
   );
 }

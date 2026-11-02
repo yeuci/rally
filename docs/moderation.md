@@ -105,7 +105,7 @@ A report that is no longer open is left alone: the same reporter reporting again
 
 ### The flow
 
-Profile → **Delete account** opens a sheet that lists what goes, says it cannot be undone, and enables the
+Settings → **Delete account** (at the bottom) opens a sheet that lists what goes, says it cannot be undone, and enables the
 destructive button only once the username is typed (any case, an `@` allowed). With a spinner, the app then:
 
 1. **Deletes the user's photos** under `avatars/<uid>/` through the Storage API (owners may list and delete their
@@ -164,5 +164,5 @@ cd packages\db
 npx supabase db push
 ```
 
-For App Review, the notes can point to **Profile → Delete account**, and to reporting on any profile (⋯ → Report)
+For App Review, the notes can point to **Settings → Delete account**, and to reporting on any profile (⋯ → Report)
 and in games (menu → People → a player → Report).

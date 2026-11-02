@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { View } from 'react-native';
 import { Icon } from '@/components/ui/icon';
 import { Switch } from '@/components/ui/switch';
-import { TapPressable } from '@/components/ui/tap-pressable';
+import { TapPressable, type TapPressableProps } from '@/components/ui/tap-pressable';
 import { Text } from '@/components/ui/text';
 import { cn } from '@/lib/utils';
 import { SectionHeader } from './section-header';
@@ -36,6 +36,27 @@ function RowIcon({ icon, destructive }: { icon: LucideIcon; destructive?: boolea
   );
 }
 
+/**
+ * The pressable part of a grouped row. Its press highlight is a rounded surface inset from the card's edges and from the
+ * hairlines between rows: a full-width highlight met the indented hairline under it at a step (a jagged notch below the
+ * icon). The insets add up to the rows' usual 16 × 12 padding, so nothing moves.
+ */
+export function RowPressable({
+  className,
+  children,
+  ...props
+}: Omit<TapPressableProps, 'children'> & { className?: string; children: ReactNode }) {
+  return (
+    <TapPressable {...props} className={cn('px-1.5 py-1', className)}>
+      {({ pressed }) => (
+        <View className={cn('flex-row items-center gap-3.5 rounded-xl px-2.5 py-2', pressed && 'bg-accent')}>
+          {children}
+        </View>
+      )}
+    </TapPressable>
+  );
+}
+
 /** A row that opens something: icon, label, optional value, chevron (none for destructive / `chevron={false}`). */
 export function SettingsRow({
   icon,
@@ -57,14 +78,14 @@ export function SettingsRow({
   chevron?: boolean;
 }) {
   return (
-    <TapPressable
+    <RowPressable
       onPress={onPress}
       disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={value ? `${label}, ${value}` : label}
       accessibilityHint={hint}
       accessibilityState={{ disabled: !!disabled }}
-      className={cn('active:bg-accent flex-row items-center gap-3.5 px-4 py-3', disabled && 'opacity-60')}
+      className={disabled ? 'opacity-60' : undefined}
     >
       <RowIcon icon={icon} destructive={destructive} />
       <Text className={cn('flex-1 text-[15px] font-medium', destructive && 'text-destructive')} numberOfLines={1}>
@@ -76,7 +97,7 @@ export function SettingsRow({
         </Text>
       ) : null}
       {chevron && <Icon as={ChevronRightIcon} className="text-muted-foreground size-4" />}
-    </TapPressable>
+    </RowPressable>
   );
 }
 
@@ -96,19 +117,18 @@ export function ToggleRow({
   onChange: (v: boolean) => void;
 }) {
   return (
-    <TapPressable
+    <RowPressable
       onPress={() => onChange(!value)}
       accessibilityRole="switch"
       accessibilityLabel={label}
       accessibilityState={{ checked: value }}
-      className="active:bg-accent flex-row items-center gap-3.5 px-4 py-3"
     >
       <RowIcon icon={icon} />
       <Text className="flex-1 text-[15px] font-medium">{label}</Text>
       <View pointerEvents="none" importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
         <Switch checked={value} onCheckedChange={onChange} />
       </View>
-    </TapPressable>
+    </RowPressable>
   );
 }
 

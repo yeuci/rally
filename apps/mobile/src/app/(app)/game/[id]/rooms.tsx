@@ -28,6 +28,7 @@ import { noticeFor, useLaunchGame } from '@/lib/use-launch-game';
 import { useColumnPadding, useLayout } from '@/lib/use-layout';
 import { usePalette } from '@/lib/use-palette';
 import { cn } from '@/lib/utils';
+import { RowHighlight } from '@/components/rally/row-highlight';
 
 /** How often the open list refreshes while the screen is in front (m3-phase2 §1). */
 const ROOMS_REFRESH_MS = 5000;
@@ -241,39 +242,44 @@ function RoomListRow({
       accessibilityHint={row.joinable ? 'Joins this room' : undefined}
       accessibilityState={{ disabled: disabled || !row.joinable, busy: joining }}
       className={cn(
-        'bg-card border-border active:bg-accent flex-row items-center gap-3 border-x px-4 py-3.5',
+        'bg-card border-border flex-row items-center gap-3 border-x px-4 py-3.5',
         first && 'rounded-t-2xl border-t',
         last && 'rounded-b-2xl border-b',
       )}
     >
-      <View className={cn('shrink grow gap-1', !row.joinable && 'opacity-50')}>
-        <Text className="text-[15px] font-semibold leading-5" numberOfLines={1}>
-          {row.name}
-        </Text>
-        <View className="flex-row items-center gap-2">
-          <Icon as={UsersIcon} className="text-muted-foreground size-3.5" />
-          <Text className="text-muted-foreground text-[13px] tabular-nums leading-[18px]">
-            {row.playersLabel}
-            {row.joinable ? '' : ' · Full'}
-          </Text>
-          <Badge variant={row.phase === 'waiting' ? 'subtle' : 'outline'}>
-            <Text>{row.phaseLabel}</Text>
-          </Badge>
-        </View>
-        {row.statusLabel ? (
-          <Text className="text-muted-foreground text-[13px] tabular-nums leading-[18px]" numberOfLines={1}>
-            {row.statusLabel}
-          </Text>
-        ) : null}
-      </View>
-      {joining ? (
-        <ActivityIndicator color={spinnerColor} />
-      ) : row.joinable ? (
-        <View className="flex-row items-center gap-1">
-          <Text className="text-[15px] font-semibold">Join</Text>
-          <Icon as={ChevronRightIcon} className="text-muted-foreground size-4" />
-        </View>
-      ) : null}
+      {({ pressed }) => (
+        <>
+          <RowHighlight pressed={pressed} />
+          <View className={cn('shrink grow gap-1', !row.joinable && 'opacity-50')}>
+            <Text className="text-[15px] font-semibold leading-5" numberOfLines={1}>
+              {row.name}
+            </Text>
+            <View className="flex-row items-center gap-2">
+              <Icon as={UsersIcon} className="text-muted-foreground size-3.5" />
+              <Text className="text-muted-foreground text-[13px] tabular-nums leading-[18px]">
+                {row.playersLabel}
+                {row.joinable ? '' : ' · Full'}
+              </Text>
+              <Badge variant={row.phase === 'waiting' ? 'subtle' : 'outline'}>
+                <Text>{row.phaseLabel}</Text>
+              </Badge>
+            </View>
+            {row.statusLabel ? (
+              <Text className="text-muted-foreground text-[13px] tabular-nums leading-[18px]" numberOfLines={1}>
+                {row.statusLabel}
+              </Text>
+            ) : null}
+          </View>
+          {joining ? (
+            <ActivityIndicator color={spinnerColor} />
+          ) : row.joinable ? (
+            <View className="flex-row items-center gap-1">
+              <Text className="text-[15px] font-semibold">Join</Text>
+              <Icon as={ChevronRightIcon} className="text-muted-foreground size-4" />
+            </View>
+          ) : null}
+        </>
+      )}
     </TapPressable>
   );
 }

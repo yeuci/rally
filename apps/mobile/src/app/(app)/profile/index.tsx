@@ -7,14 +7,12 @@ import {
   PencilIcon,
   SettingsIcon,
   StoreIcon,
-  Trash2Icon,
   UsersIcon,
   WrenchIcon,
 } from 'lucide-react-native';
 import { useState } from 'react';
 import { RefreshControl, ScrollView, View } from 'react-native';
 import { CoinBalancePill } from '@/components/rally/coins';
-import { DeleteAccountSheet } from '@/components/rally/delete-account-sheet';
 import { ErrorText } from '@/components/rally/form-field';
 import { Glow } from '@/components/rally/glow';
 import { LogoMark } from '@/components/rally/logo';
@@ -45,7 +43,6 @@ export default function ProfileScreen() {
   const column = useColumnPadding();
   const glow = Math.min(width, 700) * 1.1;
   const profile = useProfile();
-  const [deleteOpen, setDeleteOpen] = useState(false);
   const { signingOut, error: signOutError, signOut } = useSignOut();
   const p = profile.data;
   const palette = usePalette();
@@ -156,24 +153,12 @@ export default function ProfileScreen() {
       </SettingsGroup>
       <ErrorText>{signOutError}</ErrorText>
 
-      <SettingsGroup>
-        <SettingsRow icon={Trash2Icon} label="Delete account" destructive onPress={() => setDeleteOpen(true)} disabled={!p} />
-      </SettingsGroup>
-
       <View className="flex-row items-center justify-center gap-1.5 opacity-70">
         <LogoMark size={16} />
         <Text variant="muted" className="text-xs">
           Rally {config.appVersion}
         </Text>
       </View>
-
-      {/* In-app deletion (App Store 5.1.1(v)): photos, then delete_my_account(), then a local sign-out. */}
-      <DeleteAccountSheet
-        open={deleteOpen}
-        onClose={() => setDeleteOpen(false)}
-        userId={p?.id ?? null}
-        username={p?.username ?? null}
-      />
     </ScrollView>
   );
 }
