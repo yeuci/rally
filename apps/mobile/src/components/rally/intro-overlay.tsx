@@ -47,9 +47,10 @@ const SAFETY_MS = 4000;
  * white mark at `SPLASH.imageWidth`, centred in the window on `SPLASH.backgroundColor`, whatever the theme). Once it
  * has laid out and a frame has passed, it hides the native splash (no visible change), holds still until the first
  * screen has settled, turns the mark once around, zooms it ~14× as the turn lands while it and the background fade,
- * revealing the page, then unmounts. Blocks touches only while it runs (about 1–2 s).
+ * revealing the page, then unmounts. Blocks touches only while it runs (about 1–2 s). `onDone` (the Developer page's
+ * preview, which plays it in a modal) hears when it has finished; the root layout passes nothing.
  */
-export function IntroOverlay() {
+export function IntroOverlay({ onDone }: { onDone?: () => void } = {}) {
   const reduceMotion = useReducedMotion();
   const [done, setDone] = useState(false);
   const started = useRef(false);
@@ -67,6 +68,10 @@ export function IntroOverlay() {
     }, SAFETY_MS);
     return () => clearTimeout(t);
   }, []);
+
+  useEffect(() => {
+    if (done) onDone?.();
+  }, [done, onDone]);
 
   const markStyle = useAnimatedStyle(() => ({
     opacity: markOpacity.value,

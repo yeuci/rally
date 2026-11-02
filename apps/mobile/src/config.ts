@@ -9,13 +9,13 @@ const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 export const config = {
   supabaseUrl,
   supabaseAnonKey,
-  /** False when the env vars are missing: auth screens say so and only the Developer launcher works. */
+  /** False when the env vars are missing: auth screens say so and only the Developer page works. */
   supabaseConfigured: supabaseUrl.length > 0 && supabaseAnonKey.length > 0,
   colyseusUrl: (process.env.EXPO_PUBLIC_COLYSEUS_URL ?? 'http://localhost:2567').replace(/\/$/, ''),
   /** The web catalog's origin (apps/web `SITE_ORIGIN`): the game page's Share adds `<origin>/game/<id>` when set. */
   webOrigin: normalizeWebOrigin(process.env.EXPO_PUBLIC_WEB_ORIGIN),
   spikeBundleUrl: process.env.EXPO_PUBLIC_SPIKE_BUNDLE_URL ?? 'http://localhost:5180/index.html',
-  /** Developer launcher (M0 spike path). Always on in __DEV__; opt-in for internal preview builds. */
+  /** The Developer page (`/dev`) and its game launcher. Always on in __DEV__; opt-in for internal preview builds. */
   devTools: __DEV__ || process.env.EXPO_PUBLIC_DEV_TOOLS === '1',
   /**
    * Shake to report a bug, the log buffer and Settings → Developer (docs/bug-reports.md). Always on in __DEV__; opt-in

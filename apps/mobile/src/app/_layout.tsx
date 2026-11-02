@@ -37,8 +37,8 @@ void applyShellOrientation();
 
 /**
  * Session gate: `(app)` needs a signed-in (non-anonymous) session, `(auth)` is for everyone else. `auth/*` holds the
- * deep-link targets (OAuth / email callbacks, password reset) and is reachable either way. `dev` is the M0
- * launcher, available without an account in dev builds.
+ * deep-link targets (OAuth / email callbacks, password reset) and is reachable either way. `dev` is the Developer
+ * page (and its game launcher), available without an account in dev builds.
  */
 export default function RootLayout() {
   const { theme } = useUniwind();
