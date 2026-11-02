@@ -23,7 +23,7 @@ export type Game = Tables<'games'>;
  * game page selects `*`.
  */
 const CARD =
-  'id, title, description, genres, icon_url, cover_url, screenshots, min_players, max_players, age_rating, featured_rank, created_at, visits' as const;
+  'id, title, description, genres, icon_url, cover_url, feature_url, screenshots, min_players, max_players, age_rating, featured_rank, created_at, visits' as const;
 export type GameCard = Pick<
   Game,
   | 'id'
@@ -32,6 +32,7 @@ export type GameCard = Pick<
   | 'genres'
   | 'icon_url'
   | 'cover_url'
+  | 'feature_url'
   | 'screenshots'
   | 'min_players'
   | 'max_players'

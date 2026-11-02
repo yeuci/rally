@@ -55,8 +55,9 @@ function wideColumn(width: number) {
 
 /**
  * The dashboard's full-bleed trending hero (lib/catalog.ts `useTrendingGames`): the window's full width, from the top
- * of the window (under the status bar and the floating top bar). Only the art pages: a horizontal pager of covers
- * (`coverUriFor(game, 'feature')`, else generated art) under one static scrim that shades the top
+ * of the window (under the status bar and the floating top bar). Only the art pages: a horizontal pager of key art
+ * (`coverUriFor`: the tall feature art on a phone, the wide cover on a wide window, else generated art) under one
+ * static scrim that shades the top
  * for the bar and fades into the page background. The text block (Trending chip, title, meta chips with the page dots
  * at their end, a quiet "1.2K visits this week" line or the all-time count, Play / Details) stays put over the art and
  * cross-fades to the next game's as the page changes: mid-swipe once the next page is more than half across, and as
@@ -143,8 +144,8 @@ export function DashboardHero({
   };
 
   const renderItem = useCallback<ListRenderItem<HeroGame>>(
-    ({ item }) => <HeroArt game={item} width={width} height={height} />,
-    [width, height],
+    ({ item }) => <HeroArt game={item} width={width} height={height} wide={wide} />,
+    [width, height, wide],
   );
   const currentGame = games[current];
   // Until the text block is measured: the top half, always clear of it.
@@ -259,14 +260,27 @@ const INFO_OUT = FadeOut.duration(160).reduceMotion(ReduceMotion.System);
 /** A hero page's game: a card, plus its launches over the trending window when the catalog knows them. */
 export type HeroGame = GameCard & { recent_visits?: number };
 
-/** One page of art. Tapping it opens the game page, like Details. */
-const HeroArt = memo(function HeroArt({ game, width, height }: { game: HeroGame; width: number; height: number }) {
+/**
+ * One page of art: the tall feature art on a phone, the wide cover on a wide window (lib/game-art.ts). Tapping it
+ * opens the game page, like Details.
+ */
+const HeroArt = memo(function HeroArt({
+  game,
+  width,
+  height,
+  wide,
+}: {
+  game: HeroGame;
+  width: number;
+  height: number;
+  wide: boolean;
+}) {
   return (
     <View style={{ width, height }}>
       <GameCover
         id={game.id}
         title={game.title}
-        uri={coverUriFor(game, 'feature')}
+        uri={coverUriFor(game, wide ? 'banner' : 'feature')}
         variant="feature"
         showTitle={false}
         scrim="none"

@@ -121,9 +121,31 @@ test('planArt hashes local files from the game folder, keys them by content and 
     'cover art/shot-1.png is 90×160 (0.56:1); covers should be wide, 1.2–2.4:1 (recommended 1920×1080)',
   ]);
 
+  // Feature art is uploaded like the cover and should be about 4:5: a 16:9 shot and a 9:16 phone screenshot both
+  // warn (the hero would crop either), the 4:5 feature.png does not.
+  await editManifest(gameDir, { icon: undefined, cover: undefined, feature: 'art/shot-2.webp', screenshots: [] });
+  const wideFeature = await planArt({ manifest: await loadManifest(gameDir), gameDir, supabaseUrl: SUPABASE_URL });
+  assert.deepEqual(
+    wideFeature.uploads.map((u) => u.usedBy),
+    [['feature']],
+  );
+  assert.deepEqual(wideFeature.warnings, [
+    'feature art/shot-2.webp is 160×90 (1.78:1); feature art should be tall, 0.6–0.9:1 (recommended 1200×1500)',
+  ]);
+  await editManifest(gameDir, { feature: 'art/shot-1.png', screenshots: [] });
+  assert.deepEqual(
+    (await planArt({ manifest: await loadManifest(gameDir), gameDir, supabaseUrl: SUPABASE_URL })).warnings,
+    ['feature art/shot-1.png is 90×160 (0.56:1); feature art should be tall, 0.6–0.9:1 (recommended 1200×1500)'],
+  );
+  await editManifest(gameDir, { feature: 'art/feature.png', screenshots: [] });
+  const tallFeature = await planArt({ manifest: await loadManifest(gameDir), gameDir, supabaseUrl: SUPABASE_URL });
+  assert.deepEqual(tallFeature.warnings, []);
+  assert.deepEqual([tallFeature.uploads[0]!.width, tallFeature.uploads[0]!.height], [80, 100]);
+  assert.equal(applyArtUrls(await loadManifest(gameDir), tallFeature.uploads).feature, tallFeature.uploads[0]!.url);
+
   // A file that is not what its extension says only warns.
   await writeFile(path.join(gameDir, 'art', 'fake.png'), 'definitely not a png');
-  await editManifest(gameDir, { icon: undefined, cover: undefined, screenshots: ['art/fake.png'] });
+  await editManifest(gameDir, { icon: undefined, cover: undefined, feature: undefined, screenshots: ['art/fake.png'] });
   const fake = await planArt({ manifest: await loadManifest(gameDir), gameDir, supabaseUrl: SUPABASE_URL });
   assert.equal(fake.uploads.length, 1);
   assert.match(fake.warnings[0]!, /screenshots\[0\] art\/fake\.png: could not read the image size/);

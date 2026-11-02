@@ -232,10 +232,13 @@ test('manifest art: icon, cover and screenshots take absolute URLs or local path
   assert.equal(m.icon, 'art/icon.png');
   assert.equal(m.cover, './art/cover.JPG');
   assert.equal(m.screenshots.length, 3);
+  assert.equal(GameManifestSchema.parse({ ...base, feature: 'art/feature.webp' }).feature, 'art/feature.webp');
+  assert.equal(GameManifestSchema.safeParse({ ...base, feature: 'art/feature.gif' }).success, false);
   // Optional: absent when not set.
   const bare = GameManifestSchema.parse(base);
   assert.equal(bare.icon, undefined);
   assert.equal(bare.cover, undefined);
+  assert.equal(bare.feature, undefined);
   assert.deepEqual(bare.screenshots, []);
 
   const bad = (field: 'icon' | 'cover', value: string) =>

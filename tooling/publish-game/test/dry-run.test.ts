@@ -77,6 +77,8 @@ test('dry run end to end against the real spike build', { timeout: 60_000 }, asy
     screenshots: written.db.games.screenshots,
     icon_url: written.db.games.icon_url,
     cover_url: written.db.games.cover_url,
+    // No feature art yet: the hero falls back to the cover.
+    feature_url: null,
     engine: 'playcanvas',
     orientation: 'landscape',
     min_players: 1,

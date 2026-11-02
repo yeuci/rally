@@ -28,7 +28,7 @@ export type GameCapability = z.infer<typeof GameCapability>;
 const semver = z.string().regex(/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/, 'expected semver');
 const slug = z.string().regex(/^[a-z][a-z0-9-]{1,31}$/, 'expected a lowercase slug');
 
-/** File extensions accepted for game artwork (icon, cover, screenshots). */
+/** File extensions accepted for game artwork (icon, cover, feature, screenshots). */
 export const ART_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp'] as const;
 
 /** Anything that starts with a URL scheme (`https:`, `javascript:`, `data:` …) is treated as a URL, not a path. */
@@ -78,10 +78,10 @@ export type ManifestFile = z.infer<typeof ManifestFileSchema>;
  * `games/<slug>/game.json`. The publish step fills `sizeBytes` and `files`.
  *
  * `title`, `description`, `genres` and `screenshots` are catalog fields: `tooling/publish-game`
- * upserts them into the `games` table (same column names) on every publish; `icon` and `cover` go to
- * `games.icon_url` / `games.cover_url`.
+ * upserts them into the `games` table (same column names) on every publish; `icon`, `cover` and `feature` go to
+ * `games.icon_url` / `games.cover_url` / `games.feature_url`.
  *
- * Artwork (`icon`, `cover`, `screenshots`) is either an absolute URL or a local file in the game folder
+ * Artwork (`icon`, `cover`, `feature`, `screenshots`) is either an absolute URL or a local file in the game folder
  * (`art/icon.png`); see {@link GameArtRef}. The publish step uploads local files and stores URLs.
  */
 export const GameManifestSchema = z.object({
@@ -98,8 +98,13 @@ export const GameManifestSchema = z.object({
     .default([]),
   /** Square thumbnail for dashboard tiles (`games.icon_url`). Recommended 1024×1024. */
   icon: GameArtRef.optional(),
-  /** Wide key art for the featured card and the game page hero (`games.cover_url`). Recommended 1920×1080. */
+  /** Wide key art for the category cards and the game page hero (`games.cover_url`). Recommended 1920×1080. */
   cover: GameArtRef.optional(),
+  /**
+   * Tall key art for the dashboard hero on phones (`games.feature_url`): the subject in the top two thirds, a calmer
+   * bottom-left where the title and buttons sit. Recommended 1200×1500 (4:5). Without one the hero shows the cover.
+   */
+  feature: GameArtRef.optional(),
   /** Screenshots for the game page gallery (`games.screenshots`), in order. At device resolution; 3–5 is plenty. */
   screenshots: z.array(GameArtRef).max(16).default([]),
   engine: GameEngine,

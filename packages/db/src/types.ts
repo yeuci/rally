@@ -825,6 +825,7 @@ export type Database = {
           current_version_id: string | null
           description: string
           engine: Database["public"]["Enums"]["game_engine"]
+          feature_url: string | null
           featured_rank: number | null
           genres: string[]
           icon_url: string | null
@@ -847,6 +848,7 @@ export type Database = {
           current_version_id?: string | null
           description?: string
           engine: Database["public"]["Enums"]["game_engine"]
+          feature_url?: string | null
           featured_rank?: number | null
           genres?: string[]
           icon_url?: string | null
@@ -869,6 +871,7 @@ export type Database = {
           current_version_id?: string | null
           description?: string
           engine?: Database["public"]["Enums"]["game_engine"]
+          feature_url?: string | null
           featured_rank?: number | null
           genres?: string[]
           icon_url?: string | null
@@ -1827,6 +1830,7 @@ export type Database = {
           cover_url: string
           created_at: string
           description: string
+          feature_url: string
           featured_rank: number
           genres: string[]
           icon_url: string

@@ -523,6 +523,7 @@ test('executePublish without art never lists the art folder', async () => {
   const row = calls.find((c) => c.path === '/rest/v1/games' && c.method === 'POST')!.body as Record<string, unknown>;
   assert.equal(row.icon_url, null);
   assert.equal(row.cover_url, null);
+  assert.equal(row.feature_url, null);
 });
 
 test('executePublish retries an upload that got no answer or a 408 / 429 / 5xx, upserting on the retries', async () => {

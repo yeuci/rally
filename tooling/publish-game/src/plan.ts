@@ -22,9 +22,10 @@ export interface GamesRow {
   genres: string[];
   /** CDN URLs (local game.json paths are uploaded and rewritten first). */
   screenshots: string[];
-  /** null clears an icon / cover that was removed from game.json. */
+  /** null clears an icon / cover / feature that was removed from game.json. */
   icon_url: string | null;
   cover_url: string | null;
+  feature_url: string | null;
   engine: GameManifest['engine'];
   orientation: GameManifest['orientation'];
   min_players: number;
@@ -139,6 +140,7 @@ export function gamesRowFromManifest(m: GameManifest): GamesRow {
     screenshots: m.screenshots,
     icon_url: m.icon ?? null,
     cover_url: m.cover ?? null,
+    feature_url: m.feature ?? null,
     engine: m.engine,
     orientation: m.orientation,
     min_players: m.players.min,
@@ -165,6 +167,7 @@ export function applyArtUrls(m: GameManifest, uploads: readonly PlannedArtUpload
     ...m,
     ...(m.icon !== undefined && { icon: resolve('icon', m.icon) }),
     ...(m.cover !== undefined && { cover: resolve('cover', m.cover) }),
+    ...(m.feature !== undefined && { feature: resolve('feature', m.feature) }),
     screenshots: m.screenshots.map((s, i) => resolve(`screenshots[${i}]`, s)),
     achievements: m.achievements.map((a, i) =>
       a.icon !== undefined && isAchievementIconFile(a.icon)

@@ -6,10 +6,12 @@ import { PublishError } from './errors.ts';
 import { sha256Hex } from './hash.ts';
 import { BUCKET, contentTypeFor, publicObjectUrl } from './plan.ts';
 
-/** Largest art file the publisher accepts (each of icon, cover, screenshots). */
+/** Largest art file the publisher accepts (each of icon, cover, feature, screenshots). */
 export const MAX_ART_BYTES = 2 * 1024 * 1024;
 /** Covers outside this width/height range only produce a warning. */
 export const COVER_ASPECT = { min: 1.2, max: 2.4 } as const;
+/** Feature art (the phone hero) should be tall: width / height between these (recommended 1200×1500, 4:5). */
+export const FEATURE_ASPECT = { min: 0.6, max: 0.9 } as const;
 
 /**
  * A local art file from game.json, uploaded content-addressed to `games/<slug>/art/<name>-<sha256[0:12]>.<ext>`.
@@ -35,7 +37,7 @@ export interface PlannedArtUpload {
 
 export interface ArtPlan {
   uploads: PlannedArtUpload[];
-  /** Non-fatal problems (icon not square, cover aspect ratio, unreadable size). */
+  /** Non-fatal problems (icon not square, cover or feature aspect ratio, unreadable size). */
   warnings: string[];
 }
 
@@ -53,6 +55,7 @@ function artRefs(m: GameManifest): { field: string; value: string }[] {
   const refs: { field: string; value: string }[] = [];
   if (m.icon !== undefined) refs.push({ field: 'icon', value: m.icon });
   if (m.cover !== undefined) refs.push({ field: 'cover', value: m.cover });
+  if (m.feature !== undefined) refs.push({ field: 'feature', value: m.feature });
   m.screenshots.forEach((value, i) => refs.push({ field: `screenshots[${i}]`, value }));
   m.achievements.forEach((a, i) => {
     if (a.icon !== undefined && isAchievementIconFile(a.icon))
@@ -149,6 +152,14 @@ function checkShape(field: string, u: PlannedArtUpload, warnings: string[]): voi
     if (ratio < COVER_ASPECT.min || ratio > COVER_ASPECT.max) {
       warnings.push(
         `cover ${u.source} is ${size} (${ratio.toFixed(2)}:1); covers should be wide, ${COVER_ASPECT.min}–${COVER_ASPECT.max}:1 (recommended 1920×1080)`,
+      );
+    }
+  }
+  if (field === 'feature') {
+    const ratio = u.width / u.height;
+    if (ratio < FEATURE_ASPECT.min || ratio > FEATURE_ASPECT.max) {
+      warnings.push(
+        `feature ${u.source} is ${size} (${ratio.toFixed(2)}:1); feature art should be tall, ${FEATURE_ASPECT.min}–${FEATURE_ASPECT.max}:1 (recommended 1200×1500)`,
       );
     }
   }
