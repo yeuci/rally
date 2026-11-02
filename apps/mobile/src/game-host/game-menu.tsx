@@ -28,6 +28,7 @@ import { Switch } from '@/components/ui/switch';
 import { Text } from '@/components/ui/text';
 import { BRAND } from '@/lib/brand';
 import { useFriendship } from '@/lib/friends';
+import { prefs, usePrefs } from '@/lib/prefs';
 import { formatJoinCode, roomCodeShareMessage, spokenJoinCode } from '@/lib/join-code-input';
 import { supabase } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
@@ -48,8 +49,9 @@ import { useViewport } from '@/lib/viewport';
  * game is multiplayer, Settings, How to play), Leave game and Resume. Always dark (it sits on the game, whatever the
  * app's theme). Works in landscape (most games) and portrait, inside the safe area.
  *
- * - **Settings**: the platform ones (volume master / music / effects, graphics Auto / Low / Medium / High, haptics),
- *   then the game's own from `menu.define`. Sliders report while dragging (`final` false) and once on release.
+ * - **Settings**: the platform ones (volume master / music / effects, graphics Auto / Low / Medium / High, the Show
+ *   FPS counter (the app preference, lib/prefs.ts: the host applies it live), haptics), then the game's own from
+ *   `menu.define`. Sliders report while dragging (`final` false) and once on release.
  * - **How to play**: the game's help entries, or a short empty state.
  * - **People**: `menu.players` rows; rows with a Rally user id open a small profile peek with Add friend and Report
  *   (no navigation away from the game). The private room's code with Copy / Share when the play screen knows it.
@@ -352,6 +354,7 @@ function SettingsTab({
   onButtonTuckedChange?: (tucked: boolean) => void;
 }) {
   const { platform } = settings;
+  const { showFps } = usePrefs();
   const volume = (key: keyof typeof platform.volume, label: string) => (
     <SliderRow
       key={key}
@@ -384,6 +387,12 @@ function SettingsTab({
             ? `Auto picks ${GRAPHICS_LABEL[settings.auto]} on this device.`
             : 'Lower settings run smoother and save battery.'}
         </Text>
+        <ToggleRow
+          label="Show FPS"
+          caption="A frame-rate counter beside the menu button"
+          value={showFps}
+          onChange={(v) => prefs.update({ showFps: v })}
+        />
       </Section>
       <Section title="Controls">
         <ToggleRow
