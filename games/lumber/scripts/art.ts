@@ -10,12 +10,13 @@
  *
  *   icon.webp     1024×1024  the player on the move with a tall stack of planks, close up, no HUD
  *   cover.webp    1920×1080  the camp mid-shift: mills, haulers, builders queueing at the counter, no HUD
+ *   feature.webp  1200×1500  tall key art: the player hauling a high stack down to the counter and its queue, no HUD
  *   shot-1.webp   1170×2532  the first seconds of a shift, with the tutorial hint (iPhone portrait, 390×844 @3×)
  *   shot-2.webp   1170×2532  a busy camp: a sale at the till, upgrades in, builders queueing
  *   shot-3.webp   1170×2532  the shift-over card
  *
- * WebP is encoded by Chromium (canvas.toBlob), stepping the quality down until a file fits its budget (icon and cover
- * ≤ 400 KB, screenshots ≤ 500 KB). Env: LUMBER_URL (default http://localhost:5195/), ART_ONLY=icon,cover,… for a
+ * WebP is encoded by Chromium (canvas.toBlob), stepping the quality down until a file fits its budget (icon, cover and
+ * feature ≤ 400 KB, screenshots ≤ 500 KB). Env: LUMBER_URL (default http://localhost:5195/), ART_ONLY=icon,cover,… for a
  * subset.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -56,7 +57,7 @@ const { chromium } = createRequire(import.meta.url)('playwright') as {
 };
 
 interface Shot {
-  name: 'icon' | 'cover' | 'start' | 'busy' | 'over';
+  name: 'icon' | 'cover' | 'feature' | 'start' | 'busy' | 'over';
   file: string;
   width: number;
   height: number;
@@ -125,6 +126,28 @@ const SHOTS: Shot[] = [
         's.customers.length >= 3 && s.player.moving && (s.player.carry = Math.max(s.player.carry, 9)) > 0',
       );
       await page.evaluate('window.__lumber.artView({ zoom: 0.95, at: { x: 0, z: 0.1 } })');
+    },
+  },
+  {
+    // The dashboard hero (4:5, a title block over the bottom left): the player with a high stack heading down to
+    // the counter and the builders queueing at it, in the top two thirds; the yard's floor stays calm below.
+    name: 'feature',
+    file: 'feature.webp',
+    width: 1200,
+    height: 1500,
+    maxBytes: 400 * KB,
+    viewport: { width: 600, height: 750 },
+    dpr: 2,
+    hud: false,
+    async stage(page) {
+      await playTo(page, 150);
+      await holdWhen(
+        page,
+        's.customers.length >= 3 && s.player.moving && s.player.x > -0.6 && s.player.z > -1.2 && ' +
+          's.player.z < 0.8 && s.haulers.every((h) => Math.hypot(h.x - s.player.x, h.z - s.player.z) > 1.6) && ' +
+          '(s.player.carry = Math.max(s.player.carry, 9)) > 0',
+      );
+      await page.evaluate('window.__lumber.artView({ zoom: 0.85, at: { x: 0.2, z: 1 } })');
     },
   },
   {
@@ -266,7 +289,7 @@ async function capture(browser: Browser, encoder: Page, shot: Shot) {
     // machine has it.
     await page.addStyleTag({
       content:
-        '#rally-dev-harness, [data-rally-dev-harness] { display: none !important; }\n' +
+        '#rally-dev-harness, [data-rally-dev-harness], #rally-harness-menu { display: none !important; }\n' +
         "body { font-family: ui-rounded, 'SF Pro Rounded', 'Inter', system-ui, sans-serif !important; }",
     });
     await page.waitForSelector('#loading', { state: 'hidden', timeout: 90_000 });
