@@ -26,6 +26,7 @@ import { GameCover } from './game-cover';
 import { openPerson } from './person-row';
 import { ProfileAvatar, ProfileAvatarSkeleton } from './profile-avatar';
 import { HeaderAction, SectionHeader } from './section-header';
+import { RowPressable } from './settings-rows';
 
 const TABULAR: TextStyle = { fontVariant: ['tabular-nums'] };
 
@@ -376,11 +377,10 @@ export function LinkRow({
   onPress: () => void;
 }) {
   return (
-    <TapPressable
+    <RowPressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={[label, value, badge && `${badge} new`].filter(Boolean).join(', ')}
-      className="active:bg-accent flex-row items-center gap-3.5 px-4 py-3"
     >
       <View className="bg-muted size-9 items-center justify-center rounded-xl">
         <Icon as={icon} className="text-secondary-foreground size-[18px]" />
@@ -397,6 +397,6 @@ export function LinkRow({
         </Text>
       ) : null}
       <Icon as={ChevronRightIcon} className="text-muted-foreground size-4" />
-    </TapPressable>
+    </RowPressable>
   );
 }
