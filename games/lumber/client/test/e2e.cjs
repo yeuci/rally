@@ -75,12 +75,21 @@ const lumber = (page, expr) => page.evaluate(`window.__lumber.${expr}`);
 const local = (page, key) => page.evaluate((k) => JSON.parse(localStorage.getItem(k) || 'null'), key);
 
 /** Hold a joystick drag from (x, y) by (dx, dy) CSS px for `ms`, then release. */
-async function drag(page, x, y, dx, dy, ms) {
+/**
+ * Press at (x, y), drag by (dx, dy) and hold the stick there until `until` (a page function, given `arg`) holds, then
+ * let go. Holding until something happened rather than for a fixed time: on a slow runner the first frames after boot
+ * can take seconds (shaders compile in software), and a frame's game time is capped, so a fixed hold may cover too
+ * little game time to walk anywhere.
+ */
+async function drag(page, x, y, dx, dy, until, arg) {
   await page.mouse.move(x, y);
   await page.mouse.down();
   for (let i = 1; i <= 5; i++) await page.mouse.move(x + (dx * i) / 5, y + (dy * i) / 5);
-  await page.waitForTimeout(ms);
-  await page.mouse.up();
+  try {
+    await page.waitForFunction(until, arg, { timeout: 30_000 });
+  } finally {
+    await page.mouse.up();
+  }
 }
 
 async function main() {
@@ -118,7 +127,18 @@ async function main() {
 
     // 2. A drag starts the shift and walks the player (down-left on screen = +z, -x in the camp).
     const before = await lumber(page, 'player');
-    await drag(page, 200, 420, -40, 40, 500);
+    await drag(
+      page,
+      200,
+      420,
+      -40,
+      40,
+      (b) => {
+        const p = window.__lumber.player;
+        return p.x < b.x - 0.5 && p.z > b.z + 0.5;
+      },
+      before,
+    );
     assert.equal(await lumber(page, 'phase'), 'playing');
     assert.ok(await page.isHidden('#prompt'));
     const after = await lumber(page, 'player');
@@ -240,7 +260,7 @@ async function main() {
     assert.equal(await lumber(page, 'mode'), 'rush');
     assert.equal(await lumber(page, 'earned'), 0);
     assert.equal(await page.textContent('#clock'), '2:00');
-    await drag(page, 200, 420, 0, -40, 300);
+    await drag(page, 200, 420, 0, -40, () => window.__lumber.phase === 'playing');
     assert.equal(await lumber(page, 'phase'), 'playing');
     assert.ok(await page.isHidden('#hint'), 'no tutorial on the second shift');
     assert.ok(await page.isHidden('#modes'), 'the mode picker goes once the shift starts');

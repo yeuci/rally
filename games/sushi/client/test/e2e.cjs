@@ -246,6 +246,8 @@ async function main() {
     await standAt(alice, 'guest-Alice', STAND.mat, ST.mat);
     await tap(alice);
     await alice.waitForFunction(() => window.__sushi.station(21)?.mat.length === 2, null, { timeout: 5_000 });
+    // The label is redrawn on the next frame after the mat's state arrives: wait for it rather than read it at once.
+    await alice.waitForFunction(() => window.__sushi.action === 'Roll', null, { timeout: 5_000 }).catch(() => {});
     assert.equal(await probe(alice, 'action'), 'Roll', 'the button says what a hold will do');
     await holdUntil(alice, () => window.__sushi.station(21)?.item?.kind === 21, 'roll the nigiri');
     await tap(alice);

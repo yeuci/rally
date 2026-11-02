@@ -43,16 +43,19 @@ jobs:
 
   e2e:
     # The Playwright end-to-end checks a contributor runs by hand (`pnpm --filter <pkg> test:e2e`): the dev harness
-    # with the spike, Stack, Lumber Camp, Sumo, Overrun, Gun Run, and Sushi Shift with two players against a real game server.
-    # Each script starts the Vite dev server (and the Colyseus server) it needs. Playwright is not a workspace dependency: it is
-
-    # installed globally (pinned) and found through NODE_PATH, as in the dev container. Chromium + its apt deps: expect
-    # under a minute.
+    # with the spike; the solo games Stack, Topple, Lumber Camp and Sawline through the fake host; and Sumo, Overrun, Gun
+    # Run, Northdale and Sushi Shift with two players against a real game server. Each script starts the Vite dev server
+    # (and the Colyseus server) it needs. Playwright is not a workspace dependency: it is installed globally (pinned) and
+    # found through NODE_PATH, as in the dev container. Chromium + its apt deps: expect under a minute.
     name: e2e (Playwright)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
       PLAYWRIGHT_VERSION: 1.63.0
+    defaults:
+      run:
+        # bash with pipefail, so a check piped through tee still fails its step.
+        shell: bash
     steps:
       - uses: actions/checkout@v5
 
@@ -73,31 +76,40 @@ jobs:
           npx -y "playwright@$PLAYWRIGHT_VERSION" install --with-deps chromium
 
       - name: dev-harness (spike through the fake host)
-        run: pnpm --filter @rally/dev-harness test:e2e
+        run: pnpm --filter @rally/dev-harness test:e2e 2>&1 | tee -a "$RUNNER_TEMP/e2e.log"
 
       - name: Stack
-        run: pnpm --filter @rally/game-stack test:e2e
+        run: pnpm --filter @rally/game-stack test:e2e 2>&1 | tee -a "$RUNNER_TEMP/e2e.log"
 
       - name: Topple
-        run: pnpm --filter @rally/game-topple test:e2e
+        run: pnpm --filter @rally/game-topple test:e2e 2>&1 | tee -a "$RUNNER_TEMP/e2e.log"
 
       - name: Sumo (two players, real game server)
-        run: pnpm --filter @rally/game-sumo test:e2e
+        run: pnpm --filter @rally/game-sumo test:e2e 2>&1 | tee -a "$RUNNER_TEMP/e2e.log"
 
       - name: Overrun (two players, real game server with dev rules)
-        run: pnpm --filter @rally/game-overrun test:e2e
+        run: pnpm --filter @rally/game-overrun test:e2e 2>&1 | tee -a "$RUNNER_TEMP/e2e.log"
 
       - name: Gun Run (two players, real game server with dev rules)
-        run: pnpm --filter @rally/game-gunrun test:e2e
+        run: pnpm --filter @rally/game-gunrun test:e2e 2>&1 | tee -a "$RUNNER_TEMP/e2e.log"
 
       - name: Lumber Camp
-        run: pnpm --filter @rally/game-lumber test:e2e
-        
+        run: pnpm --filter @rally/game-lumber test:e2e 2>&1 | tee -a "$RUNNER_TEMP/e2e.log"
+
       - name: Northdale (two players, real game server with dev rules)
-        run: pnpm --filter @rally/game-northdale test:e2e
+        run: pnpm --filter @rally/game-northdale test:e2e 2>&1 | tee -a "$RUNNER_TEMP/e2e.log"
 
       - name: Sushi Shift (two chefs, real game server with dev rules)
-        run: pnpm --filter @rally/game-sushi test:e2e
+        run: pnpm --filter @rally/game-sushi test:e2e 2>&1 | tee -a "$RUNNER_TEMP/e2e.log"
 
       - name: Sawline
-        run: pnpm --filter @rally/game-sawline test:e2e
+        run: pnpm --filter @rally/game-sawline test:e2e 2>&1 | tee -a "$RUNNER_TEMP/e2e.log"
+
+      # A failing check's own error is otherwise only in the raw job log. Put the end of the output in an annotation
+      # too: it shows on the PR's Checks tab and comes back from the API (check-runs/<id>/annotations).
+      - name: Show the end of the e2e output
+        if: failure()
+        run: |
+          tail -n 60 "$RUNNER_TEMP/e2e.log" > "$RUNNER_TEMP/e2e-tail.log" || true
+          msg=$(sed -e 's/%/%25/g' -e 's/\r/%0D/g' "$RUNNER_TEMP/e2e-tail.log" | awk 'BEGIN { ORS = "%0A" } { print }')
+          echo "::error title=e2e output (last 60 lines)::$msg"
