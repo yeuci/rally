@@ -34,6 +34,7 @@ import { xpLabel } from '@/lib/levels-model';
 import { useColumnPadding, useLayout } from '@/lib/use-layout';
 import { usePalette } from '@/lib/use-palette';
 import { cn } from '@/lib/utils';
+import { RowHighlight } from '@/components/rally/row-highlight';
 
 const TABULAR: TextStyle = { fontVariant: ['tabular-nums'] };
 
@@ -210,9 +211,14 @@ function LedgerRow({ entry: e }: { entry: HistoryEntry }) {
       accessibilityLabel={a11y}
       accessibilityHint="Opens the game"
       onPress={() => router.push({ pathname: '/game/[id]', params: { id: e.gameId! } })}
-      className="active:bg-accent flex-row items-center gap-3 px-4 py-3"
+      className="flex-row items-center gap-3 px-4 py-3"
     >
-      {body}
+      {({ pressed }) => (
+        <>
+          <RowHighlight pressed={pressed} />
+          {body}
+        </>
+      )}
     </TapPressable>
   ) : (
     <View className="flex-row items-center gap-3 px-4 py-3" accessible accessibilityLabel={a11y}>

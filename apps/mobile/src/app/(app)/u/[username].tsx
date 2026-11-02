@@ -27,6 +27,7 @@ import { formatScore, sameUsername } from '@/lib/progress-format';
 import { blockAction, confirmCopy, presenceLine } from '@/lib/social';
 import { useColumnPadding, useLayout } from '@/lib/use-layout';
 import { usePalette } from '@/lib/use-palette';
+import { RowHighlight } from '@/components/rally/row-highlight';
 
 /**
  * Public profile (`/u/:username`, the architecture's deep link): avatar, names, bio, member since; the friendship
@@ -330,17 +331,22 @@ function Unlocked({
                 disabled={!a.game}
                 onPress={() => a.game && router.push({ pathname: '/game/[id]', params: { id: a.game.id } })}
                 accessibilityRole={a.game ? 'button' : undefined}
-                className="active:bg-accent flex-row items-center gap-3 px-4 py-3"
+                className="flex-row items-center gap-3 px-4 py-3"
               >
-                <AchievementBadge icon={a.icon} locked={false} size={40} />
-                <View className="shrink grow">
-                  <Text className="text-[15px] font-semibold leading-5" numberOfLines={1}>
-                    {a.title}
-                  </Text>
-                  <Text className="text-muted-foreground text-[13px] leading-[18px]" numberOfLines={1}>
-                    {[a.game?.title, timeAgo(a.unlockedAt)].filter(Boolean).join(' · ')}
-                  </Text>
-                </View>
+                {({ pressed }) => (
+                  <>
+                    <RowHighlight pressed={pressed} />
+                    <AchievementBadge icon={a.icon} locked={false} size={40} />
+                    <View className="shrink grow">
+                      <Text className="text-[15px] font-semibold leading-5" numberOfLines={1}>
+                        {a.title}
+                      </Text>
+                      <Text className="text-muted-foreground text-[13px] leading-[18px]" numberOfLines={1}>
+                        {[a.game?.title, timeAgo(a.unlockedAt)].filter(Boolean).join(' · ')}
+                      </Text>
+                    </View>
+                  </>
+                )}
               </TapPressable>
             </View>
           ))}

@@ -33,6 +33,7 @@ import {
   type PodiumTint,
 } from '@/lib/progress-format';
 import { cn } from '@/lib/utils';
+import { RowHighlight } from './row-highlight';
 
 const TABULAR: TextStyle = { fontVariant: ['tabular-nums'] };
 
@@ -226,33 +227,38 @@ function Row({ row, flash, onHighlight }: { row: LeaderboardRow; flash: number; 
       accessibilityLabel={`Rank ${row.rank}, ${row.isMe ? 'you' : row.username}, ${score}`}
       accessibilityHint={row.isMe ? 'Highlights your row' : 'Opens the profile'}
       onPress={() => (row.isMe ? onHighlight() : openPlayer(row))}
-      className={cn('active:bg-accent flex-row items-center gap-3 px-4 py-2.5', row.isMe && 'bg-fill')}
+      className={cn('flex-row items-center gap-3 px-4 py-2.5', row.isMe && 'bg-fill')}
     >
-      {row.isMe && (
-        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, glowStyle]} className="bg-subtle-line" />
+      {({ pressed }) => (
+        <>
+          <RowHighlight pressed={pressed} />
+          {row.isMe && (
+            <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, glowStyle]} className="bg-subtle-line" />
+          )}
+          <View className={cn('h-7 min-w-7 items-center justify-center rounded-full px-1', tint && PODIUM_BADGE[tint])}>
+            <Text
+              className={cn('text-[13px] font-bold', tint ? PODIUM_TEXT[tint] : 'text-muted-foreground')}
+              style={TABULAR}
+              numberOfLines={1}
+            >
+              {row.rank}
+            </Text>
+          </View>
+          <ProfileAvatar userId={row.userId} profile={{ username: row.username, display_name: null, avatar_url: row.avatarUrl }} size="sm" />
+          <View className="shrink grow flex-row items-center gap-2">
+            <PlayerName userId={row.userId} name={row.username} className="text-[15px] font-semibold leading-5" />
+            {row.isMe && (
+              <Badge variant="subtle">
+                <Text>You</Text>
+              </Badge>
+            )}
+          </View>
+          <Text className="text-[15px] font-bold" style={TABULAR}>
+            {score}
+          </Text>
+          {row.isMe ? <View className="size-4" /> : <Icon as={ChevronRightIcon} className="text-muted-foreground size-4" />}
+        </>
       )}
-      <View className={cn('h-7 min-w-7 items-center justify-center rounded-full px-1', tint && PODIUM_BADGE[tint])}>
-        <Text
-          className={cn('text-[13px] font-bold', tint ? PODIUM_TEXT[tint] : 'text-muted-foreground')}
-          style={TABULAR}
-          numberOfLines={1}
-        >
-          {row.rank}
-        </Text>
-      </View>
-      <ProfileAvatar userId={row.userId} profile={{ username: row.username, display_name: null, avatar_url: row.avatarUrl }} size="sm" />
-      <View className="shrink grow flex-row items-center gap-2">
-        <PlayerName userId={row.userId} name={row.username} className="text-[15px] font-semibold leading-5" />
-        {row.isMe && (
-          <Badge variant="subtle">
-            <Text>You</Text>
-          </Badge>
-        )}
-      </View>
-      <Text className="text-[15px] font-bold" style={TABULAR}>
-        {score}
-      </Text>
-      {row.isMe ? <View className="size-4" /> : <Icon as={ChevronRightIcon} className="text-muted-foreground size-4" />}
     </TapPressable>
   );
 }

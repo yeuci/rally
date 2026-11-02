@@ -31,6 +31,7 @@ import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { recentSearches, useRecentSearches } from '@/lib/use-recent-searches';
 import { useColumnPadding, useLayout } from '@/lib/use-layout';
 import { cn } from '@/lib/utils';
+import { RowHighlight } from '@/components/rally/row-highlight';
 
 /** Game rows shown; "See all" opens Browse with the query (`/browse?q=`). */
 const GAMES_PREVIEW = 5;
@@ -259,12 +260,17 @@ function RecentSearches({ items, onPick }: { items: string[]; onPick: (query: st
                 onPress={() => onPick(item)}
                 accessibilityRole="button"
                 accessibilityLabel={`Search ${item}`}
-                className="active:bg-accent min-h-12 shrink grow flex-row items-center gap-3.5 py-3 pl-4 pr-2"
+                className="min-h-12 shrink grow flex-row items-center gap-3.5 py-3 pl-4 pr-2"
               >
-                <Icon as={HistoryIcon} className="text-muted-foreground size-[18px]" />
-                <Text className="shrink text-[15px]" numberOfLines={1}>
-                  {item}
-                </Text>
+                {({ pressed }) => (
+                  <>
+                    <RowHighlight pressed={pressed} />
+                    <Icon as={HistoryIcon} className="text-muted-foreground size-[18px]" />
+                    <Text className="shrink text-[15px]" numberOfLines={1}>
+                      {item}
+                    </Text>
+                  </>
+                )}
               </TapPressable>
               <TapPressable
                 onPress={() => recentSearches.remove(item)}

@@ -26,6 +26,7 @@ import { useViewport } from '@/lib/viewport';
 import { SHEET_ORIENTATIONS } from '@/game-host/orientation';
 import { BottomSheet, SheetScrollView } from './bottom-sheet';
 import { ErrorText } from './form-field';
+import { RowHighlight } from './row-highlight';
 
 /**
  * Height kept free around the scrolling part of the sheet: the grabber, title and description above it, the Send
@@ -143,19 +144,24 @@ function ReportForm({
                   accessibilityRole="radio"
                   accessibilityLabel={o.label}
                   accessibilityState={{ checked: selected, disabled: sending }}
-                  className="active:bg-accent min-h-11 flex-row items-center gap-3 px-4 py-2.5"
+                  className="min-h-11 flex-row items-center gap-3 px-4 py-2.5"
                 >
-                  <Text className={cn('flex-1 text-[15px]', selected ? 'font-semibold' : 'font-medium')}>
-                    {o.label}
-                  </Text>
-                  <View
-                    className={cn(
-                      'size-5 items-center justify-center rounded-full border-2',
-                      selected ? 'bg-primary border-primary' : 'border-input',
-                    )}
-                  >
-                    {selected ? <Icon as={CheckIcon} className="text-primary-foreground size-3" /> : null}
-                  </View>
+                  {({ pressed }) => (
+                    <>
+                      <RowHighlight pressed={pressed} />
+                      <Text className={cn('flex-1 text-[15px]', selected ? 'font-semibold' : 'font-medium')}>
+                        {o.label}
+                      </Text>
+                      <View
+                        className={cn(
+                          'size-5 items-center justify-center rounded-full border-2',
+                          selected ? 'bg-primary border-primary' : 'border-input',
+                        )}
+                      >
+                        {selected ? <Icon as={CheckIcon} className="text-primary-foreground size-3" /> : null}
+                      </View>
+                    </>
+                  )}
                 </TapPressable>
               </View>
             );

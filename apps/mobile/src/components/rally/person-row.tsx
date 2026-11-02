@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { PlayerName } from './cosmetics';
 import { PresenceDot } from './presence-dot';
 import { ProfileAvatar } from './profile-avatar';
+import { RowHighlight } from './row-highlight';
 
 /** Height of a person row: py-2.5 around the 44 pt avatar. Skeleton rows use the same box. */
 const ROW_CLASS = 'min-h-16 flex-row items-center gap-3 px-4 py-2.5';
@@ -69,39 +70,44 @@ export function PersonRow({
       }
       accessibilityHint="Opens the profile"
       onPress={() => openPerson(person.username, self)}
-      className={cn(ROW_CLASS, 'active:bg-accent')}
+      className={ROW_CLASS}
     >
-      <ProfileAvatar
-        userId={person.userId}
-        profile={{ username: person.username, display_name: person.displayName, avatar_url: person.avatarUrl }}
-        size="md"
-      />
-      <View className="shrink grow">
-        <View className="flex-row items-center gap-2">
-          <PlayerName userId={person.userId} name={name} className="text-[15px] font-semibold leading-5" />
-          {self && (
-            <Badge variant="subtle">
-              <Text>You</Text>
-            </Badge>
-          )}
-        </View>
-        {presence ? (
-          <View className="flex-row items-center">
-            <Text className="text-muted-foreground shrink text-[13px] leading-[18px]" numberOfLines={1}>
-              {`@${person.username} · `}
-            </Text>
-            <PresenceDot className="mr-1.5" />
-            <Text className="text-foreground shrink text-[13px] font-medium leading-[18px]" numberOfLines={1}>
-              {presence.label}
-            </Text>
+      {({ pressed }) => (
+        <>
+          <RowHighlight pressed={pressed} />
+          <ProfileAvatar
+            userId={person.userId}
+            profile={{ username: person.username, display_name: person.displayName, avatar_url: person.avatarUrl }}
+            size="md"
+          />
+          <View className="shrink grow">
+            <View className="flex-row items-center gap-2">
+              <PlayerName userId={person.userId} name={name} className="text-[15px] font-semibold leading-5" />
+              {self && (
+                <Badge variant="subtle">
+                  <Text>You</Text>
+                </Badge>
+              )}
+            </View>
+            {presence ? (
+              <View className="flex-row items-center">
+                <Text className="text-muted-foreground shrink text-[13px] leading-[18px]" numberOfLines={1}>
+                  {`@${person.username} · `}
+                </Text>
+                <PresenceDot className="mr-1.5" />
+                <Text className="text-foreground shrink text-[13px] font-medium leading-[18px]" numberOfLines={1}>
+                  {presence.label}
+                </Text>
+              </View>
+            ) : (
+              <Text className="text-muted-foreground text-[13px] leading-[18px]" numberOfLines={1}>
+                {subtitle ?? (detail ? `@${person.username} · ${detail}` : `@${person.username}`)}
+              </Text>
+            )}
           </View>
-        ) : (
-          <Text className="text-muted-foreground text-[13px] leading-[18px]" numberOfLines={1}>
-            {subtitle ?? (detail ? `@${person.username} · ${detail}` : `@${person.username}`)}
-          </Text>
-        )}
-      </View>
-      {accessory}
+          {accessory}
+        </>
+      )}
     </TapPressable>
   );
 }
