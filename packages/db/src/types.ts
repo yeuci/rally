@@ -1,5 +1,5 @@
 // Hand-written to match `supabase gen types typescript` output for supabase/migrations (M1 + M2 + M4 social + M3 phase 2
-// + coins + progress + moderation).
+// + coins + progress + moderation + streaks).
 // Regenerate against a real project with `pnpm --filter @rally/db gen:types` once one is linked;
 // keep this file in that exact shape so the swap is a no-op for consumers.
 export type Json =
@@ -1059,6 +1059,41 @@ export type Database = {
           },
         ]
       }
+      player_streaks: {
+        Row: {
+          bonus_paid_on: string | null
+          current: number
+          last_played_on: string | null
+          longest: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          bonus_paid_on?: string | null
+          current?: number
+          last_played_on?: string | null
+          longest?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          bonus_paid_on?: string | null
+          current?: number
+          last_played_on?: string | null
+          longest?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "player_streaks_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       presence: {
         Row: {
           game_id: string | null
@@ -1590,6 +1625,7 @@ export type Database = {
       }
       my_privacy: { Args: never; Returns: Json }
       my_progress: { Args: never; Returns: Json }
+      my_streak: { Args: never; Returns: Json }
       my_wallet: { Args: never; Returns: Json }
       owns_game: {
         Args: { p_game_id: string; p_user_id: string }

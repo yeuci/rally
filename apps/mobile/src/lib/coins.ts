@@ -55,8 +55,8 @@ export function handleCoinBroadcast(qc: QueryClient, uid: string, payload: unkno
   if (!award) return;
   qc.setQueryData<WalletSummary>(coinKeys.wallet(uid), (w) => (w ? { ...w, balance: Math.max(w.balance, award.balance) } : w));
   invalidateCoins(qc, uid);
-  // Level-up coins are shown by the level-up celebration (lib/levels.ts), not as a second toast.
-  if (prefs.get().coinPopups && award.reason !== 'level') pushCoinAward(award);
+  // Level-up and streak coins are shown by their celebrations (lib/levels.ts, lib/streak.ts), not as a second toast.
+  if (prefs.get().coinPopups && award.reason !== 'level' && award.reason !== 'streak') pushCoinAward(award);
 }
 
 /** `my_wallet()`: balance, lifetime earnings and today's progress toward the caps. */

@@ -182,6 +182,8 @@ async function setupGames(db: PGlite) {
       ('stack', 'tower', 'Tower', null), ('stack', 'skyline', 'Skyline', 40);
     -- Level-up coins (20261101000100_progress.sql) are pinned by progress.test.ts; here they would add 'level' rows.
     update public.progress_rules set value = 0 where key = 'level_coins_max';
+    -- The play streak (20261102000400_streaks.sql) is pinned by streaks.test.ts; here it would add 'streak' rows.
+    update public.progress_rules set value = 0 where key ~ '^streak_';
   `);
 }
 

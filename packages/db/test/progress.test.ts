@@ -263,6 +263,9 @@ async function setupGames(db: PGlite) {
     -- A template for an unpublished game: never picked.
     insert into public.challenge_templates (key, kind, game_id, target, title, tier, coins, xp)
       values ('secret_1', 'play_game', 'secret', 1, 'Play {game}', 1, 20, 30);
+    -- The play streak (20261102000400_streaks.sql) is pinned by streaks.test.ts; here it would add 'streak' rows to
+    -- both ledgers.
+    update public.progress_rules set value = 0 where key ~ '^streak_';
   `);
 }
 
@@ -296,7 +299,8 @@ const RESET = `
   update public.progress_rules set value = case key
     when 'match' then 20 when 'win' then 10 when 'match_daily_cap' then 600 when 'achievement' then 25
     when 'solo' then 10 when 'solo_daily_cap' then 100 when 'level_coins' then 50 when 'level_coins_step' then 10
-    when 'level_coins_max' then 250 end;
+    when 'level_coins_max' then 250 end
+   where key !~ '^streak_';
 `;
 
 const befriend = (db: PGlite, a: string, b: string) =>
@@ -396,8 +400,9 @@ describe('progress: rules, tables and privileges', () => {
   after(() => db.close());
 
   test('progress_rules: the documented starting values, readable by everyone, writable by nobody', async () => {
+    // The streak's rules (streak_*) are pinned by streaks.test.ts (setupGames turns them off here).
     const r = await db.query<{ key: string; value: number }>(
-      `select key, value from public.progress_rules order by key`,
+      `select key, value from public.progress_rules where key !~ '^streak_' order by key`,
     );
     assert.deepEqual(Object.fromEntries(r.rows.map((x) => [x.key, x.value])), {
       achievement: 25,
@@ -412,7 +417,7 @@ describe('progress: rules, tables and privileges', () => {
     });
     for (const run of [(fn: () => Promise<void>) => asUser(db, ann, fn), (fn: () => Promise<void>) => asAnon(db, fn)]) {
       await run(async () => {
-        assert.equal(await count(db, `select 1 from public.progress_rules`), 9);
+        assert.equal(await count(db, `select 1 from public.progress_rules where key !~ '^streak_'`), 9);
         assert.equal(await count(db, `select 1 from public.challenge_templates`), 28);
         await assert.rejects(
           db.query(`update public.progress_rules set value = 1000 where key = 'win'`),
