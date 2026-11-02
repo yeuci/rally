@@ -3,6 +3,7 @@ import { useUniwind } from 'uniwind';
 import { DevPreviewHost } from '@/components/dev/preview-host';
 import { CoinToastHost } from '@/components/rally/coins';
 import { ToastHost } from '@/components/rally/toast';
+import { PLAY_SCREEN_ORIENTATION } from '@/game-host/orientation';
 import { NAV_THEME } from '@/lib/theme';
 
 export default function DevLayout() {
@@ -23,7 +24,15 @@ export default function DevLayout() {
         <Stack.Screen name="index" options={{ title: 'Developer' }} />
         <Stack.Screen
           name="play"
-          options={{ headerShown: false, presentation: 'fullScreenModal', animation: 'fade', gestureEnabled: false }}
+          // As the (app) play route: an iPhone never rotates for a game (game-host/orientation.ts).
+          options={{
+            headerShown: false,
+            presentation: 'fullScreenModal',
+            animation: 'fade',
+            gestureEnabled: false,
+            autoHideHomeIndicator: true,
+            orientation: PLAY_SCREEN_ORIENTATION,
+          }}
         />
       </Stack>
       {/* The Developer page's own toast and coin hosts (its copy confirmations, resets and UI previews): the (app)

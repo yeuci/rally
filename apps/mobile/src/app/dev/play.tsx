@@ -1,7 +1,9 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
 import { useCallback, useMemo, useState } from 'react';
+import { StyleSheet } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { toWsUrl } from '@/config';
+import { GameFrame } from '@/game-host/game-frame';
 import { GameHost, type GameHostResult } from '@/game-host/GameHost';
 import type { MatchmakingTarget } from '@/game-host/handlers';
 import { createMemoryProgressStore } from '@/game-host/progress';
@@ -57,22 +59,26 @@ export default function DevPlayScreen() {
   }, []);
 
   return (
-    <>
-      {/* The host's chrome is dark in both themes: light status-bar text (the root bar is dark on the light theme). */}
-      <StatusBar style="light" />
-      <GameHost
-        bundleUrl={settings.bundleUrl}
-        game={{ id: effectiveGameId(settings), version: '0.1.0' }}
-        user={DEV_USER}
-        intent={solo ? 'solo' : target.join === 'resume' ? 'quick' : intentFor(target.join)}
-        orientation={settings.orientation}
-        saves={saves}
-        progress={progress}
-        soloScores
-        playSessions={null}
-        matchmaking={solo ? null : matchmaking}
-        onExit={onExit}
-      />
-    </>
+    // Like the play route: its own safe-area provider (a full-screen modal), and the game's frame, which turns a
+    // landscape game inside the app on an iPhone and draws the light status bar (game-host/game-frame.tsx).
+    <SafeAreaProvider style={styles.screen}>
+      <GameFrame orientation={settings.orientation}>
+        <GameHost
+          bundleUrl={settings.bundleUrl}
+          game={{ id: effectiveGameId(settings), version: '0.1.0' }}
+          user={DEV_USER}
+          intent={solo ? 'solo' : target.join === 'resume' ? 'quick' : intentFor(target.join)}
+          orientation={settings.orientation}
+          saves={saves}
+          progress={progress}
+          soloScores
+          playSessions={null}
+          matchmaking={solo ? null : matchmaking}
+          onExit={onExit}
+        />
+      </GameFrame>
+    </SafeAreaProvider>
   );
 }
+
+const styles = StyleSheet.create({ screen: { flex: 1, backgroundColor: '#0A0A0A' } });
