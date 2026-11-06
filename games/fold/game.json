@@ -1,0 +1,59 @@
+{
+  "id": "fold",
+  "version": "0.1.0",
+  "title": "Fold",
+  "description": "Fly a paper plane through a house that never ends. Swipe to refold it: the dart dives fast and low, the glider floats across stairwells, and the crane flaps up past bookshelves. Dodge the fans, the lamps and the kettle steam, and see how far you get.",
+  "genres": ["arcade", "runner"],
+  "screenshots": [],
+  "engine": "playcanvas",
+  "entry": "index.html",
+  "orientation": "landscape",
+  "players": {
+    "min": 1,
+    "max": 1
+  },
+  "modes": ["solo"],
+  "sdk": "^0.1",
+  "ageRating": "4+",
+  "leaderboards": [
+    {
+      "id": "distance",
+      "sort": "desc",
+      "maxScorePerMinute": 900
+    }
+  ],
+  "achievements": [
+    {
+      "key": "first_100",
+      "title": "Paper Wings",
+      "hidden": false,
+      "description": "Fly 100 m in one run."
+    },
+    {
+      "key": "all_folds",
+      "title": "Origami",
+      "hidden": false,
+      "description": "Fly as the dart, the glider and the crane in one run."
+    },
+    {
+      "key": "km",
+      "title": "Long Haul",
+      "hidden": false,
+      "description": "Fly 1,000 m in one run."
+    },
+    {
+      "key": "stamps_25",
+      "title": "Stamp Collector",
+      "hidden": false,
+      "description": "Collect 25 stamps in one run."
+    },
+    {
+      "key": "stairwells_5",
+      "title": "Over the Edge",
+      "hidden": false,
+      "description": "Glide across 5 stairwells in one run."
+    }
+  ],
+  "capabilities": [],
+  "minAppVersion": "0.0.0"
+}

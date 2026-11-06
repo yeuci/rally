@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#f3e4c8" />
+    <title>Fold</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <canvas id="stage" aria-label="Fold game"></canvas>
+    <div id="hud" aria-live="polite">
+      <div class="bar">
+        <div id="distance" class="chip distance"><span id="distance-value">0</span><small>m</small></div>
+        <div id="stamps" class="chip stamps"><i class="stamp-icon"></i><span id="stamps-value">0</span></div>
+        <div id="best" class="chip best"><small>Best</small><span id="best-value">0 m</span></div>
+      </div>
+      <div id="forms" class="forms" aria-label="Paper shape">
+        <div class="form" data-form="glider"><b>Glider</b><small>swipe ↑</small></div>
+        <div class="form" data-form="dart"><b>Dart</b><small>swipe ↓</small></div>
+        <div class="form" data-form="crane"><b>Crane</b><small>tap</small></div>
+      </div>
+      <div id="hint" class="hint" hidden></div>
+      <div id="prompt" class="prompt" hidden>Tap to flap · swipe up to glide · swipe down to dive</div>
+      <section id="over" class="card" hidden>
+        <div id="over-label" class="label-sm">Crumpled</div>
+        <div id="over-score" class="big">0 m</div>
+        <div id="over-best" class="best-line">Best 0 m</div>
+        <div id="over-stats" class="stats"></div>
+        <div id="over-board" class="board">Leaderboard …</div>
+        <div id="over-unlocked" class="unlocked" hidden></div>
+        <button id="again" type="button">Fly again</button>
+      </section>
+      <div id="paused" class="veil" hidden><div class="veil-title">Paused</div></div>
+      <div id="loading" class="veil solid">
+        <div class="veil-title">Fold</div>
+        <div class="loadbar"><i id="loading-bar"></i></div>
+      </div>
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
