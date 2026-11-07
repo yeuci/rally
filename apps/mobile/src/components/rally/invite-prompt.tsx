@@ -12,7 +12,7 @@ import { alertPresentation } from '@/lib/friend-alerts-model';
 import { socialKeys } from '@/lib/friends';
 import { tapHaptic } from '@/lib/haptics';
 import { inviteDetail, inviteLine, inviteTitle, type InviterProfile, type QueuedInvite } from '@/lib/invite-model';
-import { useOtherSheetOpen } from '@/lib/open-sheets';
+import { useOtherSheetOpen, usePromptSlot } from '@/lib/open-sheets';
 import { inviteBannerCountdown, inviteQueue, useInviteQueue, useRespondInvite } from '@/lib/party';
 import { isGameScreen } from '@/lib/rejoin';
 import { fetchRequestProfile } from '@/lib/social-realtime';
@@ -186,8 +186,13 @@ export function InvitePrompt({ placement }: { placement: 'shell' | 'game' }) {
     if (goneId) inviteQueue.dismiss(goneId);
   }, [goneId]);
 
-  const sheetInvite = invite && !goneId && presentation === 'sheet' ? invite : null;
-  const bannerInvite = invite && !goneId && presentation === 'banner' && (profile || fetched.isError) ? invite : null;
+  const sheetCandidate = invite && !goneId && presentation === 'sheet' ? invite : null;
+  const bannerCandidate =
+    invite && !goneId && presentation === 'banner' && (profile || fetched.isError) ? invite : null;
+  // One self-opening prompt at a time (lib/open-sheets.ts): the invite waits while a request or follow shows.
+  const slot = usePromptSlot(`invite:${placement}`, !!(sheetCandidate ?? bannerCandidate));
+  const sheetInvite = slot ? sheetCandidate : null;
+  const bannerInvite = slot ? bannerCandidate : null;
   const shownId = (sheetInvite ?? bannerInvite)?.inviteId ?? null;
   const line = invite ? inviteLine({ ...invite, gameTitle }, profile?.username) : null;
   const spoken = bannerInvite ? line : null;

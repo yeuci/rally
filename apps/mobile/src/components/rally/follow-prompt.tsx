@@ -7,7 +7,7 @@ import { useSession } from '@/lib/auth/session';
 import { useGame } from '@/lib/catalog';
 import { createBannerCountdown } from '@/lib/friend-alerts-model';
 import { tapHaptic } from '@/lib/haptics';
-import { useOtherSheetOpen } from '@/lib/open-sheets';
+import { useOtherSheetOpen, usePromptSlot } from '@/lib/open-sheets';
 import { followStore, useFollowLaunch, useParty, type FollowLaunch } from '@/lib/party';
 import {
   FOLLOW_COUNTDOWN_MS,
@@ -153,7 +153,10 @@ export function FollowPrompt({
   useEffect(() => {
     if (ownId) followStore.dismiss(ownId);
   }, [ownId]);
-  const shown = head;
+  // One self-opening prompt at a time (lib/open-sheets.ts): the follow waits while a request or invite shows (the
+  // launch store drops it if it waits too long).
+  const slot = usePromptSlot(`follow:${placement}`, !!head);
+  const shown = slot ? head : null;
 
   const leader = memberOf(party.data, shown?.leaderId ?? null);
   const leaderName = leader ? memberName(leader) : null;

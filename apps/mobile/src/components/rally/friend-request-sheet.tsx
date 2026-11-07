@@ -12,7 +12,7 @@ import { useAlertStyle, useGameScreenMarker } from '@/lib/friend-alerts';
 import { alertPresentation } from '@/lib/friend-alerts-model';
 import { socialKeys, useFriendshipAction } from '@/lib/friends';
 import { tapHaptic } from '@/lib/haptics';
-import { useOtherSheetOpen } from '@/lib/open-sheets';
+import { useOtherSheetOpen, usePromptSlot } from '@/lib/open-sheets';
 import { isGameScreen } from '@/lib/rejoin';
 import { fetchRequestProfile, friendRequestQueue, markRequestSeen, useFriendRequestQueue } from '@/lib/social-realtime';
 import { requestLine, type QueuedRequest, type RequestProfile } from '@/lib/social-realtime-model';
@@ -215,9 +215,14 @@ export function FriendRequestPrompt({ placement }: { placement: 'shell' | 'game'
     if (goneId) friendRequestQueue.drop(goneId);
   }, [goneId]);
 
-  const sheetRequest = request && !gone && presentation === 'sheet' ? request : null;
+  const sheetCandidate = request && !gone && presentation === 'sheet' ? request : null;
   // The banner waits for the name (no skeleton strip over a game); if the profile cannot be read, a generic line.
-  const bannerRequest = request && !gone && presentation === 'banner' && (profile || fetched.isError) ? request : null;
+  const bannerCandidate =
+    request && !gone && presentation === 'banner' && (profile || fetched.isError) ? request : null;
+  // One self-opening prompt at a time (lib/open-sheets.ts): the request waits while an invite or follow shows.
+  const slot = usePromptSlot(`friend:${placement}`, !!(sheetCandidate ?? bannerCandidate));
+  const sheetRequest = slot ? sheetCandidate : null;
+  const bannerRequest = slot ? bannerCandidate : null;
   const shownKey = (sheetRequest ?? bannerRequest)?.key ?? null;
   const spoken = bannerRequest ? (profile ? requestLine(profile.username) : 'Someone wants to be your friend') : null;
   useEffect(() => {
