@@ -44,6 +44,8 @@ export interface RallyRoomMetadata {
   private: boolean;
   /** Private rooms only: the 6-character join code (`GET /rooms/code/<code>` → roomId). */
   code?: string;
+  /** Rooms launched by a party (`POST /party/launch`): the `parties.id`, so the browser can show "sloth's party". */
+  partyId?: string;
   serverVersion: number;
   /** Game-specific extras from {@link RallyRoom.extraMetadata} (e.g. Sumo's `phase`). */
   [key: string]: unknown;
@@ -60,7 +62,22 @@ export interface RallyCreateOptions {
   private?: boolean;
   /** Optional room name for the server browser. */
   name?: string;
+  /**
+   * Server-only (party.ts; stripped from matchmaking bodies in routes.ts): the room is launched for a party, so seat
+   * reservations are held for {@link PARTY_SEAT_RESERVATION_SECONDS} while the members' apps catch up.
+   */
+  party?: boolean;
+  /** Server-only: the party's id, published in the metadata. */
+  partyId?: string;
+  /** Server-only: the leader's username; the room is titled `<leader>'s party` unless `name` is given. */
+  partyLeaderName?: string;
 }
+
+/**
+ * How long a party launch's seat reservations are held (design social-phase §3): members get a `launch` broadcast
+ * and fetch their seat when their app is ready, which can take well over Colyseus' default 15 s.
+ */
+export const PARTY_SEAT_RESERVATION_SECONDS = 120;
 
 interface Seat {
   auth: RallyAuth;
@@ -87,11 +104,15 @@ function roomMirror(): RoomMirror | null {
  * - **Seats and reconnection:** a non-consented drop keeps the seat for `reconnectSeconds` (state shows the player
  *   disconnected via {@link onGameDrop}); the seat is freed after the grace ({@link onGameLeave}). A client kicked
  *   for flooding gets no grace.
- * - **Metadata:** `{ gameId, name, players, connected, maxPlayers, private, code?, serverVersion, ...extraMetadata() }`;
- *   `players` counts every seat (as the listing's `clients`, which joins and the full check use), `connected` only
- *   the ones with a live socket.
+ * - **Metadata:** `{ gameId, name, players, connected, maxPlayers, private, code?, partyId?, serverVersion,
+ *   ...extraMetadata() }`; `players` counts every seat (as the listing's `clients`, which joins and the full check
+ *   use), `connected` only the ones with a live socket.
  * - **Private rooms:** `setPrivate(true)` (hidden from `joinOrCreate` and listings) plus a join code, required by
  *   `joinById` (routes.ts). Not `lock()`: Colyseus' `joinById` refuses locked rooms.
+ * - **Party rooms:** `options.party` (server-only, from `POST /party/launch`) holds seat reservations for 120 s, titles
+ *   the room `<leader>'s party` and publishes `partyId` in the metadata. Reservations made with
+ *   `matchMaker.reserveSeatFor(room, {}, auth)` carry their {@link RallyAuth} already, so Colyseus skips the static
+ *   `onAuth` when they are consumed (`authedStatically`).
  *
  * - **Mirror:** the `onRoom*` / `onPlayer*` hooks and {@link syncMetadata} push a snapshot to the process's
  *   {@link RoomMirror} (`game_rooms`, for presence and live counts); writes are coalesced and best effort, so the
@@ -119,6 +140,8 @@ export abstract class RallyRoom<S extends object = object> extends Room<{
   isPrivateRoom = false;
   /** Join code of a private room. */
   joinCode: string | null = null;
+  /** The party this room was launched for (`options.party`), else null. */
+  partyId: string | null = null;
 
   override maxClients = 8;
   /** Hard flood cap per client (Colyseus disconnects above it); games rate-limit specific messages lower. */
@@ -226,8 +249,16 @@ export abstract class RallyRoom<S extends object = object> extends Room<{
       this.joinCode = await uniqueJoinCode(async (code) => (await matchMaker.query({ code })).length > 0);
       await this.setPrivate(true);
     }
+    // A party launch (party.ts): members fetch their seats after the `launch` broadcast reaches them, so the
+    // reservations outlive Colyseus' default 15 s; the party id travels in the metadata for the server browser.
+    if (options.party === true) {
+      this.seatReservationTimeout = PARTY_SEAT_RESERVATION_SECONDS;
+      this.partyId = typeof options.partyId === 'string' && options.partyId.length > 0 ? options.partyId : null;
+    }
+    const leader = options.party === true ? cleanUsername(options.partyLeaderName) : undefined;
     this.roomTitle =
       cleanUsername(options.name) ??
+      (leader ? `${leader}'s party` : undefined) ??
       `${this.gameId.charAt(0).toUpperCase()}${this.gameId.slice(1)} ${this.roomId.slice(0, 4).toUpperCase()}`;
 
     // Display name from the launch context, for guests only (`guest-<name>`); signed-in players' names come from
@@ -377,6 +408,7 @@ export abstract class RallyRoom<S extends object = object> extends Room<{
       maxPlayers: this.maxClients,
       private: this.isPrivateRoom,
       ...(this.joinCode ? { code: this.joinCode } : {}),
+      ...(this.partyId ? { partyId: this.partyId } : {}),
       serverVersion: SERVER_VERSION,
       ...this.extraMetadata(),
     });

@@ -106,17 +106,17 @@ let installed = false;
  *   invite carry); a wrong or missing code gets the same error as an unknown room id. Public rooms and `reconnect`
  *   (which carries the reconnection token instead) are unaffected.
  * - Requests that create a room are marked for the per-identity creation limit in `RallyRoom.onAuth`.
+ * - `party`, `partyId` and `partyLeaderName` are set by `POST /party/launch` only (party.ts): a client cannot title
+ *   its own room "sloth's party" or get the 120 s party seat timeout, so they are dropped from every body.
  */
 export function installMatchmakingGuards(): void {
   if (installed) return;
   installed = true;
   const controller = matchMaker.controller;
   const invoke = controller.invokeMethod.bind(controller);
-  controller.invokeMethod = async (method, roomName, clientOptions = {}, authOptions) => {
-    const opts = (clientOptions && typeof clientOptions === 'object' ? clientOptions : {}) as {
-      private?: unknown;
-      code?: unknown;
-    };
+  controller.invokeMethod = async (method, roomName, rawOptions = {}, authOptions) => {
+    const clientOptions = stripServerOnlyOptions(rawOptions);
+    const opts = clientOptions as { private?: unknown; code?: unknown };
     const wantsPrivate = opts.private === true;
     const effective = method === 'joinOrCreate' && wantsPrivate ? 'create' : method;
     if (effective === 'create' && authOptions) creationRequests.add(authOptions);
@@ -127,6 +127,19 @@ export function installMatchmakingGuards(): void {
     if (effective === 'create' && wantsPrivate) return withJoinCode(reservation);
     return reservation;
   };
+}
+
+/**
+ * `RallyCreateOptions` that only the server may set (`POST /party/launch` passes them to `matchMaker.createRoom`):
+ * dropped from every matchmaking body by `installMatchmakingGuards`.
+ */
+export const SERVER_ONLY_CREATE_OPTIONS = ['party', 'partyId', 'partyLeaderName'] as const;
+
+/** A copy of the matchmaking body without {@link SERVER_ONLY_CREATE_OPTIONS}; non-objects become `{}`. */
+export function stripServerOnlyOptions(body: unknown): Record<string, unknown> {
+  const copy: Record<string, unknown> = body && typeof body === 'object' ? { ...(body as object) } : {};
+  for (const key of SERVER_ONLY_CREATE_OPTIONS) delete copy[key];
+  return copy;
 }
 
 async function withJoinCode<T extends { roomId?: string }>(reservation: T): Promise<T & { code?: string }> {
