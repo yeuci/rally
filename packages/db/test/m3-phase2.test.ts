@@ -129,6 +129,9 @@ describe('grants', () => {
     assert.deepEqual(
       fns.rows.map((r) => r.sig),
       [
+        'server_party_launch_begin(uuid,text)',
+        'server_party_launch_commit(uuid,uuid,text,text,text)',
+        'server_party_member(uuid,uuid)',
         'server_record_match(jsonb)',
         'server_record_visits(text,integer)',
         'server_remove_game_room(text)',

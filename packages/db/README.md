@@ -469,6 +469,60 @@ the `supabase_realtime` publication: `postgres_changes` neither filters DELETE e
   (`private.broadcast_coin_award`) sends event `coins`, `{ type: 'coins', id, amount, reason, balance, game_id, note,
   at }`, for every award (never for purchases), with the same no-op / WARNING behaviour.
 
+## Messages, parties and invites
+
+`20261107000100_messages.sql` and `20261107000200_parties.sql` (pinned by `test/messages.test.ts` and
+`test/parties.test.ts`; the contracts in [docs/social-phase.md](../../docs/social-phase.md) §1 and §2). RLS on, no
+client grants (except a member's own `party_members` row, which the `party:<id>` channel policy looks up); every read
+and write goes through security definer RPCs for linked accounts. New errors: `MUTED` (42501, an active mute sanction)
+and `FILTERED` (22023, the word filter) on `send_message`.
+
+| Table | What |
+|---|---|
+| `conversations` (`kind` dm / party, `party_id`, `last_message_at`), `conversation_members` (`last_read_at`, `muted`), `dm_pairs` | threads; a dm is found by the pair, party chat by the party |
+| `messages` (`sender_id` null once the account is gone, `body` `''` once deleted, `deleted_at`) | 1..1000 chars after trimming; nothing filtered is stored; purged after 90 days (`rally_purge_messages`) |
+| `parties` (`leader_id`, `conversation_id`, `active_launch_id`), `party_members` (one party per user) | 2..8 members, any member invites, the leader kicks / hands over / launches |
+| `party_launches` (`game_id`, `room_id`, `code`, `expires_at` = +10 min) | written by the game server; `my_party().launch` while unexpired and the room is live; purged after a day |
+| `invites` (`kind` party / room, `from_id`, `to_id`, `party_id`, `game_id`, `room_id`, `code`, `status`, `expires_at` = +10 min) | one pending per (kind, from, to); purged after a day (`rally_purge_invites`) |
+
+Client RPCs: `open_dm(p_user_id)` (friends only, idempotent), `send_message(p_conversation_id, p_body)` (member; a dm
+also needs the friendship with no block; `MUTED`, `FILTERED`, 30 per burst), `my_conversations(p_limit)` (newest
+activity first, with the other person, the last message, `unread`, `muted`; dms hidden by a block are dropped),
+`conversation_messages(p_conversation_id, p_before, p_limit)` (newest first, deleted ones as `deleted = true` with
+`body = ''`, messages from people the caller blocks left out), `mark_conversation_read`, `set_conversation_muted`,
+`delete_message` (sender only), `unread_total()` (unmuted threads), `report_user(..., p_message_id)` (snapshots
+`{ id, body, conversation_id }` into `reports.message_snapshot`; the target must be the sender). Parties:
+`create_party()`, `my_party()` (null or `{ id, leader_id, conversation_id, created_at, launch, members[] }`; members
+carry their presence `status` / `game_id`, null when offline), `invite_to_party(p_user_id)` (friend, no block, party
+below 8; a pending invite is reused), `send_room_invite(p_user_id, p_game_id, p_room_id, p_code)` (a live room of a
+published game with a server), `my_invites()`, `respond_invite(p_invite_id, p_accept)` (accepting a party invite moves
+the caller out of their current party; a room invite answers `{ kind: 'room', game_id, room_id, code }`),
+`cancel_invite`, `leave_party()` (the leader leaving hands over to the earliest-joined member; the last member leaving
+deletes the party and, by cascade, its chat, invites and launches), `kick_from_party`, `transfer_party_lead`. Both
+invite kinds share one bucket, 20 per burst. `delete_my_account` leaves the party first.
+
+Game server (service role): `server_party_launch_begin(p_leader, p_game_id)` → `{ party_id, members: [{ user_id,
+username, avatar_url }] }` (`NOT_FOUND` unless the leader; `INVALID` unless published with `max_players` ≥ the party),
+`server_party_launch_commit(p_party_id, p_leader, p_game_id, p_room_id, p_code)` → launch id (sets
+`active_launch_id`, broadcasts `launch`), `server_party_member(p_user, p_launch_id)` → `{ party_id, game_id, room_id,
+code, username, avatar_url }` or null.
+
+Realtime (`realtime.send`, same no-op / WARNING behaviour as the friendship events; every payload has `at`):
+
+| Topic | Event | Payloads |
+|---|---|---|
+| `user:<uid>` | `dm` | `{ type: 'message' \| 'message_deleted', conversation_id, message_id, sender_id, body, at }` to the other member of a dm (`body` `''` when deleted) |
+| `party:<id>` | `party` | the same message shape for party chat; `{ type: 'member_joined' \| 'member_left', party_id, user_id, by, at }`; `{ type: 'leader_changed', party_id, leader_id, at }`; `{ type: 'launch', party_id, launch_id, game_id, room_id, leader_id, at }` (no code: members fetch their seat from the server) |
+| `user:<uid>` | `party` | `{ type: 'removed', party_id, at }` when you leave or are kicked; `{ type: 'party_ended', party_id, at }` when a party you are in is deleted |
+| `user:<uid>` | `invite` | `{ type: 'party_invite' \| 'room_invite', invite_id, from, party_id, game_id, room_id, at }` to the recipient; `{ type: 'invite_declined', invite_id, to, at }` to the sender; `{ type: 'invite_closed', invite_id, at }` to the recipient on acceptance or cancellation |
+
+Policy "members receive their party channel" on `realtime.messages`: SELECT to `authenticated` where
+`realtime.topic()` is `party:<id>` and the caller has a `party_members` row for it (evaluated as the caller, hence the
+own-row select policy on `party_members`). No INSERT policy. The app subscribes to `party:<id>` with `private: true`
+while `my_party()` is non-null. Types for every shape above are exported from `src/index.ts` (`SentMessage`,
+`MessageEvent`, `Party`, `PartyMember`, `PartyLaunch`, `RespondInviteResult`, `PartyEvent`, `InviteEvent`,
+`PartyLaunchBegin`, `PartyLaunchMember`, `PARTY_MAX_SIZE`, `MESSAGE_MAX_LENGTH`, …).
+
 ## Coins
 
 `20261031000400_coins.sql` (pinned by `test/coins.test.ts`; rules, tuning and the owner step in
