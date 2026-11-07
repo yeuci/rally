@@ -5,6 +5,9 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, RefreshControl, ScrollView, View } from 'react-native';
 import { LaunchConsentDialog } from '@/components/rally/consent-dialog';
 import { EmptyState, RetryButton } from '@/components/rally/empty-state';
+import { InviteToPartyButton } from '@/components/rally/invite-to-party-button';
+import { MessageButton } from '@/components/rally/message-button';
+import { usePartyBarInset } from '@/components/rally/party-bar';
 import { PersonList, PersonListSkeleton, PersonRow } from '@/components/rally/person-row';
 import { RecentlyPlayedWithSection } from '@/components/rally/recently-played';
 import { SearchPill } from '@/components/rally/search-pill';
@@ -54,7 +57,8 @@ const findPlayers = () => router.push({ pathname: '/search', params: { q: '@' } 
  * Your friends show their presence (`friends_presence`, m3-phase2 §2): "Online" or "In Sumo", playing friends first,
  * with **Join** when their room has a free seat (`useLaunchGame` → `join=friend`: the play route asks
  * `friend_join_target` for the room, so the target never comes from the friend's client). Polled every 30 s while
- * this screen is in front, and refreshed when it comes back into focus. Under them, "Recently played with"
+ * this screen is in front, and refreshed when it comes back into focus. Every row of your own friends ends in a
+ * message icon (lib/messages.ts `openDm` → `/messages/[id]`). Under them, "Recently played with"
  * (`recently_played_with`): people from your counted matches of the last 14 days, with Add friend.
  */
 export default function FriendsScreen() {
@@ -66,6 +70,7 @@ export default function FriendsScreen() {
 
 function MyFriends({ initialTab }: { initialTab: Tab }) {
   const { insets } = useLayout();
+  const partyBar = usePartyBarInset();
   const column = useColumnPadding();
   const palette = usePalette();
   const [tab, setTab] = useState<Tab>(initialTab);
@@ -114,7 +119,7 @@ function MyFriends({ initialTab }: { initialTab: Tab }) {
     <ScrollView
       className="bg-background flex-1"
       contentContainerClassName="gap-6 pt-4"
-      contentContainerStyle={[column, { paddingBottom: insets.bottom + 32 }]}
+      contentContainerStyle={[column, { paddingBottom: insets.bottom + 32 + partyBar }]}
       // The filter field: a tap on a friend or Join while the keyboard is up goes through, a drag dismisses it.
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
@@ -161,7 +166,7 @@ function MyFriends({ initialTab }: { initialTab: Tab }) {
               </Text>
             ) : null}
             {shown.length > 0 ? (
-              <FriendList friends={shown} presence={presence.data} launcher={launcher} />
+              <FriendList friends={shown} presence={presence.data} launcher={launcher} messaging />
             ) : (
               <EmptyState
                 icon={SearchXIcon}
@@ -211,16 +216,19 @@ function MyFriends({ initialTab }: { initialTab: Tab }) {
 
 /**
  * Friends with their presence when known (your own list; another player's list has none): playing friends first,
- * "Online" / "In Sumo" in place of "since …", and Join for a joinable room.
+ * "Online" / "In Sumo" in place of "since …", Join for a joinable room, and (`messaging`: your own friends) the
+ * message icon that opens the dm.
  */
 function FriendList({
   friends,
   presence,
   launcher,
+  messaging = false,
 }: {
   friends: FriendSummary[];
   presence?: ReadonlyMap<string, FriendPresence>;
   launcher?: GameLauncher;
+  messaging?: boolean;
 }) {
   const [joining, setJoining] = useState<string | null>(null);
   const ordered = presence ? sortByPresence(friends, presence) : friends;
@@ -242,12 +250,22 @@ function FriendList({
             detail={f.since ? `since ${monthYear(f.since)}` : undefined}
             accessory={
               row?.join && launcher ? (
-                <JoinButton
-                  label={`Join @${f.username} in ${row.join.gameTitle}`}
-                  disabled={!!launcher.pending}
-                  spinning={launcher.pending?.join === 'friend' && joining === f.userId}
-                  onPress={() => row.join && join(row.join)}
-                />
+                <View className="flex-row items-center gap-2">
+                  <JoinButton
+                    label={`Join @${f.username} in ${row.join.gameTitle}`}
+                    disabled={!!launcher.pending}
+                    spinning={launcher.pending?.join === 'friend' && joining === f.userId}
+                    onPress={() => row.join && join(row.join)}
+                  />
+                  {messaging ? <MessageButton userId={f.userId} name={`@${f.username}`} mode="icon" /> : null}
+                  {messaging ? <InviteToPartyButton userId={f.userId} name={`@${f.username}`} /> : null}
+                </View>
+              ) : messaging ? (
+                <View className="flex-row items-center gap-2">
+                  <MessageButton userId={f.userId} name={`@${f.username}`} mode="icon" />
+                  {/* Invite to party (docs/social-phase.md §5): creates the party when there is none. */}
+                  <InviteToPartyButton userId={f.userId} name={`@${f.username}`} />
+                </View>
               ) : undefined
             }
           />

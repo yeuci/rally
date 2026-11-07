@@ -60,6 +60,7 @@ import { Image } from '@/components/rally/image';
 import { JoinCodeSheet } from '@/components/rally/join-code-sheet';
 import { LeaderboardSection, LeaderboardSectionSkeleton } from '@/components/rally/leaderboard';
 import { PageDots } from '@/components/rally/page-dots';
+import { usePartyBarInset } from '@/components/rally/party-bar';
 import { SectionHeader } from '@/components/rally/section-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -76,6 +77,8 @@ import { progressKeys, useGameAchievements, useGameBoards, useMyRank } from '@/l
 import type { JoinKind } from '@/lib/join-target';
 import { toggleHaptic } from '@/lib/haptics';
 import { useLaunchPlan } from '@/lib/launch';
+import { launchWithParty, useParty } from '@/lib/party';
+import { playWithPartyState, type PlayWithPartyState } from '@/lib/party-model';
 import { GUTTER, gameCoverColumnWidth, gameHeroHeight, pageIndex, titleBarRange } from '@/lib/layout';
 import { formatCount } from '@/lib/format';
 import { formatScore, orderBoards } from '@/lib/progress-format';
@@ -116,7 +119,9 @@ const ROUND_GAP = 8;
  * leaderboard and flashes your row. Multiplayer games (`manifest.server`, m3-phase2 §1) get Quick play
  * (`join=quick`), Rooms (`browser` mode: the server browser) and Private (`private` mode: Create room →
  * `join=create`, the game shows the code; Join with code → the code sheet → `join=room&room=<id>&code=<code>`)
- * instead of Play.
+ * instead of Play. In a party (docs/social-phase.md §5) the leader gets **Play with party** first (`POST /party/launch`
+ * once the plan and consent allow it, then `join=party&launch=<id>`; disabled with "Your party is 9; Sumo fits 8" when
+ * the game is too small) and members a note that only the leader starts party games (they can still play alone).
  *
  * Under the title: "● 23 playing now" (multiplayer games, `game_live_counts`) and "94% liked · 128 votes"; then the
  * friends in this game right now with Join, and after the details the thumbs up / down card
@@ -138,6 +143,8 @@ export default function GamePage() {
   const favorites = useFavorites();
   const toggleFavorite = useToggleFavorite();
   const launcher = useLaunchGame();
+  const party = useParty();
+  const partyBar = usePartyBarInset();
   const boardsQuery = useGameBoards(id);
   const achievements = useGameAchievements(id);
 
@@ -353,8 +360,15 @@ export default function GamePage() {
   );
   const gallery = heroScreenshots(g).length > 1;
   const secondary = !solo && (modes.includes('browser') || modes.includes('private'));
+  const partyState = playWithPartyState(party.data, userId, solo ? null : g);
+  // Room above the sticky actions for Play with party (leader) or the note (members).
+  const partyExtra = partyState.kind === 'leader' ? 60 + (partyState.disabledReason ? 24 : 0) : partyState.kind === 'member' ? 28 : 0;
   const playButton = (
     <PlayActions
+      party={partyState}
+      onPlayWithParty={() =>
+        launcher.launch(g, { join: 'party', resolve: () => launchWithParty(qc, userId, g.id) })
+      }
       multiplayer={!solo}
       rooms={!solo && modes.includes('browser')}
       privateRooms={!solo && modes.includes('private')}
@@ -407,7 +421,7 @@ export default function GamePage() {
           ref={landscapeScrollRef}
           className="flex-1"
           contentContainerClassName="gap-6"
-          contentContainerStyle={{ paddingTop: edgeTop + 4, paddingBottom: edgeBottom + 24, paddingLeft: 24, paddingRight: GUTTER }}
+          contentContainerStyle={{ paddingTop: edgeTop + 4, paddingBottom: edgeBottom + 24 + partyBar, paddingLeft: 24, paddingRight: GUTTER }}
           refreshControl={refreshControl}
         >
           <TitleBlock game={g} orientation={orientation}>
@@ -429,7 +443,7 @@ export default function GamePage() {
       <Animated.ScrollView
         ref={scrollRef}
         // Clear of the sticky actions: Play (or Quick play), plus the Rooms / Private row for multiplayer games.
-        contentContainerStyle={{ paddingBottom: insets.bottom + (secondary ? 176 : 120) }}
+        contentContainerStyle={{ paddingBottom: insets.bottom + (secondary ? 176 : 120) + partyExtra + partyBar }}
         refreshControl={refreshControl}
         onScroll={onScroll}
         scrollEventThrottle={16}
@@ -479,7 +493,11 @@ export default function GamePage() {
         <View className="h-8" pointerEvents="none">
           <CoverScrim kind="page" color={palette.background} />
         </View>
-        <View className="bg-background pt-1" style={{ paddingBottom: insets.bottom + 12, paddingLeft: pad.left, paddingRight: pad.right }}>
+        <View
+          className="bg-background pt-1"
+          // Above the party bar when it floats here (it sits over the page's bottom edge).
+          style={{ paddingBottom: insets.bottom + 12 + partyBar, paddingLeft: pad.left, paddingRight: pad.right }}
+        >
           {playButton}
         </View>
       </View>
@@ -687,9 +705,12 @@ function About({
 /**
  * Play for solo games. Multiplayer games: Quick play, then a row with Rooms (`browser` mode) and Private (`private`
  * mode: the Create room / Join with code action sheet). The pressed action shows the spinner while the launch
- * resolves.
+ * resolves. The party leader gets **Play with party** above them as the primary button (Quick play turns secondary);
+ * members see who starts party games.
  */
 function PlayActions({
+  party,
+  onPlayWithParty,
   multiplayer,
   rooms,
   privateRooms,
@@ -703,6 +724,8 @@ function PlayActions({
   onRooms,
   onPrivate,
 }: {
+  party: PlayWithPartyState;
+  onPlayWithParty: () => void;
   multiplayer: boolean;
   rooms: boolean;
   privateRooms: boolean;
@@ -728,14 +751,54 @@ function PlayActions({
           </Text>
         </View>
       )}
-      <Button size="lg" className="h-14 rounded-2xl" disabled={disabled} onPress={onPlay}>
-        {pending === 'quick' ? (
-          <ActivityIndicator color={spinnerColor} />
-        ) : (
-          <Icon as={PlayIcon} className="text-primary-foreground fill-primary-foreground size-5" />
-        )}
-        <Text className="text-[17px] font-bold">{multiplayer ? 'Quick play' : 'Play'}</Text>
-      </Button>
+      {party.kind === 'member' ? (
+        <View className="flex-row items-center justify-center gap-1.5 px-2">
+          <Icon as={UsersIcon} className="text-muted-foreground size-4" />
+          <Text variant="muted" className="shrink text-center">
+            {party.note}
+          </Text>
+        </View>
+      ) : null}
+      {party.kind === 'leader' ? (
+        <>
+          <Button
+            size="lg"
+            className="h-14 rounded-2xl"
+            disabled={disabled || !!party.disabledReason}
+            onPress={onPlayWithParty}
+            accessibilityHint={party.disabledReason ?? `Starts the game for all ${party.partySize} of you`}
+          >
+            {pending === 'party' ? (
+              <ActivityIndicator color={spinnerColor} />
+            ) : (
+              <Icon as={UsersIcon} className="text-primary-foreground size-5" />
+            )}
+            <Text className="text-[17px] font-bold">Play with party</Text>
+          </Button>
+          {party.disabledReason ? (
+            <Text variant="muted" className="text-center text-[13px] leading-[18px]" accessibilityLiveRegion="polite">
+              {party.disabledReason}
+            </Text>
+          ) : null}
+          <Button variant="secondary" className="h-12 rounded-2xl" disabled={disabled} onPress={onPlay}>
+            {pending === 'quick' ? (
+              <ActivityIndicator color={secondarySpinnerColor} />
+            ) : (
+              <Icon as={PlayIcon} className="text-secondary-foreground size-[18px]" />
+            )}
+            <Text>Quick play alone</Text>
+          </Button>
+        </>
+      ) : (
+        <Button size="lg" className="h-14 rounded-2xl" disabled={disabled} onPress={onPlay}>
+          {pending === 'quick' ? (
+            <ActivityIndicator color={spinnerColor} />
+          ) : (
+            <Icon as={PlayIcon} className="text-primary-foreground fill-primary-foreground size-5" />
+          )}
+          <Text className="text-[17px] font-bold">{multiplayer ? 'Quick play' : 'Play'}</Text>
+        </Button>
+      )}
       {rooms || privateRooms ? (
         <View className="flex-row gap-2">
           {rooms && (

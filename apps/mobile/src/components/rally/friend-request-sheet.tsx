@@ -126,8 +126,11 @@ export function FriendRequestSheet({
   );
 }
 
-/** True once `value` has held for SETTLE_MS (or from the start, with `settledAtMount`). */
-function useSettled(value: boolean, settledAtMount: boolean): boolean {
+/**
+ * True once `value` has held for SETTLE_MS (or from the start, with `settledAtMount`). Shared with the invite and
+ * follow hosts (components/rally/invite-prompt.tsx, follow-prompt.tsx), which present over the same transitions.
+ */
+export function useSettled(value: boolean, settledAtMount: boolean): boolean {
   const [settled, setSettled] = useState(value && settledAtMount);
   const [prev, setPrev] = useState(value);
   if (prev !== value) {

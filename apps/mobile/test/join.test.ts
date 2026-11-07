@@ -12,7 +12,17 @@ import {
   type HostHandlerDeps,
   type MatchmakingTarget,
 } from '../src/game-host/handlers';
-import { RoomLookupError, clearServerVersionCache, listRooms, matchmake, roomByCode, serverVersion } from '../src/game-host/matchmake';
+import {
+  PartyRequestError,
+  RoomLookupError,
+  clearServerVersionCache,
+  listRooms,
+  matchmake,
+  partyLaunch,
+  partySeat,
+  roomByCode,
+  serverVersion,
+} from '../src/game-host/matchmake';
 import { createMemoryProgressStore } from '../src/game-host/progress';
 import {
   REJOIN_GRACE_S,
@@ -32,6 +42,8 @@ import {
   normalizeJoinCode,
   parseFriendJoinTarget,
   parseJoinTarget,
+  parsePartyLaunch,
+  parsePartySeat,
   targetForCode,
   type JoinTarget,
 } from '../src/lib/join-target';
@@ -134,7 +146,13 @@ test('parseJoinTarget: quick by default, each kind, first array value, malformed
   assert.deepEqual(parseJoinTarget({ join: 'friend', friend: uuid }), { join: 'friend', friend: uuid.toLowerCase() });
   assert.deepEqual(parseJoinTarget({ join: 'resume' }), { join: 'resume' });
 
-  assert.equal(parseJoinTarget({ join: 'party' }), null);
+  const launch = '5F2504E0-4F89-41D3-9A0C-0305E82C3301';
+  assert.deepEqual(parseJoinTarget({ join: 'party', launch }), { join: 'party', launch: launch.toLowerCase() });
+  assert.deepEqual(parseJoinTarget({ join: ['party'], launch: [launch, 'x'] }), { join: 'party', launch: launch.toLowerCase() });
+
+  assert.equal(parseJoinTarget({ join: 'party' }), null, 'party needs a launch id');
+  assert.equal(parseJoinTarget({ join: 'party', launch: 'not-a-uuid' }), null);
+  assert.equal(parseJoinTarget({ join: 'party', launch: '../party/seat' }), null);
   assert.equal(parseJoinTarget({ join: 'room' }), null, 'room needs an id');
   assert.equal(parseJoinTarget({ join: 'room', room: '../versions' }), null);
   assert.equal(parseJoinTarget({ join: 'room', room: 'r1', code: 'O0O0O0' }), null, 'O and 0 are not in the alphabet');
@@ -149,12 +167,14 @@ test('joinTargetParams round-trips through parseJoinTarget; intents per kind', (
     { join: 'room', room: 'r1' },
     { join: 'room', room: 'r1', code: 'K7M2PQ' },
     { join: 'friend', friend: '3f2504e0-4f89-11d3-9a0c-0305e82c3301' },
+    { join: 'party', launch: '5f2504e0-4f89-41d3-9a0c-0305e82c3301' },
     { join: 'resume' },
   ];
   for (const t of targets) assert.deepEqual(parseJoinTarget(joinTargetParams(t)), t);
+  assert.deepEqual(joinTargetParams({ join: 'party', launch: 'L' }), { join: 'party', launch: 'L' });
   assert.deepEqual(
-    (['quick', 'create', 'room', 'friend'] as const).map(intentFor),
-    ['quick', 'private', 'joinById', 'joinById'],
+    (['quick', 'create', 'room', 'friend', 'party'] as const).map(intentFor),
+    ['quick', 'private', 'joinById', 'joinById', 'party'],
   );
 });
 
@@ -187,6 +207,84 @@ test('targetForCode: bad codes make no request, another game is refused, else jo
   assert.deepEqual(await targetForCode('aaa-aaa', 'sumo', lookup), { ok: false, reason: 'other-game' });
   assert.deepEqual(await targetForCode('k7m-2pq', 'sumo', lookup), { ok: true, target: { join: 'room', room: 'priv1', code: 'K7M2PQ' } });
   assert.deepEqual(looked, ['AAAAAA', 'K7M2PQ']);
+});
+
+test('parsePartySeat / parsePartyLaunch: the /party answers; junk is null, a bad code is dropped', () => {
+  const seatRes = { name: 'sumo', roomId: 'pr1', sessionId: 's', processId: 'p' };
+  assert.deepEqual(parsePartySeat({ roomId: 'pr1', code: 'k7m2pq', seatReservation: seatRes }), {
+    roomId: 'pr1',
+    code: 'K7M2PQ',
+    seatReservation: seatRes,
+  });
+  assert.deepEqual(parsePartySeat({ roomId: 'pub1', code: null, seatReservation: seatRes })?.code, null);
+  assert.equal(parsePartySeat({ roomId: 'pr1', code: 'O0O0O0', seatReservation: seatRes })?.code, null);
+  assert.equal(parsePartySeat({ roomId: '../x', seatReservation: seatRes }), null);
+  assert.equal(parsePartySeat({ roomId: 'pr1' }), null);
+  const launchId = '5F2504E0-4F89-41D3-9A0C-0305E82C3301';
+  assert.deepEqual(parsePartyLaunch({ launchId, roomId: 'pr1', code: null, seatReservation: seatRes }), {
+    launchId: launchId.toLowerCase(),
+    roomId: 'pr1',
+    code: null,
+    seatReservation: seatRes,
+  });
+  assert.equal(parsePartyLaunch({ launchId: 'nope', roomId: 'pr1', seatReservation: seatRes }), null);
+});
+
+test('partyLaunch / partySeat: POST with the Bearer token; statuses map to PartyRequestError codes', async () => {
+  const launchId = '5f2504e0-4f89-41d3-9a0c-0305e82c3301';
+  const auths: (string | undefined)[] = [];
+  const realFetchLocal = globalThis.fetch;
+  let status = 200;
+  let answer: unknown = { launchId, roomId: 'pr1', code: 'K7M2PQ', seatReservation: { roomId: 'pr1', sessionId: 's' } };
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    calls.push({ method: init?.method ?? 'GET', url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    auths.push((init?.headers as Record<string, string>).Authorization);
+    return json(answer, status);
+  }) as typeof fetch;
+  try {
+    assert.deepEqual(await partyLaunch(HTTP, 'sumo', 'jwt'), {
+      launchId,
+      roomId: 'pr1',
+      code: 'K7M2PQ',
+      seatReservation: { roomId: 'pr1', sessionId: 's' },
+    });
+    answer = { roomId: 'pr1', code: null, seatReservation: { roomId: 'pr1', sessionId: 's2' } };
+    assert.deepEqual((await partySeat(HTTP, launchId, 'jwt')).seatReservation, { roomId: 'pr1', sessionId: 's2' });
+    assert.deepEqual(paths(), ['POST /party/launch', 'POST /party/seat']);
+    assert.deepEqual(calls.map((c) => c.body), [{ gameId: 'sumo' }, { launchId }]);
+    assert.deepEqual(auths, ['Bearer jwt', 'Bearer jwt']);
+
+    const cases: [number, string][] = [
+      [401, 'UNAUTHENTICATED'],
+      [404, 'NOT_FOUND'],
+      [409, 'CONFLICT'],
+      [410, 'GONE'],
+      [429, 'RATE_LIMITED'],
+      [503, 'UNAVAILABLE'],
+      [500, 'FAILED'],
+    ];
+    for (const [st, code] of cases) {
+      status = st;
+      answer = { error: `nope ${st}` };
+      await assert.rejects(partySeat(HTTP, launchId, 'jwt'), (e: unknown) => e instanceof PartyRequestError && e.code === code && e.message === `nope ${st}`);
+    }
+    status = 200;
+    answer = { junk: true };
+    await assert.rejects(partyLaunch(HTTP, 'sumo', 'jwt'), (e: unknown) => e instanceof PartyRequestError && e.code === 'FAILED');
+    globalThis.fetch = (async () => {
+      throw new TypeError('Network request failed');
+    }) as typeof fetch;
+    await assert.rejects(partySeat(HTTP, launchId, 'jwt'), (e: unknown) => e instanceof PartyRequestError && e.code === 'UNREACHABLE');
+  } finally {
+    globalThis.fetch = realFetchLocal;
+  }
+});
+
+test('rejoin journal: a party match is remembered with its origin (resume reports intent party)', async () => {
+  const { j } = journal();
+  await j.save({ gameId: 'sumo', roomId: 'pr1', token: 'pr1:tok', code: 'K7M2PQ', join: 'party', ttlSec: 60 });
+  assert.equal((await j.get())?.join, 'party');
+  assert.equal(intentFor('party'), 'party');
 });
 
 // --- matchmake.ts lookups -------------------------------------------------------------------------------------------

@@ -17,13 +17,15 @@ test('the edge swipe opens the drawer on the dashboard only, never over the game
   }
 });
 
-test('drawer items: Home, Browse, Search, Friends (request badge), Shop, Profile, Settings; Developer only with dev tools', () => {
+test('drawer items: Home, Browse, Search, Friends (request badge), Messages (unread badge), Shop, Profile, Settings; Developer only with dev tools', () => {
   const plain = drawerItems({ devTools: false, incomingRequests: null });
   assert.deepEqual(
     plain.map((i) => i.key),
-    ['home', 'browse', 'search', 'friends', 'shop', 'profile', 'settings'],
+    ['home', 'browse', 'search', 'friends', 'messages', 'shop', 'profile', 'settings'],
   );
   assert.equal(plain.find((i) => i.key === 'friends')!.badge, null);
+  assert.equal(plain.find((i) => i.key === 'messages')!.badge, null);
+  assert.equal(plain.find((i) => i.key === 'messages')!.hint, undefined);
   // Settings has its own screen now: no "opens your profile" hint.
   assert.equal(plain.find((i) => i.key === 'settings')!.hint, undefined);
 
@@ -31,6 +33,17 @@ test('drawer items: Home, Browse, Search, Friends (request badge), Shop, Profile
   assert.equal(dev.at(-1)!.key, 'developer');
   assert.equal(dev.find((i) => i.key === 'friends')!.badge, '3');
   assert.ok(dev.every((i) => i.key === 'friends' || i.badge === null));
+});
+
+test('drawer items: Messages carries the unread count badge (countBadge: "9+" past nine), with a hint', () => {
+  const unread = drawerItems({ devTools: false, incomingRequests: null, unreadMessages: '9+' });
+  const messages = unread.find((i) => i.key === 'messages')!;
+  assert.equal(messages.label, 'Messages');
+  assert.equal(messages.badge, '9+');
+  assert.equal(messages.hint, 'Opens your unread messages');
+  // The two badges are independent.
+  assert.equal(unread.find((i) => i.key === 'friends')!.badge, null);
+  assert.ok(unread.every((i) => i.key === 'messages' || i.badge === null));
 });
 
 test('the edge strip stays modest: narrower than the library default (32 pt), wider than a fingertip sliver', () => {

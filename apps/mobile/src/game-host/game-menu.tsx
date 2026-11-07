@@ -11,6 +11,7 @@ import {
   LogOutIcon,
   PlayIcon,
   ShareIcon,
+  UserPlusIcon,
   XIcon,
 } from 'lucide-react-native';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -53,8 +54,10 @@ import { useViewport } from '@/lib/viewport';
  *   FPS counter (the app preference, lib/prefs.ts: the host applies it live), haptics), then the game's own from
  *   `menu.define`. Sliders report while dragging (`final` false) and once on release.
  * - **How to play**: the game's help entries, or a short empty state.
- * - **People**: `menu.players` rows; rows with a Rally user id open a small profile peek with Add friend and Report
- *   (no navigation away from the game). The private room's code with Copy / Share when the play screen knows it.
+ * - **People**: **Invite friends** at the top (the play route's invite sheet: `send_room_invite` to friends, docs/social-phase.md
+ *   §5), then the `menu.players` rows (party members get a "Party" badge); rows with a Rally user id open a small
+ *   profile peek with Add friend and Report (no navigation away from the game). The private room's code with Copy /
+ *   Share when the play screen knows it.
  *   Report opens the report sheet (components/rally/report-sheet.tsx), a BottomSheet: it rises over the game upright
  *   with the screen's insets, also when an iPhone shows this menu turned inside a landscape game's frame.
  *
@@ -78,6 +81,10 @@ export interface GameMenuProps {
   /** The game and the joined room, sent with a report as context for moderators. */
   gameId?: string | null;
   roomId?: string | null;
+  /** The signed-in user's party members (user ids): their rows in People get a "Party" badge. */
+  partyMemberIds?: readonly string[];
+  /** **Invite friends** in People (the play route's invite sheet); hidden without a handler (Developer launcher). */
+  onInviteFriends?: () => void;
   onResume: () => void;
   /** Leave game (confirmed in the menu). */
   onLeave: () => void;
@@ -97,7 +104,14 @@ const GRAPHICS_LABEL: Record<GraphicsChoice, string> = { auto: 'Auto', low: 'Low
 
 export function GameMenu(props: GameMenuProps) {
   const { title, iconUri, menu, settings, leaving, roomCode, net, onResume, onLeave, onChange, initialTab } = props;
-  const { buttonTucked = false, onButtonTuckedChange, gameId = null, roomId = null } = props;
+  const {
+    buttonTucked = false,
+    onButtonTuckedChange,
+    gameId = null,
+    roomId = null,
+    partyMemberIds,
+    onInviteFriends,
+  } = props;
   const { width, height, insets } = useViewport();
   const landscape = width > height;
   const multiplayer = menu.players.length > 0 || !!roomCode;
@@ -215,7 +229,14 @@ export function GameMenu(props: GameMenuProps) {
                     onReport={(target) => setReporting({ ...target, gameId, roomId })}
                   />
                 ) : (
-                  <PeopleTab players={menu.players} roomCode={roomCode ?? null} gameTitle={name} onPeek={setPeek} />
+                  <PeopleTab
+                    players={menu.players}
+                    roomCode={roomCode ?? null}
+                    gameTitle={name}
+                    partyMemberIds={partyMemberIds}
+                    onInviteFriends={onInviteFriends}
+                    onPeek={setPeek}
+                  />
                 )}
               </ScrollView>
 
@@ -624,15 +645,25 @@ function PeopleTab({
   players,
   roomCode,
   gameTitle,
+  partyMemberIds,
+  onInviteFriends,
   onPeek,
 }: {
   players: MenuPlayer[];
   roomCode: string | null;
   gameTitle: string;
+  partyMemberIds?: readonly string[];
+  onInviteFriends?: () => void;
   onPeek: (p: MenuPlayer) => void;
 }) {
+  const party = new Set(partyMemberIds ?? []);
   return (
     <View style={styles.sections}>
+      {onInviteFriends ? (
+        <View style={styles.inviteRow}>
+          <MenuButton label="Invite friends" icon={UserPlusIcon} onPress={onInviteFriends} />
+        </View>
+      ) : null}
       {roomCode ? <RoomCodeCard code={roomCode} gameTitle={gameTitle} /> : null}
       {players.length === 0 ? (
         <Empty title="No one here yet" body="Players show up here once you are in a match." />
@@ -660,6 +691,11 @@ function PeopleTab({
                 {p.you ? (
                   <View style={styles.youBadge}>
                     <Text style={styles.youText}>You</Text>
+                  </View>
+                ) : null}
+                {p.userId && party.has(p.userId) ? (
+                  <View style={styles.partyBadge} accessibilityLabel="In your party">
+                    <Text style={styles.partyText}>Party</Text>
                   </View>
                 ) : null}
                 <View style={styles.flex} />
@@ -898,6 +934,9 @@ const styles = StyleSheet.create({
   playerDetail: { fontSize: 13, lineHeight: 18, opacity: 0.55, fontVariant: ['tabular-nums'] },
   youBadge: { paddingHorizontal: 7, paddingVertical: 1, borderRadius: 8, backgroundColor: WHITE },
   youText: { fontSize: 11, lineHeight: 16, fontWeight: '800', color: BRAND.base },
+  partyBadge: { paddingHorizontal: 7, paddingVertical: 1, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.14)' },
+  partyText: { fontSize: 11, lineHeight: 16, fontWeight: '800', color: WHITE },
+  inviteRow: { flexDirection: 'row' },
   codeCard: { gap: 4, padding: 12, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.06)' },
   codeRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   ping: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4 },
