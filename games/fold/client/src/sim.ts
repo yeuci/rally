@@ -238,39 +238,61 @@ export function generateRoom(seed: number, index: number, x0: number): Room {
 
   while (true) {
     const f = pick();
-    // The feature's size, the band it needs the plane in (needAbove … needBelow) and the band it leaves it in.
+    // The feature's size, the bands it can be passed in ([above, below]: a table has two, over or under) and the band
+    // it can leave the plane in (low … high; after a table that is the worst of both sides: as high as its top, as
+    // low as its underside).
     let width = 1.3;
-    let needAbove = 0;
-    let needBelow = ROOM_H;
+    let passes: [number, number][] = [[0, ROOM_H]];
     let low = 0;
     let high = ROOM_H;
     let h = 0;
+    let kettle = false;
     if (f === 'shelf') {
       h = lerp(2.6, 4.5, r() * lerp(0.6, 1, d));
-      needAbove = low = h;
+      passes = [[h, ROOM_H]];
+      low = h;
     } else if (f === 'lamp') {
       width = 1;
       h = lerp(3.2, 1.6, r() * lerp(0.6, 1, d));
-      needBelow = high = h;
+      passes = [[0, h]];
+      high = h;
     } else if (f === 'table') {
       width = 3.2 + r();
       h = 1.8 + r() * 0.6;
+      kettle = r() < 0.45;
+      // A kettle's steam makes "over" a bad choice: count the table as under-only.
+      passes = kettle
+        ? [[0, h]]
+        : [
+            [0, h],
+            [h + 0.22, ROOM_H],
+          ];
+      low = kettle ? 0 : h + 0.22;
+      high = h;
     } else if (f === 'pit') {
       width = (4 + r() * 3) * lerp(0.85, 1.1, d);
-      needAbove = 2.4;
+      passes = [[2.4, ROOM_H]];
       high = 2.8;
     } else if (f === 'fan') {
       width = 3.2;
-      needBelow = high = ROOM_H - 0.9;
+      passes = [[0, ROOM_H - 0.9]];
+      // It pushes the plane down: expect it low afterwards.
+      high = 3.2;
     } else {
       width = 1.4;
-      needAbove = 1;
+      passes = [[1, ROOM_H]];
       // Its heat can lift a glider most of the way to the ceiling.
       low = 2.6;
     }
-    // Room to change height between the two: dropping from above a shelf to below a lamp, climbing back up …
-    const climb = Math.max(0, afterLow - needBelow, needAbove - afterHigh);
-    let gap = (3.6 + r() * 2.4) * spacingScale + climb * 1.15;
+    // Room to change height between the two: dropping from above a shelf to below a lamp, climbing back up … The
+    // change is measured with the clearance a person keeps (a corridor under 1.2 m tall counts as a climb), takes the
+    // easier pass, and the room it needs grows with the run's speed-up.
+    let climb = Infinity;
+    for (const [above, below] of passes) {
+      const change = Math.max(afterLow - below, above - afterHigh);
+      climb = Math.min(climb, change > -1.2 ? change + 1.2 : 0);
+    }
+    let gap = (3.6 + r() * 2.4) * spacingScale + climb * 1.6 * speedScale(x0 - START_X);
     if (prev === 'pit') gap += 1.5;
     const fx = lastEnd + gap;
     if (fx + width > room.x1 - 4) break;
@@ -283,7 +305,7 @@ export function generateRoom(seed: number, index: number, x0: number): Room {
     } else if (f === 'table') {
       add('table', fx, fx + width, h, h + 0.22);
       for (let i = 0; i < 2; i++) stamp(fx + width * (0.33 + i * 0.34), h / 2);
-      if (r() < 0.45) {
+      if (kettle) {
         const kx = fx + width * 0.65;
         add('kettle', kx, kx + 0.5, h + 0.22, h + 0.82);
         room.zones.push({ kind: 'steam', x0: kx - 0.1, x1: kx + 0.7, y0: h + 0.82, y1: ROOM_H });
@@ -348,9 +370,32 @@ export class FoldSim {
   /** Events from the last `advance` (or `input`). */
   events: SimEvent[] = [];
 
-  constructor(seed = 1) {
+  /** A look-ahead copy (`fork`): shares the real sim's rooms, so it never takes their stamps. */
+  private readonly ghost: boolean;
+
+  constructor(seed = 1, ghost = false) {
     this.seed = seed >>> 0;
-    this.fillRooms();
+    this.ghost = ghost;
+    if (!ghost) this.fillRooms();
+  }
+
+  /**
+   * A copy that flies on by itself from here (bots try a move in one before making it). It shares the rooms (they are
+   * the same whoever generates them) but leaves their stamps alone.
+   */
+  fork(): FoldSim {
+    const f = new FoldSim(this.seed, true);
+    f.phase = this.phase;
+    f.tick = this.tick;
+    f.queued = [...this.queued];
+    Object.assign(f.plane, this.plane);
+    f.rooms.push(...this.rooms);
+    f.nextRoom = this.nextRoom;
+    f.nextRoomX = this.nextRoomX;
+    f.roomIndex = this.roomIndex;
+    f.stamps = this.stamps;
+    f.stairwells = this.stairwells;
+    return f;
   }
 
   get time(): number {
@@ -510,7 +555,7 @@ export class FoldSim {
     for (const room of this.nearRooms()) {
       for (const o of room.obstacles) if (overlaps(hit, o)) return this.end(o.kind);
       for (const s of room.stamps) {
-        if (s.taken || Math.abs(s.x - p.x) > STAMP_RADIUS || Math.abs(s.y - p.y) > STAMP_RADIUS) continue;
+        if (this.ghost || s.taken || Math.abs(s.x - p.x) > STAMP_RADIUS || Math.abs(s.y - p.y) > STAMP_RADIUS) continue;
         s.taken = true;
         this.stamps++;
         this.events.push({ type: 'stamp', x: s.x, y: s.y, total: this.stamps });

@@ -17,6 +17,10 @@
 * {
   box-sizing: border-box;
 }
+/* Classes below set display (flex, grid …), which would otherwise beat the hidden attribute. */
+[hidden] {
+  display: none !important;
+}
 html,
 body {
   width: 100%;
@@ -58,7 +62,8 @@ body {
 .bar {
   position: absolute;
   top: calc(var(--safe-top) + 10px);
-  left: calc(var(--safe-left) + 14px);
+  /* In the shell its game-menu button sits top-left (--rally-menu-inset, from the launch context): keep clear. */
+  left: max(calc(var(--safe-left) + 14px), var(--rally-menu-inset, 0px));
   right: calc(var(--safe-right) + 14px);
   display: flex;
   gap: 10px;

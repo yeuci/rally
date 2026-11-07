@@ -1,26 +1,26 @@
-import { DOOR_H, FLAP_SPEED, FORM_RULES, PLANE_HH, ROOM_H, type FoldSim, type Input } from './sim.ts';
+import { DOOR_H, FLAP_SPEED, FORM_RULES, PLANE_HH, ROOM_H, TICK, type FoldSim, type Input } from './sim.ts';
+
+/** Ticks between the look-ahead bot's decisions (0.1 s: about as often as a thumb can swipe). */
+const DECIDE_TICKS = 6;
+/** How long a tried move is left alone before the rules fly on (s), and how far ahead it is tried (s). */
+const COMMIT_SECONDS = 0.2;
+const HORIZON_SECONDS = 2.5;
 
 /**
- * A pilot for tests, balancing and the e2e: looks a few metres ahead, works out the band of heights that gets the
- * plane past what is coming (over a shelf, under a lamp, over or under a table, high enough to glide a stairwell),
- * and picks the shape that gets it there: the crane to climb, the dart to drop, the glider to hold. Not clever, but it
- * flies the way a person does, so the house can be checked against it (every room must be passable).
+ * Rules of thumb for flying: look a few metres ahead, work out the band of heights that gets the plane past what is
+ * coming (over a shelf, under a lamp, over or under a table, high enough to glide a stairwell) and pick the shape that
+ * gets it there: the crane to climb, the dart to drop, the glider to hold.
  */
-export class Bot {
+export class Pilot {
   /** How far ahead (m) it plans, scaled by speed. */
   private readonly look: number;
   /** Over (true) or under (false), decided once per table so the plan does not flip-flop on the way in. */
-  private readonly tables = new Map<number, boolean>();
+  readonly tables: Map<number, boolean>;
 
-  constructor(look = 6) {
+  constructor(look = 6, tables = new Map<number, boolean>()) {
     this.look = look;
+    this.tables = tables;
   }
-
-  /** Drive `sim` through `advance`'s `beforeTick`. */
-  readonly drive = (sim: FoldSim) => {
-    const cmd = this.decide(sim);
-    if (cmd) sim.input(cmd);
-  };
 
   /** The band [lo, hi] the plane should be in for whatever is next ahead, and whether a stairwell is coming. */
   band(sim: FoldSim): { lo: number; hi: number; pit: boolean } {
@@ -78,7 +78,7 @@ export class Bot {
     // Too low (or skidding): flap up, unless a flap would hit whatever is above; then glide low and skim.
     if (p.grounded || p.y < lo + 0.05) {
       if (!flapFits) return p.form === 'glider' ? null : 'glider';
-      return p.vy < 1.6 ? 'flap' : null;
+      return p.vy < 3 && p.flapCooldown === 0 ? 'flap' : null;
     }
     // Too high: dive.
     if (p.y > hi - 0.05) return p.form === 'dart' ? null : 'dart';
@@ -92,8 +92,71 @@ export class Bot {
     }
     // A flap is spent: glide.
     if (p.form === 'crane') return p.vy < 0.3 ? 'glider' : null;
-    // Gliding down to the bottom of the band: flap if it fits.
-    if (p.y < lo + 0.4 && p.vy < 0 && flapFits) return 'flap';
+    // Gliding into the bottom of the band: flap if it fits.
+    if (p.y + p.vy * 0.25 < lo && p.vy < 0 && flapFits) return 'flap';
     return null;
+  }
+}
+
+/**
+ * A pilot for tests, balancing, the e2e and store art. Every tenth of a second it works out what the rules of thumb
+ * (Pilot) would do, tries that in a copy of the sim (`fork`) for a couple of seconds and, if the copy crashes, tries
+ * the other moves (nothing, glider, dart, flap) and takes the one that flies furthest. It sees what a player sees and
+ * moves about as often as a thumb can, so the house can be checked against it: every room must be passable.
+ */
+export class Bot {
+  private readonly pilot: Pilot;
+  private readonly lookahead: boolean;
+
+  constructor(opts: { lookahead?: boolean; look?: number } = {}) {
+    this.pilot = new Pilot(opts.look);
+    this.lookahead = opts.lookahead ?? true;
+  }
+
+  /** Drive `sim` through `advance`'s `beforeTick`. */
+  readonly drive = (sim: FoldSim) => {
+    const cmd = this.decide(sim);
+    if (cmd) sim.input(cmd);
+  };
+
+  band(sim: FoldSim) {
+    return this.pilot.band(sim);
+  }
+
+  decide(sim: FoldSim): Input | null {
+    if (sim.phase !== 'playing') return null;
+    if (!this.lookahead) return this.pilot.decide(sim);
+    if (sim.tick % DECIDE_TICKS !== 0) return null;
+    const own = this.pilot.decide(sim);
+    const horizon = Math.round(HORIZON_SECONDS / TICK);
+    let best = own;
+    let bestTicks = this.tryMove(sim, own, horizon);
+    if (bestTicks >= horizon) return own;
+    for (const cmd of [null, 'glider', 'dart', 'flap'] as const) {
+      if (cmd === own || (cmd !== null && cmd !== 'flap' && cmd === sim.plane.form)) continue;
+      const ticks = this.tryMove(sim, cmd, horizon);
+      if (ticks > bestTicks) {
+        best = cmd;
+        bestTicks = ticks;
+        if (ticks >= horizon) break;
+      }
+    }
+    return best;
+  }
+
+  /** Ticks a copy of `sim` survives (up to `horizon`) after `cmd`, left alone for a moment and then flown by the rules. */
+  private tryMove(sim: FoldSim, cmd: Input | null, horizon: number): number {
+    const f = sim.fork();
+    const pilot = new Pilot(undefined, new Map(this.pilot.tables));
+    const commit = f.tick + Math.round(COMMIT_SECONDS / TICK);
+    if (cmd) f.input(cmd);
+    const start = f.tick;
+    const steer = (s: FoldSim) => {
+      if (s.tick < commit || s.tick % DECIDE_TICKS !== 0) return;
+      const c = pilot.decide(s);
+      if (c) s.input(c);
+    };
+    while (f.phase === 'playing' && f.tick - start < horizon) f.advance(TICK, steer);
+    return f.tick - start;
   }
 }

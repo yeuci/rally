@@ -395,6 +395,9 @@ async function boot() {
   if (rally.isHosted) {
     const ctx = await rally.ready();
     applySafeAreaVars(safeArea(ctx.device.safeArea));
+    // The host's menu button sits top-left: keep the HUD out of it.
+    const b = ctx.device.menuButton;
+    if (b) document.documentElement.style.setProperty('--rally-menu-inset', `${b.x + b.width + 8}px`);
   } else {
     applySafeAreaVars(safeArea());
   }
@@ -421,6 +424,13 @@ if (import.meta.env.DEV) {
     },
     get distance() {
       return sim.distance;
+    },
+    /** Game seconds since the run started. */
+    get time() {
+      return sim.time;
+    },
+    get stairwells() {
+      return sim.stairwells;
     },
     get stamps() {
       return sim.stamps;
