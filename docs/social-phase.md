@@ -13,8 +13,8 @@ against fakes. Errors follow the earlier migrations: `UNAUTHENTICATED`, `ANONYMO
 | Filtering | `contains_banned_word(body)` refuses the message (`FILTERED`); nothing filtered is stored. A `mute` sanction refuses sending (`MUTED`). |
 | Parties | 2–8 members, one leader. One party per user. The party survives games: members come back to the dashboard still partied. Any member invites; only the leader launches, kicks and hands over the lead. |
 | Launch | The leader launches a multiplayer game for everyone (`POST /party/launch`). Seats are reserved by the game server and held in its memory (single pm2 instance, as the matchmaker already is); the database keeps the launch row for the broadcast and for late arrivals. Members fetch their seat with `POST /party/seat` when their app is ready (`join=party`). |
-| Invites | `invites` rows for party invites and room invites, 10 minutes, one pending per (kind, from, to). Delivered on the recipient's `user:<uid>` channel; accepted or declined through one RPC. |
-| Realtime | One more private topic, `party:<id>`, for members. Everything else stays on `user:<uid>`. Triggers call `realtime.send()` as 20261031000200 does. |
+| Invites | `invites` rows for party invites and room invites, 10 minutes, one pending per (kind, from, to). Delivered on the recipient's `user:<uid>` channel; accepted or declined through one RPC, which rechecks that the sender is still a friend with no block either way (and, for a party, still a member). Nobody joins a party where a member has a block with them either way. |
+| Realtime | One more private topic, `party:<channel_key>`, for members. `parties.channel_key` is a secret uuid that rotates whenever a member leaves or is kicked: Realtime authorises a subscription only when it joins, so a former member's stale subscription must stop hearing the party. Everything else stays on `user:<uid>`. Triggers call `realtime.send()` as 20261031000200 does. |
 | Reads | Conversation lists and threads are RPCs (security definer); nothing new is readable through table policies except the caller's own rows where noted. |
 | Retention | Messages older than 90 days, invites older than 1 day and launches older than 1 day are purged by pg_cron (pattern of 20261030000400). |
 
@@ -92,7 +92,7 @@ the message's sender.
   deleted; the recipient's own topic, so the body may travel).
 - party: to `party:<party_id>`, event `party`, payload `{ type: 'message' | 'message_deleted', conversation_id,
   message_id, sender_id, body, at }`.
-Policy on `realtime.messages` for `party:<id>`: select to authenticated where the caller has a `party_members` row
+Policy on `realtime.messages` for `party:<channel_key>`: select to authenticated where the caller has a `party_members` row
 with status `joined` for that id (added by 20261107000200, which owns `party_members`).
 
 pg_cron: `rally_purge_messages` daily, deletes `messages` older than 90 days.
@@ -168,13 +168,13 @@ Service-role RPCs for the game server (`server_*`, grant to `service_role` only,
 | `server_party_member(p_user uuid, p_launch_id uuid)` | `jsonb` `{ party_id, game_id, room_id, code, username, avatar_url }` or `null` | Whether `p_user` is a joined member of the launch's party and the launch is unexpired; for `/party/seat`. |
 
 **Realtime.** Triggers:
-- `party_members` insert / delete → `party:<id>`, event `party`, `{ type: 'member_joined' | 'member_left', party_id,
+- `party_members` insert / delete → `party:<channel_key>`, event `party`, `{ type: 'member_joined' | 'member_left', party_id,
   user_id, by: <auth.uid() or the leader for a kick>, at }`. On delete also `{ type: 'removed', party_id, at }` to
   `user:<user_id>` (so a kicked member learns it even if it already left the party topic). A deletion of the whole
   party sends `{ type: 'party_ended', party_id, at }` to each remaining member's user topic (there are none by then,
   so this only matters for the cascade of a deleted leader account: handle it in `leave_party` before the delete).
-- `parties` update of `leader_id` → `party:<id>` `{ type: 'leader_changed', party_id, leader_id, at }`.
-- `party_launches` insert → `party:<id>` `{ type: 'launch', party_id, launch_id, game_id, room_id, leader_id, at }`.
+- `parties` update of `leader_id` → `party:<channel_key>` `{ type: 'leader_changed', party_id, leader_id, at }`.
+- `party_launches` insert → `party:<channel_key>` `{ type: 'launch', party_id, launch_id, game_id, room_id, leader_id, at }`.
 - `invites` insert (pending) → `user:<to>`, event `invite`, `{ type: 'party_invite' | 'room_invite', invite_id, from,
   party_id, game_id, room_id, at }`; update to declined → `user:<from>` `{ type: 'invite_declined', invite_id, to,
   at }`; update to cancelled / accepted → `user:<to>` `{ type: 'invite_closed', invite_id, at }` (the banner goes
@@ -241,7 +241,7 @@ day).
 ## 5. App: parties and invites
 
 - `lib/party.ts`: `useParty()` (`my_party`, key `partyKeys.party(uid)`), mutations for every RPC, `usePartyChannel()`
-  subscribes `party:<id>` (private broadcast, same lifecycle as the user channel) while `my_party` is non-null and
+  subscribes `party:<channel_key>` (private broadcast, same lifecycle as the user channel) while `my_party` is non-null and
   routes `party` events: membership and leader changes invalidate the party; `launch` → the follow flow; `message`
   → `lib/messages.ts`.
 - **Party bar** (`components/rally/party-bar.tsx`): mounted in `(app)/_layout.tsx` next to `ToastHost`, hidden on game
