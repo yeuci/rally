@@ -28,9 +28,10 @@
 --
 --   Realtime (private.broadcast_message, AFTER INSERT / UPDATE on messages, realtime.send as 20261031000200):
 --     dm      -> the OTHER member's `user:<uid>` topic, event 'dm'
---     party   -> `party:<party_id>`, event 'party'
+--     party   -> `party:<party_id>`, event 'party' here; 20261107000200_parties.sql redefines this function so party
+--                chat goes to the party's rotating topic `party:<channel_key>` instead (and owns its channel policy)
 --     payload   {type: 'message' | 'message_deleted', conversation_id, message_id, sender_id, body, at}; body is ''
---               for a deleted message. The policy letting party members read `party:<id>` is in 20261107000200.
+--               for a deleted message.
 --
 --   Retention: pg_cron job rally_purge_messages (daily) deletes messages older than 90 days.
 --

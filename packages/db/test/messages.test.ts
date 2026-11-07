@@ -137,8 +137,11 @@ const api = (db: PGlite) => ({
       db,
       leader!,
       async () =>
-        (await db.query<{ p: { id: string; conversation_id: string } }>(`select public.create_party() as p`)).rows[0]!
-          .p,
+        (
+          await db.query<{ p: { id: string; conversation_id: string; channel_key: string } }>(
+            `select public.create_party() as p`,
+          )
+        ).rows[0]!.p,
     );
     for (const m of rest) {
       const invite = await asUser(
@@ -941,13 +944,13 @@ describe('messages: realtime events', () => {
     assert.deepEqual(await take(db), []);
   });
 
-  test('party chat goes to party:<id>, event party, for the whole party', async () => {
+  test('party chat goes to party:<channel_key>, event party, for the whole party', async () => {
     const party = await rpc.party([ann, ben, cat]);
     await db.exec(`truncate pg_temp.sent`); // the party events are parties.test.ts's
     const m = await rpc.send(cat, party.conversation_id, 'hello party');
     assert.deepEqual(await take(db), [
       {
-        topic: `party:${party.id}`,
+        topic: `party:${party.channel_key}`,
         event: 'party',
         private: true,
         payload: {
@@ -962,7 +965,7 @@ describe('messages: realtime events', () => {
     await rpc.deleteMessage(cat, m.id);
     assert.deepEqual(await take(db), [
       {
-        topic: `party:${party.id}`,
+        topic: `party:${party.channel_key}`,
         event: 'party',
         private: true,
         payload: {

@@ -99,6 +99,7 @@ interface Party {
   id: string;
   leader_id: string;
   conversation_id: string;
+  channel_key: string;
   created_at: string;
   launch: PartyLaunch | null;
   members: PartyMember[];
@@ -280,8 +281,26 @@ describe('parties: privileges', () => {
            from pg_class where oid = $1::regclass`,
         [`public.${t}`, t],
       );
-      assert.deepEqual(r.rows[0], { rls: true, anon: false, auth: false, svc: true, policies: 0 }, t);
+      // parties: one own-row policy and a column grant (id, channel_key) for the channel policy; no table-level select.
+      assert.deepEqual(
+        r.rows[0],
+        { rls: true, anon: false, auth: false, svc: true, policies: t === 'parties' ? 1 : 0 },
+        t,
+      );
     }
+    const cols = await db.query<{ column_name: string; ok: boolean }>(
+      `select column_name, has_column_privilege('authenticated', 'public.parties', column_name, 'select') as ok
+         from information_schema.columns where table_schema = 'public' and table_name = 'parties' order by 1`,
+    );
+    assert.deepEqual(
+      cols.rows.filter((c) => c.ok).map((c) => c.column_name),
+      ['channel_key', 'id'],
+    );
+    assert.equal(
+      (await db.query<{ ok: boolean }>(`select has_any_column_privilege('anon', 'public.parties', 'select') as ok`))
+        .rows[0]?.ok,
+      false,
+    );
     const pm = await db.query<{ rls: boolean; anon: boolean; auth: boolean; write: boolean }>(
       `select relrowsecurity as rls,
               has_table_privilege('anon', 'public.party_members', 'select') as anon,
@@ -317,6 +336,9 @@ describe('parties: privileges', () => {
       'send_realtime(jsonb, text, text)',
       'party_json(uuid)',
       'remove_party_member(uuid, uuid)',
+      'party_topic(uuid)',
+      'blocked_in_party(uuid, uuid)',
+      'invite_stands(public.invites)',
       'purge_invites()',
       'purge_party_launches()',
     ]) {
@@ -442,7 +464,15 @@ describe('create_party and my_party', () => {
   test('create_party: the caller leads a party of one with its party conversation; my_party returns it', async () => {
     assert.equal(await rpc.myParty(ann), null);
     const p = await rpc.createParty(ann);
-    assert.deepEqual(Object.keys(p).sort(), ['conversation_id', 'created_at', 'id', 'launch', 'leader_id', 'members']);
+    assert.deepEqual(Object.keys(p).sort(), [
+      'channel_key',
+      'conversation_id',
+      'created_at',
+      'id',
+      'launch',
+      'leader_id',
+      'members',
+    ]);
     assert.equal(p.leader_id, ann);
     assert.equal(p.launch, null);
     assert.equal(p.members.length, 1);
@@ -1203,7 +1233,9 @@ describe('parties: realtime events', () => {
 
   test('membership: member_joined / member_left on the party topic, removed on the user topic, by = the actor', async () => {
     const p = await rpc.createParty(ann);
-    assert.deepEqual(await take(db), [partyEv(p.id, { type: 'member_joined', party_id: p.id, user_id: ann, by: ann })]);
+    assert.deepEqual(await take(db), [
+      partyEv(p.channel_key, { type: 'member_joined', party_id: p.id, user_id: ann, by: ann }),
+    ]);
     const inv = await rpc.invite(ann, ben);
     assert.deepEqual(await take(db), [
       userEv(ben, 'invite', {
@@ -1217,26 +1249,30 @@ describe('parties: realtime events', () => {
     ]);
     await rpc.respond(ben, inv, true);
     assert.deepEqual(await take(db), [
-      partyEv(p.id, { type: 'member_joined', party_id: p.id, user_id: ben, by: ben }),
+      partyEv(p.channel_key, { type: 'member_joined', party_id: p.id, user_id: ben, by: ben }),
       userEv(ben, 'invite', { type: 'invite_closed', invite_id: inv }),
     ]);
     await rpc.respond(cat, await rpc.invite(ben, cat), true);
     await take(db);
-    // Leaving: by = the leaver. Kicking: by = the leader.
+    // Leaving: by = the leaver. Kicking: by = the leader. Each on the key before the removal (it rotates after).
+    assert.equal(await keyOf(db, p.id), p.channel_key); // joins do not rotate it
     await rpc.leave(cat);
     assert.deepEqual(await take(db), [
-      partyEv(p.id, { type: 'member_left', party_id: p.id, user_id: cat, by: cat }),
+      partyEv(p.channel_key, { type: 'member_left', party_id: p.id, user_id: cat, by: cat }),
       userEv(cat, 'party', { type: 'removed', party_id: p.id }),
     ]);
+    const k2 = (await keyOf(db, p.id))!;
+    assert.notEqual(k2, p.channel_key);
     await rpc.kick(ann, ben);
     assert.deepEqual(await take(db), [
-      partyEv(p.id, { type: 'member_left', party_id: p.id, user_id: ben, by: ann }),
+      partyEv(k2, { type: 'member_left', party_id: p.id, user_id: ben, by: ann }),
       userEv(ben, 'party', { type: 'removed', party_id: p.id }),
     ]);
     // The last member leaving: their own member_left / removed, then nothing (nobody is left for party_ended).
+    const k3 = (await keyOf(db, p.id))!;
     await rpc.leave(ann);
     assert.deepEqual(await take(db), [
-      partyEv(p.id, { type: 'member_left', party_id: p.id, user_id: ann, by: ann }),
+      partyEv(k3, { type: 'member_left', party_id: p.id, user_id: ann, by: ann }),
       userEv(ann, 'party', { type: 'removed', party_id: p.id }),
     ]);
   });
@@ -1248,12 +1284,17 @@ describe('parties: realtime events', () => {
     await db.query(`update public.parties set created_at = created_at where id = $1`, [p.id]);
     assert.deepEqual(await take(db), []);
     await rpc.transfer(ann, ben);
-    assert.deepEqual(await take(db), [partyEv(p.id, { type: 'leader_changed', party_id: p.id, leader_id: ben })]);
-    await rpc.leave(ben);
     assert.deepEqual(await take(db), [
-      partyEv(p.id, { type: 'member_left', party_id: p.id, user_id: ben, by: ben }),
+      partyEv(p.channel_key, { type: 'leader_changed', party_id: p.id, leader_id: ben }),
+    ]);
+    // The leader leaving: member_left on the old key, then the handover on the rotated one.
+    await rpc.leave(ben);
+    const k2 = (await keyOf(db, p.id))!;
+    assert.notEqual(k2, p.channel_key);
+    assert.deepEqual(await take(db), [
+      partyEv(p.channel_key, { type: 'member_left', party_id: p.id, user_id: ben, by: ben }),
       userEv(ben, 'party', { type: 'removed', party_id: p.id }),
-      partyEv(p.id, { type: 'leader_changed', party_id: p.id, leader_id: ann }),
+      partyEv(k2, { type: 'leader_changed', party_id: p.id, leader_id: ann }),
     ]);
     // Accepting another party's invite as a leader: the handover event goes to the old party.
     const q = await rpc.createParty(ben);
@@ -1261,15 +1302,15 @@ describe('parties: realtime events', () => {
     await rpc.respond(ann, await rpc.invite(ben, ann), true);
     const events = await take(db);
     assert.deepEqual(events.slice(1), [
-      partyEv(p.id, { type: 'member_left', party_id: p.id, user_id: ann, by: ann }),
+      partyEv(k2, { type: 'member_left', party_id: p.id, user_id: ann, by: ann }),
       userEv(ann, 'party', { type: 'removed', party_id: p.id }),
-      partyEv(p.id, { type: 'leader_changed', party_id: p.id, leader_id: cat }),
-      partyEv(q.id, { type: 'member_joined', party_id: q.id, user_id: ann, by: ann }),
+      partyEv((await keyOf(db, p.id))!, { type: 'leader_changed', party_id: p.id, leader_id: cat }),
+      partyEv(q.channel_key, { type: 'member_joined', party_id: q.id, user_id: ann, by: ann }),
       userEv(ann, 'invite', { type: 'invite_closed', invite_id: events[0]!.payload.invite_id }),
     ]);
   });
 
-  test('party_ended goes to every member still in a party that is deleted (Studio, a cascade); by is null without a JWT', async () => {
+  test('party_ended goes to every member still in a party that is deleted (Studio, a cascade); no party topic then', async () => {
     const p = await rpc.party([ann, ben, cat]);
     const inv = await rpc.invite(ann, cat).catch(() => null); // cat is a member: INVALID, nothing sent
     assert.equal(inv, null);
@@ -1279,11 +1320,9 @@ describe('parties: realtime events', () => {
       userEv(ann, 'party', { type: 'party_ended', party_id: p.id }),
       userEv(ben, 'party', { type: 'party_ended', party_id: p.id }),
       userEv(cat, 'party', { type: 'party_ended', party_id: p.id }),
-      partyEv(p.id, { type: 'member_left', party_id: p.id, user_id: ann, by: null }),
+      // The cascade removes the members after the party row: there is no key any more, so only the user topics.
       userEv(ann, 'party', { type: 'removed', party_id: p.id }),
-      partyEv(p.id, { type: 'member_left', party_id: p.id, user_id: ben, by: null }),
       userEv(ben, 'party', { type: 'removed', party_id: p.id }),
-      partyEv(p.id, { type: 'member_left', party_id: p.id, user_id: cat, by: null }),
       userEv(cat, 'party', { type: 'removed', party_id: p.id }),
     ]);
   });
@@ -1293,7 +1332,14 @@ describe('parties: realtime events', () => {
     await take(db);
     const id = await rpc.serverCommit(p.id, ann, 'sumo', 'r1', 'ABCD');
     assert.deepEqual(await take(db), [
-      partyEv(p.id, { type: 'launch', party_id: p.id, launch_id: id, game_id: 'sumo', room_id: 'r1', leader_id: ann }),
+      partyEv(p.channel_key, {
+        type: 'launch',
+        party_id: p.id,
+        launch_id: id,
+        game_id: 'sumo',
+        room_id: 'r1',
+        leader_id: ann,
+      }),
     ]);
     // The code never travels on the channel; members fetch their seat through the server.
     const keys = await db.query<{ keys: string[] }>(
@@ -1369,9 +1415,10 @@ describe('parties: realtime events', () => {
     ]);
     await rpc.leave(ben);
     await take(db);
+    const key = (await keyOf(db, p.id))!;
     await rpc.leave(ann);
     assert.deepEqual(await take(db), [
-      partyEv(p.id, { type: 'member_left', party_id: p.id, user_id: ann, by: ann }),
+      partyEv(key, { type: 'member_left', party_id: p.id, user_id: ann, by: ann }),
       userEv(ann, 'party', { type: 'removed', party_id: p.id }),
       userEv(cat, 'invite', { type: 'invite_closed', invite_id: party3 }),
     ]);
@@ -1397,7 +1444,7 @@ describe('parties: realtime events', () => {
 // Private channel policy
 // ---------------------------------------------------------------------------------------------------------------
 
-describe('parties: realtime.messages policy for party:<id> channels', () => {
+describe('parties: realtime.messages policy for party:<channel_key> channels', () => {
   const POLICY_BLOCK = (() => {
     const start = MIGRATION.indexOf('do $outer$');
     return MIGRATION.slice(start, MIGRATION.indexOf('end $outer$;', start) + 'end $outer$;'.length);
@@ -1411,7 +1458,7 @@ describe('parties: realtime.messages policy for party:<id> channels', () => {
     await db.close();
   });
 
-  test('SELECT only, to authenticated, on party:<id> where the caller is a member', async () => {
+  test('SELECT only, to authenticated, on party:<channel_key> of the party the caller is in', async () => {
     const db = await createTestDb();
     const rpc = api(db);
     const ann = await user(db, 'ann');
@@ -1452,31 +1499,37 @@ describe('parties: realtime.messages policy for party:<id> channels', () => {
     assert.equal(p.permissive, 'PERMISSIVE');
     assert.equal(p.with_check, null);
     assert.match(String(p.qual), /realtime\.topic\(\)[^)]*\) ~~ 'party:%'::text/);
-    assert.match(String(p.qual), /FROM party_members pm/);
+    assert.match(String(p.qual), /FROM \(party_members pm\s+JOIN parties p ON \(\(p\.id = pm\.party_id\)\)\)/);
+    assert.match(String(p.qual), /\('party:'::text \|\| \(p\.channel_key\)::text\)/);
 
     const party = await rpc.party([ann, ben]);
     const canJoin = async (topic: string, as: (fn: () => Promise<number>) => Promise<number>) => {
       await db.query(`select set_config('realtime.topic', $1, false)`, [topic]);
       return (await as(async () => (await db.query(`select 1 from realtime.messages`)).rows.length)) > 0;
     };
-    assert.equal(await canJoin(`party:${party.id}`, (fn) => asUser(db, ann, fn)), true);
-    assert.equal(await canJoin(`party:${party.id}`, (fn) => asUser(db, ben, fn)), true);
-    assert.equal(await canJoin(`party:${party.id}`, (fn) => asUser(db, cat, fn)), false);
+    const k1 = `party:${party.channel_key}`;
+    assert.equal(await canJoin(k1, (fn) => asUser(db, ann, fn)), true);
+    assert.equal(await canJoin(k1, (fn) => asUser(db, ben, fn)), true);
+    assert.equal(await canJoin(k1, (fn) => asUser(db, cat, fn)), false);
+    assert.equal(await canJoin(`party:${party.id}`, (fn) => asUser(db, ann, fn)), false); // the id is not the topic
     assert.equal(await canJoin(`party:${NOBODY}`, (fn) => asUser(db, ann, fn)), false);
-    assert.equal(await canJoin(`party:${party.id}`, (fn) => asAnon(db, fn)), false);
+    assert.equal(await canJoin(k1, (fn) => asAnon(db, fn)), false);
     assert.equal(await canJoin(`user:${ann}`, (fn) => asUser(db, ann, fn)), false); // that policy is 20261031000200's
     assert.equal(await canJoin('', (fn) => asUser(db, ann, fn)), false);
-    // Membership changes take effect at once.
+    // Membership changes take effect at once, and a removal rotates the key: the old topic admits nobody.
     await rpc.leave(ben);
-    assert.equal(await canJoin(`party:${party.id}`, (fn) => asUser(db, ben, fn)), false);
+    const k2 = `party:${(await keyOf(db, party.id))!}`;
+    assert.notEqual(k2, k1);
+    assert.equal(await canJoin(k1, (fn) => asUser(db, ben, fn)), false);
+    assert.equal(await canJoin(k1, (fn) => asUser(db, ann, fn)), false);
+    assert.equal(await canJoin(k2, (fn) => asUser(db, ben, fn)), false);
+    assert.equal(await canJoin(k2, (fn) => asUser(db, ann, fn)), true);
     await rpc.respond(ben, await rpc.invite(ann, ben), true);
-    assert.equal(await canJoin(`party:${party.id}`, (fn) => asUser(db, ben, fn)), true);
+    assert.equal(await canJoin(k2, (fn) => asUser(db, ben, fn)), true);
     // No INSERT policy: members cannot broadcast on the party channel themselves.
-    await db.query(`select set_config('realtime.topic', $1, false)`, [`party:${party.id}`]);
+    await db.query(`select set_config('realtime.topic', $1, false)`, [k2]);
     await assert.rejects(
-      asUser(db, ann, () =>
-        db.query(`insert into realtime.messages (topic, event) values ($1, 'party')`, [`party:${party.id}`]),
-      ),
+      asUser(db, ann, () => db.query(`insert into realtime.messages (topic, event) values ($1, 'party')`, [k2])),
       /row-level security/,
     );
     await db.close();
@@ -1534,5 +1587,256 @@ describe('parties: retention', () => {
       'pg_cron is not available: old invites and party launches will not be purged automatically',
     ]);
     await db.close();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// Security review fixes (each test reproduces an exploit against the first version of the migration)
+// ---------------------------------------------------------------------------------------------------------------
+
+/** Stub of Supabase's realtime.messages / realtime.topic(), then the migration's channel policy block. */
+async function stubRealtimeMessages(db: PGlite): Promise<void> {
+  await db.exec(`
+    create schema if not exists realtime;
+    create table realtime.messages (
+      id bigserial primary key, topic text not null, extension text not null default 'broadcast',
+      payload jsonb, event text, private boolean default true
+    );
+    alter table realtime.messages enable row level security;
+    create function realtime.topic() returns text language sql stable as
+      $$ select nullif(current_setting('realtime.topic', true), '') $$;
+    grant usage on schema realtime to anon, authenticated;
+    grant select, insert on realtime.messages to anon, authenticated;
+    insert into realtime.messages (topic, event) values ('any', 'party');
+  `);
+  const start = MIGRATION.indexOf('do $outer$');
+  await db.exec(MIGRATION.slice(start, MIGRATION.indexOf('end $outer$;', start) + 'end $outer$;'.length));
+}
+/** Whether `uid` may join the private channel `topic` (Realtime's check: messages selectable for that topic). */
+async function canJoin(db: PGlite, uid: string, topic: string): Promise<boolean> {
+  await db.query(`select set_config('realtime.topic', $1, false)`, [topic]);
+  return (await asUser(db, uid, async () => (await db.query(`select 1 from realtime.messages`)).rows.length)) > 0;
+}
+const keyOf = async (db: PGlite, party: string) =>
+  (await db.query<{ k: string }>(`select channel_key::text as k from public.parties where id = $1`, [party])).rows[0]
+    ?.k;
+
+describe('security: stale invites, blocks inside a party, the rotating party channel', () => {
+  let db: PGlite;
+  let ann: string;
+  let ben: string;
+  let cat: string;
+  let dan: string;
+  let rpc: ReturnType<typeof api>;
+  const refriend = async (a: string, b: string) => {
+    await db.query(`delete from public.blocks where (blocker_id, blocked_id) in (($1, $2), ($2, $1))`, [a, b]);
+    await db.query(`delete from public.friendships where (user_id, friend_id) in (($1, $2), ($2, $1))`, [a, b]);
+    await befriend(db, a, b);
+  };
+  before(async () => {
+    db = await createTestDb();
+    rpc = api(db);
+    ann = await user(db, 'ann');
+    ben = await user(db, 'ben');
+    cat = await user(db, 'cat');
+    dan = await user(db, 'dan');
+    await insertServerGame(db, 'sumo');
+  });
+  beforeEach(async () => {
+    await db.exec(RESET + `delete from public.friendships;`);
+    for (const [a, b] of [
+      [ann, ben],
+      [ann, cat],
+      [ben, cat],
+      [ben, dan],
+      [ann, dan],
+    ])
+      await befriend(db, a!, b!);
+    await stubSend(db);
+    await db.exec(`truncate pg_temp.sent`);
+  });
+  after(() => db.close());
+
+  test('1. accepting rechecks the sender: unfriended or blocked either way -> NOT_FOUND, and my_invites hides it', async () => {
+    await rpc.createParty(ann);
+    const inv = await rpc.invite(ann, ben);
+    await asUser(db, ben, () => db.query(`select public.remove_friend($1)`, [ann]));
+    assert.deepEqual(await rpc.myInvites(ben), []);
+    await assert.rejects(rpc.respond(ben, inv, true), sqlstate('P0002', /^NOT_FOUND: invite$/));
+    assert.equal(await rpc.myParty(ben), null);
+    // Friends again: the invite (still pending, unexpired) is valid again.
+    await refriend(ann, ben);
+    assert.deepEqual(
+      (await rpc.myInvites(ben)).map((r) => r.id),
+      [inv],
+    );
+    // The recipient blocks the sender, or the sender blocks the recipient (the friendship row put back by hand: the
+    // block alone must refuse).
+    for (const [blocker, blocked] of [
+      [ben, ann],
+      [ann, ben],
+    ]) {
+      await block(db, blocker!, blocked!);
+      await befriend(db, ann, ben);
+      assert.deepEqual(await rpc.myInvites(ben), [], `${blocker} blocks`);
+      await assert.rejects(rpc.respond(ben, inv, true), notFound);
+      await refriend(ann, ben);
+    }
+    // Room invites too.
+    await upsertRoom(db, { roomId: 'r1', gameId: 'sumo', clients: 1, maxClients: 8 });
+    const room = await rpc.roomInvite(cat, ben, 'sumo', 'r1');
+    await asUser(db, cat, () => db.query(`select public.remove_friend($1)`, [ben]));
+    assert.deepEqual(
+      (await rpc.myInvites(ben)).map((r) => r.id),
+      [inv],
+    );
+    await assert.rejects(rpc.respond(ben, room, true), notFound);
+    // Nothing above changed a status.
+    assert.equal((await rpc.invite_state(inv))?.status, 'pending');
+    assert.equal((await rpc.invite_state(room))?.status, 'pending');
+    assert.equal((await rpc.respond(ben, inv, true)).kind, 'party');
+  });
+
+  test('1. an invite sent by a member who leaves (or is kicked) is cancelled; one from a non-member is refused', async () => {
+    const p = await rpc.party([ann, ben]);
+    const fromBen = await rpc.invite(ben, cat);
+    const fromAnn = await rpc.invite(ann, dan);
+    await take(db);
+    await rpc.leave(ben);
+    assert.equal((await rpc.invite_state(fromBen))?.status, 'cancelled');
+    assert.equal((await rpc.invite_state(fromAnn))?.status, 'pending');
+    assert.ok(
+      (await take(db)).some(
+        (e) => e.topic === `user:${cat}` && e.payload.type === 'invite_closed' && e.payload.invite_id === fromBen,
+      ),
+    );
+    await assert.rejects(rpc.respond(cat, fromBen, true), notFound);
+    // A pending row whose sender is no longer in the party (written by hand) is hidden and refused all the same.
+    await db.query(`insert into public.invites (kind, from_id, to_id, party_id) values ('party', $1, $2, $3)`, [
+      ben,
+      cat,
+      p.id,
+    ]);
+    assert.deepEqual(await rpc.myInvites(cat), []);
+    const stale = (
+      await db.query<{ id: string }>(`select id from public.invites where from_id = $1 and status = 'pending'`, [ben])
+    ).rows[0]!.id;
+    await assert.rejects(rpc.respond(cat, stale, true), notFound);
+    assert.deepEqual(await rpc.members(p.id), [ann]);
+    // Kicked: the same.
+    await rpc.respond(ben, await rpc.invite(ann, ben), true);
+    const again = await rpc.invite(ben, dan);
+    await rpc.kick(ann, ben);
+    assert.equal((await rpc.invite_state(again))?.status, 'cancelled');
+  });
+
+  test('2. a user with a block (either way) with ANY party member cannot be invited by another member, nor accept', async () => {
+    for (const [blocker, blocked] of [
+      [ann, dan],
+      [dan, ann],
+    ]) {
+      await db.exec(RESET);
+      await refriend(ben, dan);
+      await block(db, blocker!, blocked!); // between ann and dan only
+      // ann and ben are partied; ben (dan's friend) invites dan: the generic "no such friend".
+      await rpc.party([ann, ben]);
+      await assert.rejects(rpc.invite(ben, dan), noSuchFriend, `${blocker} blocks`);
+      await rpc.leave(ann);
+      await rpc.leave(ben);
+      // ben invites dan first, then ann joins ben's party: dan can no longer accept, and does not see the invite.
+      await rpc.createParty(ben);
+      const inv = await rpc.invite(ben, dan);
+      await rpc.respond(ann, await rpc.invite(ben, ann), true);
+      assert.deepEqual(await rpc.myInvites(dan), []);
+      await assert.rejects(rpc.respond(dan, inv, true), sqlstate('P0002', /^NOT_FOUND: invite$/));
+      assert.equal(await rpc.myParty(dan), null);
+      // ann leaves: dan may join again.
+      await rpc.leave(ann);
+      assert.equal((await rpc.respond(dan, inv, true)).kind, 'party');
+      await rpc.leave(dan);
+      await rpc.leave(ben);
+      await asUser(db, blocker!, () => db.query(`select public.unblock_user($1)`, [blocked]));
+    }
+  });
+
+  test('3. my_party carries channel_key; party events go to party:<channel_key>; every removal rotates it', async () => {
+    const p = await rpc.party([ann, ben, cat]);
+    const k1 = (await rpc.myParty(ann))!.channel_key;
+    assert.match(k1, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    assert.notEqual(k1, p.id);
+    assert.equal(p.channel_key, k1); // create_party returns the my_party shape
+    assert.equal((await rpc.myParty(ben))!.channel_key, k1);
+    await take(db);
+    await rpc.kick(ann, ben);
+    // member_left (and removed) on the key ben knew, then the key changes.
+    assert.deepEqual(await take(db), [
+      partyEv(k1, { type: 'member_left', party_id: p.id, user_id: ben, by: ann }),
+      userEv(ben, 'party', { type: 'removed', party_id: p.id }),
+    ]);
+    const k2 = (await rpc.myParty(ann))!.channel_key;
+    assert.notEqual(k2, k1);
+    assert.equal(await keyOf(db, p.id), k2);
+    // Chat and launches now go to the new key only.
+    const m = await asUser(
+      db,
+      ann,
+      async () =>
+        (
+          await db.query<{ m: { id: string } }>(`select public.send_message($1, 'secret plan') as m`, [
+            p.conversation_id,
+          ])
+        ).rows[0]!.m,
+    );
+    const launch = await rpc.serverCommit(p.id, ann, 'sumo', 'r-secret', 'CODE');
+    assert.deepEqual(await take(db), [
+      partyEv(k2, {
+        type: 'message',
+        conversation_id: p.conversation_id,
+        message_id: m.id,
+        sender_id: ann,
+        body: 'secret plan',
+      }),
+      partyEv(k2, {
+        type: 'launch',
+        party_id: p.id,
+        launch_id: launch,
+        game_id: 'sumo',
+        room_id: 'r-secret',
+        leader_id: ann,
+      }),
+    ]);
+    // Leaving rotates too; joining does not.
+    await rpc.leave(cat);
+    const k3 = await keyOf(db, p.id);
+    assert.notEqual(k3, k2);
+    await rpc.respond(ben, await rpc.invite(ann, ben), true);
+    assert.equal(await keyOf(db, p.id), k3);
+  });
+
+  test('3. the channel policy admits current members on the current key only (never party:<id>, never an old key)', async () => {
+    await stubRealtimeMessages(db);
+    const p = await rpc.party([ann, ben, cat]);
+    const k1 = (await keyOf(db, p.id))!;
+    assert.equal(await canJoin(db, ann, `party:${k1}`), true);
+    assert.equal(await canJoin(db, ben, `party:${k1}`), true);
+    assert.equal(await canJoin(db, dan, `party:${k1}`), false);
+    assert.equal(await canJoin(db, ann, `party:${p.id}`), false);
+    await rpc.kick(ann, ben);
+    const k2 = (await keyOf(db, p.id))!;
+    assert.equal(await canJoin(db, ben, `party:${k1}`), false);
+    assert.equal(await canJoin(db, ben, `party:${k2}`), false);
+    assert.equal(await canJoin(db, ann, `party:${k1}`), false);
+    assert.equal(await canJoin(db, ann, `party:${k2}`), true);
+    assert.equal(await canJoin(db, cat, `party:${k2}`), true);
+    // Clients read only their own party's key (the policy's lookup), and nothing else of the party row.
+    const own = await asUser(db, cat, () =>
+      db.query<{ id: string; channel_key: string }>(`select id, channel_key from public.parties`),
+    );
+    assert.deepEqual(own.rows, [{ id: p.id, channel_key: k2 }]);
+    assert.deepEqual((await asUser(db, ben, () => db.query(`select id, channel_key from public.parties`))).rows, []);
+    await assert.rejects(
+      asUser(db, cat, () => db.query(`select leader_id from public.parties`)),
+      permissionDenied,
+    );
   });
 });

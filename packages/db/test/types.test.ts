@@ -8,6 +8,7 @@ import {
   PROFILE_COLUMNS,
   REPORT_LIMITS,
   REPORT_REASONS,
+  partyTopic,
   type BuyItemResult,
   type CoinAwardEvent,
   type Database,
@@ -220,7 +221,17 @@ test('Database type drives supabase-js inference', async () => {
   assertType<Equal<Tables<'invites'>['status'], string>>();
   const sent: SentMessage = { id: 'm', conversation_id: 'c', body: 'hi', created_at: '' };
   const dmEvent: MessageEvent = { type: 'message_deleted', conversation_id: 'c', message_id: 'm', sender_id: 'u', body: '', at: '' };
-  const party: Party = { id: 'p', leader_id: 'u', conversation_id: 'c', created_at: '', launch: null, members: [] };
+  const party: Party = {
+    id: 'p',
+    leader_id: 'u',
+    conversation_id: 'c',
+    channel_key: 'k',
+    created_at: '',
+    launch: null,
+    members: [],
+  };
+  assertType<Equal<Tables<'parties'>['channel_key'], string>>();
+  assert.equal(partyTopic(party), 'party:k');
   const accepted: RespondInviteResult = { kind: 'party', party };
   const partyEvent: PartyEvent = { type: 'leader_changed', party_id: 'p', leader_id: 'u', at: '' };
   const inviteEvent: InviteEvent = { type: 'invite_closed', invite_id: 'i', at: '' };

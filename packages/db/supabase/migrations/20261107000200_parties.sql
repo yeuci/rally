@@ -2,7 +2,8 @@
 -- See docs/social-phase.md §2 (the contract) and docs/architecture.md §4, §5. Pinned by test/parties.test.ts.
 --
 --   * parties          one leader, one party conversation (kind 'party', created with the party; conversations.party_id
---                      gets its foreign key here), active_launch_id = the latest launch (set by the game server).
+--                      gets its foreign key here), active_launch_id = the latest launch (set by the game server), and
+--                      channel_key: the secret in the party's Realtime topic, rotated whenever a member goes.
 --   * party_members    who is in which party; one party per user (unique index on user_id). Members read their own row
 --                      (the one client-readable row of this migration: the realtime policy below needs it).
 --   * party_launches   "the leader started <game> in <room>": written by the game server (server_party_launch_commit),
@@ -10,11 +11,19 @@
 --   * invites          party invites ('party': come join my party) and room invites ('room': come join this match),
 --                      10 minutes, one pending per (kind, from, to). Answered with respond_invite, withdrawn with
 --                      cancel_invite; read through my_invites only.
---   RLS on; no client grants except select on party_members (own row); everything goes through the RPCs.
+--   RLS on; no client grants except a member's own party_members row and (id, channel_key) of their own party, which
+--   the realtime.messages policy below looks up as the caller; everything else goes through the RPCs.
 --
 --   Rules: anyone in the party invites (friends only, no block either way); only the leader kicks, hands over the
 --   lead and launches (the game server checks that through server_party_launch_begin). A member who leaves, is kicked,
---   or accepts another party's invite loses the party conversation too. The leader leaving hands the lead to the
+--   or accepts another party's invite loses the party conversation too, and their pending invites for that party are
+--   cancelled.
+--   Invites are rechecked when answered and when listed: the sender must still be the recipient's friend with no
+--   block either way, and for a party invite still a member of that party; otherwise the invite reads as NOT_FOUND
+--   ('invite') and my_invites leaves it out. Nobody joins a party in which any member has a block (either way) with
+--   them: invite_to_party answers the generic NOT_FOUND ('no such friend') and respond_invite NOT_FOUND ('invite'), so
+--   nothing says which member blocked whom. A block created after both are already in the party is out of scope: they
+--   stay (the blocker can leave; party chat hides the blocked user's messages, 20261107000100). The leader leaving hands the lead to the
 --   earliest-joined remaining member; the last member leaving deletes the party, which cascades to its conversation
 --   (and messages), its invites (pending ones are cancelled first, so the recipients' banners go away) and its
 --   launches. delete_my_account leaves the party first, so a deleted leader hands over instead of ending it.
@@ -34,22 +43,28 @@
 --     server_party_member(p_user, p_launch_id)         -> jsonb   {party_id, game_id, room_id, code, username, avatar_url}
 --                                                                 or null
 --
---   Realtime (realtime.send as 20261031000200; every payload carries at = ISO 8601 UTC):
---     party_members insert  -> party:<id>  event 'party'  {type: 'member_joined', party_id, user_id, by, at}
---     party_members delete  -> party:<id>  event 'party'  {type: 'member_left', party_id, user_id, by, at}
---                           -> user:<uid>  event 'party'  {type: 'removed', party_id, at}
---     parties delete        -> user:<uid>  event 'party'  {type: 'party_ended', party_id, at} to each member still in
+--   Realtime (realtime.send as 20261031000200; every payload carries at = ISO 8601 UTC). The party topic is
+--   party:<channel_key>, not party:<id>: Realtime authorises a channel only when it is joined, so a member who left
+--   or was kicked would keep receiving a fixed topic. Every party_members delete sends member_left (and removed) on
+--   the current key, then rotates parties.channel_key; the remaining members refetch my_party on member_left and
+--   move to the new topic, and the old one never carries anything again.
+--     party_members insert  -> party:<key>  event 'party' {type: 'member_joined', party_id, user_id, by, at}
+--     party_members delete  -> party:<key>  event 'party' {type: 'member_left', party_id, user_id, by, at}, then the
+--                                                         key rotates (not sent when the whole party is being deleted)
+--                           -> user:<uid>   event 'party' {type: 'removed', party_id, at}
+--     parties delete        -> user:<uid>   event 'party' {type: 'party_ended', party_id, at} to each member still in
 --                              it (BEFORE DELETE, so it covers a party deleted in Studio or by an account cascade)
---     parties.leader_id     -> party:<id>  event 'party'  {type: 'leader_changed', party_id, leader_id, at}
---     party_launches insert -> party:<id>  event 'party'  {type: 'launch', party_id, launch_id, game_id, room_id,
---                                                          leader_id, at}
+--     parties.leader_id     -> party:<key>  event 'party' {type: 'leader_changed', party_id, leader_id, at}
+--     party_launches insert -> party:<key>  event 'party' {type: 'launch', party_id, launch_id, game_id, room_id,
+--                                                         leader_id, at}
+--     party chat            -> party:<key>  event 'party' (private.broadcast_message of 20261107000100, redefined here)
 --     invites insert        -> user:<to>   event 'invite' {type: 'party_invite' | 'room_invite', invite_id, from,
 --                                                          party_id, game_id, room_id, at}
 --     invites -> declined   -> user:<from> event 'invite' {type: 'invite_declined', invite_id, to, at}
 --     invites -> cancelled / accepted -> user:<to> event 'invite' {type: 'invite_closed', invite_id, at}
 --     `by` is auth.uid(): the member who joined or left, or the leader for a kick (null for a cascade without a JWT).
 --     Policy "members receive their party channel" on realtime.messages: SELECT to authenticated where
---     realtime.topic() is 'party:<id>' and the caller has a party_members row for that id.
+--     realtime.topic() is 'party:' || channel_key of the party the caller is a member of.
 --
 --   Retention: pg_cron jobs rally_purge_invites (invites older than a day) and rally_purge_party_launches (launches
 --   older than a day), daily.
@@ -66,6 +81,8 @@ create table public.parties (
   leader_id uuid not null references public.profiles (id) on delete cascade,
   conversation_id uuid not null references public.conversations (id) on delete cascade,
   active_launch_id uuid,                                 -- FK to party_launches added after that table
+  -- The secret in the Realtime topic party:<channel_key>; rotated on every member removal (see the header).
+  channel_key uuid not null default gen_random_uuid(),
   created_at timestamptz not null default now()
 );
 alter table public.parties enable row level security;
@@ -82,6 +99,10 @@ create unique index party_members_one_party_idx on public.party_members (user_id
 -- The one client-readable row: the realtime.messages policy below is evaluated as the caller and looks this row up.
 create policy "members read their own membership" on public.party_members
   for select to authenticated using (user_id = (select auth.uid()));
+-- Likewise the realtime.messages policy reads the caller's party's channel_key (column grant below: id, channel_key).
+create policy "members read their own party" on public.parties
+  for select to authenticated
+  using (exists (select 1 from public.party_members pm where pm.party_id = id and pm.user_id = (select auth.uid())));
 
 create table public.party_launches (
   id uuid primary key default gen_random_uuid(),
@@ -129,11 +150,11 @@ create index invites_created_idx on public.invites (created_at);
 -- ---------------------------------------------------------------------------
 
 -- realtime.send(p_payload + at, p_event, p_topic, private) where realtime.send exists (not in PGlite or a local stack
--- without Realtime); a failing send is a WARNING and never fails the change that caused it.
+-- without Realtime); a failing send is a WARNING and never fails the change that caused it. No-op for a null topic.
 create or replace function private.send_realtime(p_payload jsonb, p_event text, p_topic text)
 returns void language plpgsql volatile security definer set search_path = public, extensions, realtime as $$
 begin
-  if to_regprocedure('realtime.send(jsonb, text, text, boolean)') is null then
+  if p_topic is null or to_regprocedure('realtime.send(jsonb, text, text, boolean)') is null then
     return;
   end if;
   begin
@@ -154,8 +175,36 @@ returns uuid language sql stable set search_path = public, extensions as $$
   select party_id from public.party_members where user_id = p_uid;
 $$;
 
+-- The party's current Realtime topic, party:<channel_key>; null once the party is gone.
+create or replace function private.party_topic(p_party_id uuid)
+returns text language sql stable set search_path = public, extensions as $$
+  select 'party:' || channel_key::text from public.parties where id = p_party_id;
+$$;
+
+-- p_uid has a block (either way) with a member of p_party_id other than themselves.
+create or replace function private.blocked_in_party(p_party_id uuid, p_uid uuid)
+returns boolean language sql stable set search_path = public, extensions as $$
+  select exists (
+    select 1 from public.party_members m
+     where m.party_id = p_party_id and m.user_id <> p_uid and private.is_blocked(m.user_id, p_uid)
+  );
+$$;
+
+-- An invite still stands for its recipient: the sender is still a friend with no block either way, and for a party
+-- invite the sender is still in that party and no member of it has a block with the recipient. Used by my_invites and
+-- respond_invite (status and expiry are checked there).
+create or replace function private.invite_stands(p_invite public.invites)
+returns boolean language sql stable set search_path = public, extensions as $$
+  select private.is_friend(p_invite.to_id, p_invite.from_id)
+     and not private.is_blocked(p_invite.to_id, p_invite.from_id)
+     and (p_invite.kind <> 'party' or (
+           exists (select 1 from public.party_members m
+                    where m.party_id = p_invite.party_id and m.user_id = p_invite.from_id)
+           and not private.blocked_in_party(p_invite.party_id, p_invite.to_id)));
+$$;
+
 -- The my_party shape for a party (null for an unknown id):
---   {id, leader_id, conversation_id, created_at,
+--   {id, leader_id, conversation_id, channel_key, created_at,
 --    launch: null | {id, game_id, game_title, room_id, code, leader_id, created_at, expires_at},
 --    members: [{user_id, username, display_name, avatar_url, joined_at, status, game_id}]}
 -- launch is the party's active launch while it is unexpired and its room is live in game_rooms (updated in the last
@@ -167,6 +216,7 @@ returns jsonb language sql stable set search_path = public, extensions as $$
     'id', p.id,
     'leader_id', p.leader_id,
     'conversation_id', p.conversation_id,
+    'channel_key', p.channel_key,
     'created_at', p.created_at,
     'launch', (
       select jsonb_build_object('id', l.id, 'game_id', l.game_id, 'game_title', g.title, 'room_id', l.room_id,
@@ -193,7 +243,7 @@ returns jsonb language sql stable set search_path = public, extensions as $$
 $$;
 
 -- Takes p_user_id out of p_party_id (leave, kick, or moving to another party): the membership and the party
--- conversation's membership go. Then, with the party row locked: no member left -> pending invites are cancelled (the
+-- conversation's membership go, and so do their pending invites for the party (cancelled). Then, with the party row locked: no member left -> pending invites are cancelled (the
 -- recipients' banners close) and the party is deleted (its conversation, invites and launches cascade); the leader
 -- left -> the earliest-joined remaining member leads. No-op when p_user_id was not a member.
 create or replace function private.remove_party_member(p_party_id uuid, p_user_id uuid)
@@ -211,6 +261,9 @@ begin
     return;
   end if;
   delete from public.conversation_members where conversation_id = v_party.conversation_id and user_id = p_user_id;
+  -- Their invites for this party no longer stand (the recipients' banners close through invite_closed).
+  update public.invites set status = 'cancelled', responded_at = now()
+   where party_id = p_party_id and from_id = p_user_id and status = 'pending';
   select user_id into v_next from public.party_members
    where party_id = p_party_id order by joined_at, user_id limit 1;
   if v_next is null then
@@ -248,20 +301,24 @@ end $$;
 -- Realtime triggers
 -- ---------------------------------------------------------------------------
 
+-- Membership events. A removal is told on the current key (the one the removed member knew), then the key rotates, so
+-- the removed member's subscription never receives anything again. During the cascade of a party's own deletion the
+-- party row is already gone: no topic, no rotation, only the user-topic 'removed' (party_ended was sent before).
 create or replace function private.broadcast_party_member()
 returns trigger language plpgsql volatile security definer set search_path = public, extensions as $$
 begin
   if tg_op = 'INSERT' then
     perform private.send_realtime(
       jsonb_build_object('type', 'member_joined', 'party_id', new.party_id, 'user_id', new.user_id, 'by', auth.uid()),
-      'party', 'party:' || new.party_id::text);
+      'party', private.party_topic(new.party_id));
   else
     perform private.send_realtime(
       jsonb_build_object('type', 'member_left', 'party_id', old.party_id, 'user_id', old.user_id, 'by', auth.uid()),
-      'party', 'party:' || old.party_id::text);
+      'party', private.party_topic(old.party_id));
     perform private.send_realtime(
       jsonb_build_object('type', 'removed', 'party_id', old.party_id),
       'party', 'user:' || old.user_id::text);
+    update public.parties set channel_key = gen_random_uuid() where id = old.party_id;
   end if;
   return null;
 end $$;
@@ -273,7 +330,7 @@ returns trigger language plpgsql volatile security definer set search_path = pub
 begin
   perform private.send_realtime(
     jsonb_build_object('type', 'leader_changed', 'party_id', new.id, 'leader_id', new.leader_id),
-    'party', 'party:' || new.id::text);
+    'party', 'party:' || new.channel_key::text);
   return null;
 end $$;
 create trigger parties_broadcast_leader after update of leader_id on public.parties
@@ -302,7 +359,7 @@ begin
   perform private.send_realtime(
     jsonb_build_object('type', 'launch', 'party_id', new.party_id, 'launch_id', new.id, 'game_id', new.game_id,
                        'room_id', new.room_id, 'leader_id', new.leader_id),
-    'party', 'party:' || new.party_id::text);
+    'party', private.party_topic(new.party_id));
   return null;
 end $$;
 create trigger party_launches_broadcast after insert on public.party_launches
@@ -331,6 +388,45 @@ begin
 end $$;
 create trigger invites_broadcast after insert or update on public.invites
   for each row execute function private.broadcast_invite();
+
+-- Party chat (20261107000100_messages.sql): as there, except that party messages go to the party's current topic
+-- party:<channel_key> instead of party:<party_id>. Dm messages are unchanged (the other member's user:<uid>).
+create or replace function private.broadcast_message()
+returns trigger language plpgsql volatile security definer set search_path = public, extensions, realtime as $$
+declare
+  v_type text;
+  v_conversation public.conversations;
+  v_topic text;
+  v_event text;
+begin
+  if tg_op = 'INSERT' then
+    v_type := 'message';
+  elsif tg_op = 'UPDATE' and old.deleted_at is null and new.deleted_at is not null then
+    v_type := 'message_deleted';
+  end if;
+  if v_type is null or to_regprocedure('realtime.send(jsonb, text, text, boolean)') is null then
+    return null;
+  end if;
+  select * into v_conversation from public.conversations where id = new.conversation_id;
+  if v_conversation.kind = 'dm' then
+    select 'user:' || m.user_id::text into v_topic
+      from public.conversation_members m
+     where m.conversation_id = new.conversation_id and m.user_id is distinct from new.sender_id
+     limit 1;
+    v_event := 'dm';
+  elsif v_conversation.party_id is not null then
+    v_topic := private.party_topic(v_conversation.party_id);
+    v_event := 'party';
+  end if;
+  if v_topic is null then
+    return null;
+  end if;
+  perform private.send_realtime(
+    jsonb_build_object('type', v_type, 'conversation_id', new.conversation_id, 'message_id', new.id,
+                       'sender_id', new.sender_id, 'body', new.body),
+    v_event, v_topic);
+  return null;
+end $$;
 
 revoke all on all functions in schema private from public, anon, authenticated;
 
@@ -371,8 +467,8 @@ begin
   return private.party_json(private.party_of(v_uid));
 end $$;
 
--- Invites a friend (no block either way; NOT_FOUND otherwise, so nothing reveals a block) to the caller's party
--- (INVALID while not in one). INVALID "party is full" at 8 members and for someone already in it. A pending invite from
+-- Invites a friend (no block either way, with the caller or with any member of the party; NOT_FOUND otherwise, so
+-- nothing reveals a block or whose it is) to the caller's party (INVALID while not in one). INVALID "party is full" at 8 members and for someone already in it. A pending invite from
 -- the caller to that person is returned as is (one from a previous party is cancelled first). RATE_LIMITED past 20
 -- new invites in a burst (token bucket refilling one every 3 s, shared with send_room_invite).
 create or replace function public.invite_to_party(p_user_id uuid)
@@ -393,6 +489,10 @@ begin
   perform 1 from public.parties where id = v_party for update;
   if exists (select 1 from public.party_members where party_id = v_party and user_id = p_user_id) then
     raise exception 'INVALID: already in the party' using errcode = 'invalid_parameter_value';
+  end if;
+  -- A block with any member: the same answer as a stranger, so nothing says who blocked whom.
+  if private.blocked_in_party(v_party, p_user_id) then
+    raise exception 'NOT_FOUND: no such friend' using errcode = 'no_data_found';
   end if;
   if (select count(*) from public.party_members where party_id = v_party) >= 8 then
     raise exception 'INVALID: party is full' using errcode = 'invalid_parameter_value';
@@ -466,7 +566,8 @@ begin
 end $$;
 
 -- Pending, unexpired invites to the caller, newest first, with the sender's profile, the party's size (party invites)
--- and the game's title (room invites). Senders with a block either way are left out.
+-- and the game's title (room invites). Invites that no longer stand (private.invite_stands: the sender unfriended,
+-- a block either way, the sender left the party, a block with a party member) are left out.
 create or replace function public.my_invites()
 returns table (
   id uuid, kind text, from_id uuid, from_username text, from_display_name text, from_avatar_url text, party_id uuid,
@@ -485,12 +586,13 @@ begin
       join public.profiles p on p.id = i.from_id
       left join public.games g on g.id = i.game_id
      where i.to_id = v_uid and i.status = 'pending' and i.expires_at > now()
-       and not private.is_blocked(v_uid, i.from_id)
+       and private.invite_stands(i)
      order by i.created_at desc, i.id;
 end $$;
 
--- Answers an invite addressed to the caller that is still pending and unexpired (NOT_FOUND otherwise, one message
--- for every case). Declined: {kind}. Accepted party invite: the party must still exist (NOT_FOUND "that party is gone")
+-- Answers an invite addressed to the caller that is still pending, unexpired and still stands (private.invite_stands:
+-- the sender is still a friend with no block either way; a party invite's sender is still in the party and no member
+-- has a block with the caller). NOT_FOUND otherwise, one message for every case, declining included. Declined: {kind}. Accepted party invite: the party must still exist (NOT_FOUND "that party is gone")
 -- with room (INVALID "party is full"); the caller leaves their current party (leave_party semantics), joins, becomes a
 -- member of the party conversation, and every other pending party invite to them from that party is cancelled;
 -- {kind: 'party', party: <my_party()>}. Accepted room invite: {kind: 'room', game_id, room_id, code} (the app launches
@@ -512,7 +614,8 @@ begin
     select * into v_party from public.parties where id = v_invite.party_id for update;
   end if;
   select * into v_invite from public.invites where id = p_invite_id and to_id = v_uid for update;
-  if not found or v_invite.status <> 'pending' or v_invite.expires_at <= now() then
+  if not found or v_invite.status <> 'pending' or v_invite.expires_at <= now()
+     or not private.invite_stands(v_invite) then
     raise exception 'NOT_FOUND: invite' using errcode = 'no_data_found';
   end if;
   if not p_accept then
@@ -723,6 +826,7 @@ end $$;
 
 revoke all on public.parties, public.party_members, public.party_launches, public.invites from anon, authenticated;
 grant select on public.party_members to authenticated;
+grant select (id, channel_key) on public.parties to authenticated;
 grant all on public.parties, public.party_members, public.party_launches, public.invites to service_role;
 
 revoke all on function
@@ -760,7 +864,8 @@ grant execute on function
 to service_role;
 
 -- ---------------------------------------------------------------------------
--- Private channel authorization: party members receive party:<their party id> (as 20261031000200 for user:<uid>)
+-- Private channel authorization: party members receive party:<their party's channel_key> (as 20261031000200 for
+-- user:<uid>). The lookup runs as the caller, hence the own-row policies on party_members and parties.
 -- ---------------------------------------------------------------------------
 
 do $outer$
@@ -776,8 +881,9 @@ begin
       (select realtime.topic()) like 'party:%'
       and exists (
         select 1 from public.party_members pm
+          join public.parties p on p.id = pm.party_id
          where pm.user_id = (select auth.uid())
-           and 'party:' || pm.party_id::text = (select realtime.topic())
+           and 'party:' || p.channel_key::text = (select realtime.topic())
       )
     );
 end $outer$;

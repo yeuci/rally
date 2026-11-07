@@ -40,7 +40,7 @@ import { showToast } from '@/lib/toast';
  * Parties and invites (docs/social-phase.md §2, §5; rules in lib/party-model.ts and lib/invite-model.ts). One party
  * per user (`my_party`), every write a security-definer RPC, and two Realtime sources:
  *
- * - the private topic `party:<id>` (`usePartyChannel()` in `(app)/_layout.tsx`, held while `my_party` is non-null,
+ * - the private topic `party:<channel_key>` (`usePartyChannel()` in `(app)/_layout.tsx`, held while `my_party` is non-null,
  *   same lifecycle as the user channel in lib/social-realtime.ts): membership and lead changes refetch the party,
  *   `launch` starts the follow flow (`followStore` → components/rally/follow-prompt.tsx), chat goes to
  *   lib/messages.ts `handleMessageBroadcast`;
@@ -440,7 +440,12 @@ export function useFollowLaunch(): FollowLaunch | null {
 
 interface PartyLive {
   uid: string;
-  partyId: string;
+  /**
+   * The party's channel key (`my_party().channel_key`): the topic is `party:<key>`, and the database rotates the key
+   * whenever someone leaves or is kicked, so a former member's stale subscription hears nothing more. The remaining
+   * members refetch the party on `member_left` and follow the new key.
+   */
+  channelKey: string;
   qc: QueryClient;
   channel: RealtimeChannel | null;
   stopped: boolean;
@@ -448,12 +453,12 @@ interface PartyLive {
 
 let partyLive: PartyLive | null = null;
 
-const topicOf = (partyId: string) => `party:${partyId}`;
+const topicOf = (channelKey: string) => `party:${channelKey}`;
 
 /** Callbacks route through `partyLive`, never a closure (a channel handed back by `supabase.channel` may be an old one). */
 function routeParty(topic: string, payload: unknown) {
   const s = partyLive;
-  if (!s || s.stopped || topic !== topicOf(s.partyId)) return;
+  if (!s || s.stopped || topic !== topicOf(s.channelKey)) return;
   const action = partyChannelAction(parsePartyEvent(payload), s.uid);
   log('event', action?.kind ?? 'ignored');
   if (!action) return;
@@ -476,7 +481,7 @@ function routeParty(topic: string, payload: unknown) {
 function routePartyStatus(topic: string, status: string, err?: Error) {
   log(topic.replace(/^(party:.{8}).*/, '$1…'), status, err?.message ?? '');
   const s = partyLive;
-  if (!s || s.stopped || topic !== topicOf(s.partyId)) return;
+  if (!s || s.stopped || topic !== topicOf(s.channelKey)) return;
   // Anything sent while we were not joined was not delivered: the party (members, lead, launch) is refetched.
   if (status === 'SUBSCRIBED') invalidateParty(s.qc, s.uid);
 }
@@ -484,7 +489,7 @@ function routePartyStatus(topic: string, status: string, err?: Error) {
 const bound = new WeakSet<RealtimeChannel>();
 
 async function subscribeParty(s: PartyLive) {
-  const topic = topicOf(s.partyId);
+  const topic = topicOf(s.channelKey);
   // Channels of an earlier party go first.
   for (const c of supabase.getChannels()) {
     if (c.topic.startsWith('realtime:party:') && c.topic !== `realtime:${topic}`) void supabase.removeChannel(c);
@@ -521,8 +526,8 @@ async function resubscribePartyIfDown(s: PartyLive) {
   if (!s.stopped && partyLive === s && !s.channel) await subscribeParty(s);
 }
 
-function startPartyChannel(qc: QueryClient, uid: string, partyId: string): () => void {
-  const s: PartyLive = { uid, partyId, qc, channel: null, stopped: false };
+function startPartyChannel(qc: QueryClient, uid: string, channelKey: string): () => void {
+  const s: PartyLive = { uid, channelKey, qc, channel: null, stopped: false };
   partyLive = s;
   if (AppState.currentState !== 'background') void subscribeParty(s);
   const sub = AppState.addEventListener('change', (state) => {
@@ -539,7 +544,7 @@ function startPartyChannel(qc: QueryClient, uid: string, partyId: string): () =>
 }
 
 /**
- * Mounted once, in `(app)/_layout.tsx`: the private `party:<id>` channel while the signed-in, linked account is in a
+ * Mounted once, in `(app)/_layout.tsx`: the private `party:<channel_key>` channel while the signed-in, linked account is in a
  * party (`my_party` non-null). Leaving, being kicked, the party ending or a sign-out removes it; a new party replaces
  * it.
  */
@@ -548,9 +553,10 @@ export function usePartyChannel(): void {
   const account = signedIn ? userId : null;
   const qc = useQueryClient();
   const party = useParty();
-  const partyId = account ? (party.data?.id ?? null) : null;
+  // Keyed on the channel key, not the party id: a rotated key (someone left) replaces the channel.
+  const channelKey = account ? (party.data?.channel_key ?? null) : null;
   useEffect(() => {
-    if (!account || !partyId) return;
-    return startPartyChannel(qc, account, partyId);
-  }, [account, partyId, qc]);
+    if (!account || !channelKey) return;
+    return startPartyChannel(qc, account, channelKey);
+  }, [account, channelKey, qc]);
 }

@@ -1260,6 +1260,7 @@ export type Database = {
       parties: {
         Row: {
           active_launch_id: string | null
+          channel_key: string
           conversation_id: string
           created_at: string
           id: string
@@ -1267,6 +1268,7 @@ export type Database = {
         }
         Insert: {
           active_launch_id?: string | null
+          channel_key?: string
           conversation_id: string
           created_at?: string
           id?: string
@@ -1274,6 +1276,7 @@ export type Database = {
         }
         Update: {
           active_launch_id?: string | null
+          channel_key?: string
           conversation_id?: string
           created_at?: string
           id?: string

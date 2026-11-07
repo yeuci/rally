@@ -266,7 +266,7 @@ export type SentMessage = { id: string; conversation_id: string; body: string; c
 
 /**
  * Realtime broadcast for a message: event `dm` on the other member's `user:<uid>` topic (dm), event `party` on
- * `party:<party_id>` (party chat). `body` is `''` for `message_deleted`. The same shape in both events.
+ * `party:<channel_key>` (party chat). `body` is `''` for `message_deleted`. The same shape in both events.
  */
 export type MessageEvent = {
   type: "message" | "message_deleted";
@@ -316,11 +316,16 @@ export type PartyLaunch = {
   expires_at: string;
 };
 
-/** `my_party()` (null when not in a party), `create_party()`, and `respond_invite(...).party`. */
+/**
+ * `my_party()` (null when not in a party), `create_party()`, and `respond_invite(...).party`. `channel_key` names the
+ * party's Realtime topic, `party:<channel_key>` (see `partyTopic`); it changes whenever a member leaves or is kicked, so
+ * refetch `my_party` on `member_left` and resubscribe when it differs.
+ */
 export type Party = {
   id: string;
   leader_id: string;
   conversation_id: string;
+  channel_key: string;
   created_at: string;
   launch: PartyLaunch | null;
   members: PartyMember[];
@@ -348,8 +353,12 @@ export type PartyLaunchMember = {
   avatar_url: string | null;
 } | null;
 
+/** The private Realtime topic of a party: `party:<channel_key>` (never the party id). */
+export const partyTopic = (party: Pick<Party, "channel_key">): string => `party:${party.channel_key}`;
+
 /**
- * Realtime event `party`. On `party:<id>`: membership, lead, launches and chat (`MessageEvent`). On `user:<uid>`:
+ * Realtime event `party`. On `party:<channel_key>`: membership, lead, launches and chat (`MessageEvent`); after a
+ * `member_left` the key has rotated (refetch `my_party`). On `user:<uid>`:
  * `removed` (you left or were kicked) and `party_ended` (the party was deleted while you were in it). `by` is the
  * member who joined or left, or the leader for a kick (null for a cascade without a user).
  */

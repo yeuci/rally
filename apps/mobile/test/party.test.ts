@@ -70,6 +70,7 @@ function party(over: Partial<Party> = {}): Party {
     id: PARTY_ID,
     leader_id: SLOTH,
     conversation_id: 'c-1',
+    channel_key: 'k-1',
     created_at: AT,
     launch: null,
     members: [
@@ -91,6 +92,7 @@ test('parseParty: the my_party shape; null for no party or junk; presence normal
     id: PARTY_ID,
     leader_id: SLOTH,
     conversation_id: 'c-1',
+    channel_key: 'k-1',
     created_at: AT,
     launch: {
       id: LAUNCH_ID,
@@ -126,6 +128,7 @@ test('parseParty: the my_party shape; null for no party or junk; presence normal
     ],
   };
   const p = parseParty(raw)!;
+  assert.equal(p.channel_key, 'k-1', 'the party channel is subscribed by its rotating key');
   assert.equal(p.launch?.code, null);
   assert.equal(p.launch?.game_title, 'Sumo');
   assert.deepEqual(
@@ -138,9 +141,12 @@ test('parseParty: the my_party shape; null for no party or junk; presence normal
   );
   // No launch, no members key: still a party (members default to []).
   assert.deepEqual(
-    parseParty({ id: PARTY_ID, leader_id: ME, conversation_id: 'c', created_at: AT, launch: null })?.members,
+    parseParty({ id: PARTY_ID, leader_id: ME, conversation_id: 'c', channel_key: 'k', created_at: AT, launch: null })
+      ?.members,
     [],
   );
+  // Without a channel key the party cannot be listened to: an answer from an older database is not a party.
+  assert.equal(parseParty({ ...raw, channel_key: undefined }), null);
 });
 
 test('leader, members, order: the leader first, then joined_at order', () => {
