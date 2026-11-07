@@ -11,6 +11,7 @@ import { z } from 'zod';
  * | `create`          | `name?`           | `joinOrCreate/<room>` `{ private: true, name? }`             | `private`           |
  * | `room`            | `room`, `code?`   | `joinById/<room>` `{ code? }`                                | `joinById`          |
  * | `friend`          | `friend` (uuid)   | `friend_join_target(friend)` → `joinById/<room_id>` `{ code }` | `joinById`        |
+ * | `party`           | `launch` (uuid)   | `POST /party/seat { launchId }` → the held reservation        | `party`             |
  * | `resume`          |                   | `reconnect/<roomId>` from the rejoin journal                  | original + `resume` |
  */
 export type JoinTarget =
@@ -18,6 +19,7 @@ export type JoinTarget =
   | { join: 'create'; name?: string }
   | { join: 'room'; room: string; code?: string }
   | { join: 'friend'; friend: string }
+  | { join: 'party'; launch: string }
   | { join: 'resume' };
 
 export type JoinKind = JoinTarget['join'];
@@ -77,13 +79,14 @@ const JoinParamsSchema = z.discriminatedUnion('join', [
     ),
   }),
   z.object({ join: z.literal('friend'), friend: z.string().regex(UUID_RE).transform((s) => s.toLowerCase()) }),
+  z.object({ join: z.literal('party'), launch: z.string().regex(UUID_RE).transform((s) => s.toLowerCase()) }),
   z.object({ join: z.literal('resume') }),
 ]);
 
 /**
  * The join target in a route's search params (expo-router `useLocalSearchParams()`: values may be arrays; the
- * first one counts). No `join` → `quick`. Null when the params are malformed (unknown kind, a bad room id, code or
- * friend id): the play route then goes back to the game page instead of guessing.
+ * first one counts). No `join` → `quick`. Null when the params are malformed (unknown kind, a bad room id, code,
+ * friend or launch id): the play route then goes back to the game page instead of guessing.
  */
 export function parseJoinTarget(params: Record<string, string | string[] | undefined>): JoinTarget | null {
   const raw = {
@@ -92,6 +95,7 @@ export function parseJoinTarget(params: Record<string, string | string[] | undef
     room: one(params.room),
     code: one(params.code),
     friend: one(params.friend),
+    launch: one(params.launch),
   };
   const parsed = JoinParamsSchema.safeParse(raw);
   if (!parsed.success) return null;
@@ -117,6 +121,8 @@ export function joinTargetParams(target: JoinTarget): Record<string, string> {
       return target.code ? { join: 'room', room: target.room, code: target.code } : { join: 'room', room: target.room };
     case 'friend':
       return { join: 'friend', friend: target.friend };
+    case 'party':
+      return { join: 'party', launch: target.launch };
     case 'resume':
       return { join: 'resume' };
   }
@@ -132,6 +138,8 @@ export function intentFor(join: OriginJoin): LaunchIntent {
     case 'room':
     case 'friend':
       return 'joinById';
+    case 'party':
+      return 'party';
   }
 }
 
@@ -155,6 +163,43 @@ export function parseFriendJoinTarget(data: unknown): FriendJoinTarget | null {
   if (code == null) return { gameId: game_id, roomId: room_id };
   const normalized = normalizeJoinCode(code);
   return normalized ? { gameId: game_id, roomId: room_id, code: normalized } : null;
+}
+
+// --- party launches and seats (docs/social-phase.md §3; game-host/matchmake.ts `partyLaunch` / `partySeat`) ----------
+
+/** `POST /party/seat` → the member's seat: the room, its code (private party rooms) and the reservation to consume. */
+export interface PartySeat {
+  roomId: string;
+  code: string | null;
+  seatReservation: Record<string, unknown>;
+}
+
+const PartySeatSchema = z.object({
+  roomId: z.string().regex(ROOM_ID_RE),
+  code: z.string().nullish(),
+  seatReservation: z.record(z.string(), z.unknown()),
+});
+
+/** The server's `/party/seat` body → a seat; null when malformed (a code that is not one is dropped, not refused). */
+export function parsePartySeat(data: unknown): PartySeat | null {
+  const parsed = PartySeatSchema.safeParse(data);
+  if (!parsed.success) return null;
+  const { roomId, code, seatReservation } = parsed.data;
+  return { roomId, code: code ? normalizeJoinCode(code) : null, seatReservation };
+}
+
+/** `POST /party/launch` → the launch the leader opens (`join=party&launch=<launchId>`) and their own seat. */
+export interface PartyLaunchResult extends PartySeat {
+  launchId: string;
+}
+
+const PartyLaunchSchema = PartySeatSchema.extend({ launchId: z.string().regex(UUID_RE) });
+
+export function parsePartyLaunch(data: unknown): PartyLaunchResult | null {
+  const parsed = PartyLaunchSchema.safeParse(data);
+  if (!parsed.success) return null;
+  const { launchId, roomId, code, seatReservation } = parsed.data;
+  return { launchId: launchId.toLowerCase(), roomId, code: code ? normalizeJoinCode(code) : null, seatReservation };
 }
 
 /** What a code lookup (`roomByCode` in game-host/matchmake.ts) needs to answer. */

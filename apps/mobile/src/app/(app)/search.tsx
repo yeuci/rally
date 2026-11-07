@@ -32,6 +32,7 @@ import { recentSearches, useRecentSearches } from '@/lib/use-recent-searches';
 import { useColumnPadding, useLayout } from '@/lib/use-layout';
 import { cn } from '@/lib/utils';
 import { RowHighlight } from '@/components/rally/row-highlight';
+import { usePartyBarInset } from '@/components/rally/party-bar';
 
 /** Game rows shown; "See all" opens Browse with the query (`/browse?q=`). */
 const GAMES_PREVIEW = 5;
@@ -46,6 +47,7 @@ const GAMES_PREVIEW = 5;
  */
 export default function SearchScreen() {
   const { insets } = useLayout();
+  const partyBar = usePartyBarInset();
   const column = useColumnPadding(720);
   const { q } = useLocalSearchParams<{ q?: string }>();
   const [query, setQuery] = useState(typeof q === 'string' ? q : '');
@@ -200,7 +202,7 @@ export default function SearchScreen() {
       <ScrollView
         className="flex-1"
         contentContainerClassName="gap-7 pt-2"
-        contentContainerStyle={[column, { paddingBottom: insets.bottom + 32 }]}
+        contentContainerStyle={[column, { paddingBottom: insets.bottom + 32 + partyBar }]}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
       >

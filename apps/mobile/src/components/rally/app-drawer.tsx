@@ -3,6 +3,7 @@ import {
   HouseIcon,
   LayoutGridIcon,
   LogOutIcon,
+  MessageCircleIcon,
   SearchIcon,
   SettingsIcon,
   StoreIcon,
@@ -24,6 +25,7 @@ import { DRAWER_EDGE_WIDTH, drawerItems, drawerSwipeEnabled, drawerWidth, type D
 import { useWallet } from '@/lib/coins';
 import { formatCoins } from '@/lib/coins-model';
 import { useFriendRequests } from '@/lib/friends';
+import { useUnreadTotal } from '@/lib/messages';
 import { useProfile } from '@/lib/profile';
 import { drawerGesture } from '@/lib/press-guard';
 import { countBadge } from '@/lib/social';
@@ -42,6 +44,7 @@ const ICONS: Record<DrawerItemKey, LucideIcon> = {
   browse: LayoutGridIcon,
   search: SearchIcon,
   friends: UsersIcon,
+  messages: MessageCircleIcon,
   shop: StoreIcon,
   profile: UserIcon,
   settings: SettingsIcon,
@@ -54,6 +57,7 @@ const PATHS: Record<DrawerItemKey, string> = {
   browse: '/browse',
   search: '/search',
   friends: '/friends',
+  messages: '/messages',
   shop: '/shop',
   profile: '/profile',
   settings: '/settings',
@@ -111,19 +115,22 @@ export function AppDrawer({ children }: { children: ReactNode }) {
 }
 
 /**
- * Header (avatar, display name, @username → Profile, and the coin balance), the items (Shop shows the balance too),
- * then Sign out and the app version at the bottom.
+ * Header (avatar, display name, @username → Profile, and the coin balance), the items (Friends and Messages carry
+ * their count badges, Shop shows the balance too), then Sign out and the app version at the bottom.
  */
 function DrawerPanel({ pathname, onClose }: { pathname: string; onClose: () => void }) {
   const { insets } = useLayout();
   const profile = useProfile();
   const requests = useFriendRequests();
   const incoming = countBadge(requests.data?.incoming.length);
+  // Unread messages across unmuted conversations (`unread_total`; lib/messages.ts keeps it current from broadcasts).
+  const unread = useUnreadTotal();
   const wallet = useWallet();
   const balance = wallet.data?.balance;
   const items = drawerItems({
     devTools: config.devTools,
     incomingRequests: incoming,
+    unreadMessages: countBadge(unread.data),
     coins: balance === undefined ? null : formatCoins(balance),
   });
   const { signingOut, error: signOutError, signOut } = useSignOut();
@@ -145,6 +152,9 @@ function DrawerPanel({ pathname, onClose }: { pathname: string; onClose: () => v
         return;
       case 'friends':
         router.push({ pathname: '/friends', params: incoming ? { tab: 'requests' } : {} });
+        return;
+      case 'messages':
+        router.push('/messages');
         return;
       case 'shop':
         router.push('/shop');

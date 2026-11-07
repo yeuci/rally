@@ -3,12 +3,13 @@ import { afterEach, test } from 'node:test';
 import { HostBridge } from '../src/game-host/bridge';
 import {
   createHostHandlers,
+  MATCH_ENDED_EXIT,
   MENU_DEFINES_PER_MINUTE,
   PROGRESS_LIMITS_PER_MINUTE,
   SESSION_LIMITS_PER_MINUTE,
   type HostHandlerDeps,
 } from '../src/game-host/handlers';
-import { isPrivateNetworkHost, mayAttachToken } from '../src/game-host/matchmake';
+import { isPrivateNetworkHost, mayAttachToken, PartyRequestError } from '../src/game-host/matchmake';
 import {
   createMemoryProgressStore,
   mapProgressError,
@@ -20,6 +21,7 @@ import {
 } from '../src/game-host/progress';
 import { TokenBucket } from '../src/game-host/rate-limit';
 import { recordPlayRefusal } from '../src/game-host/play-session';
+import { createMemoryStorage, createRejoinJournal } from '../src/game-host/rejoin-journal';
 import { createMemorySaveStore, mapSaveError } from '../src/game-host/saves';
 import { BUNDLE, NONCE, Outbox, clock, launchContext, req } from './helpers';
 
@@ -580,4 +582,132 @@ test('recordPlayRefusal: the refusals record_play answers by design', () => {
   assert.equal(recordPlayRefusal('NOT_FOUND: game'), 'not-found');
   assert.equal(recordPlayRefusal('Network request failed'), null);
   assert.equal(recordPlayRefusal('the CONFLICT word later'), null);
+});
+
+// --- join=party (docs/social-phase.md §3, §5) -------------------------------------------------------------------------
+
+const LAUNCH = '5f2504e0-4f89-41d3-9a0c-0305e82c3301';
+
+test('session.join party: the seat comes from fetchPartySeat (no matchmaking), sticky across joins, code surfaced', async () => {
+  const asked: string[] = [];
+  const joined: unknown[] = [];
+  const urls: string[] = [];
+  globalThis.fetch = (async (url: string) => {
+    urls.push(url);
+    return new Response('{}', { status: 500 });
+  }) as typeof fetch;
+  let n = 0;
+  const storage = createMemoryStorage();
+  const rejoin = createRejoinJournal(storage, 'u1');
+  const { call } = setup({
+    soloScores: false,
+    matchmaking: {
+      httpUrl: 'https://gs.example.com',
+      wsUrl: 'wss://gs.example.com',
+      roomName: 'sumo',
+      join: { join: 'party', launch: LAUNCH },
+      rejoin,
+      fetchPartySeat: async (launchId) => {
+        asked.push(launchId);
+        n += 1;
+        return {
+          roomId: 'pr1',
+          code: 'K7M2PQ',
+          seatReservation: { name: 'sumo', roomId: 'pr1', sessionId: `s${n}`, processId: 'p' },
+        };
+      },
+      onJoined: (info) => joined.push(info),
+    },
+  });
+  await call('ready', { sdkVersion: '1' });
+  const res = await call('session.join');
+  assert.deepEqual(res.params, {
+    endpoint: 'wss://gs.example.com',
+    seatReservation: { name: 'sumo', roomId: 'pr1', sessionId: 's1', processId: 'p' },
+  });
+  // A reload (or a second join) asks the server for the seat again: it hands back the held one or reserves anew.
+  assert.equal((await call('session.join')).error, undefined);
+  assert.deepEqual(asked, [LAUNCH, LAUNCH]);
+  assert.deepEqual(urls, [], 'no /matchmake request');
+  assert.deepEqual(joined, [
+    { roomId: 'pr1', gameId: 'spike', code: 'K7M2PQ' },
+    { roomId: 'pr1', gameId: 'spike', code: 'K7M2PQ' },
+  ]);
+  // The rejoin record of a party match remembers its origin (a resume reports intent `party`).
+  assert.equal(
+    (await call('session.reportReconnection', { roomId: 'pr1', token: 'pr1:tok', ttlSec: 60 })).params,
+    null,
+  );
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal((await rejoin.get())?.join, 'party');
+  assert.equal((await rejoin.get())?.code, 'K7M2PQ');
+});
+
+test('session.join party: 410 ends the session ("that match has ended"), 409 is ROOM_FULL, others MATCHMAKE_FAILED', async () => {
+  const party = (err: unknown) => {
+    const s = setup({
+      soloScores: false,
+      matchmaking: {
+        httpUrl: 'https://gs.example.com',
+        wsUrl: 'wss://gs.example.com',
+        roomName: 'sumo',
+        join: { join: 'party', launch: LAUNCH },
+        fetchPartySeat: async () => {
+          throw err;
+        },
+      },
+    });
+    return s;
+  };
+  const gone = party(new PartyRequestError('GONE', 'that match has ended'));
+  await gone.call('ready', { sdkVersion: '1' });
+  const res = await gone.call('session.join');
+  assert.equal(res.error?.code, 'MATCHMAKE_FAILED');
+  assert.match(res.error?.message ?? '', /ended/);
+  await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual(gone.calls.exit, [MATCH_ENDED_EXIT], 'the route says "That match has ended" and closes');
+
+  const full = party(new PartyRequestError('CONFLICT', 'the room is full'));
+  await full.call('ready', { sdkVersion: '1' });
+  assert.equal((await full.call('session.join')).error?.code, 'ROOM_FULL');
+  const limited = party(new PartyRequestError('RATE_LIMITED', 'slow down'));
+  await limited.call('ready', { sdkVersion: '1' });
+  assert.equal((await limited.call('session.join')).error?.code, 'RATE_LIMITED');
+  for (const err of [new PartyRequestError('NOT_FOUND', 'not a member'), new Error('boom')]) {
+    const other = party(err);
+    await other.call('ready', { sdkVersion: '1' });
+    assert.equal((await other.call('session.join')).error?.code, 'MATCHMAKE_FAILED');
+    await new Promise((r) => setTimeout(r, 5));
+    assert.deepEqual(other.calls.exit, [], 'only an ended match closes the game');
+  }
+
+  // A host without the seat fetcher (the Developer launcher) cannot join a party.
+  const bare = setup({
+    soloScores: false,
+    matchmaking: {
+      httpUrl: 'https://gs.example.com',
+      wsUrl: 'wss://gs.example.com',
+      roomName: 'sumo',
+      join: { join: 'party', launch: LAUNCH },
+    },
+  });
+  await bare.call('ready', { sdkVersion: '1' });
+  assert.equal((await bare.call('session.join')).error?.code, 'NOT_SUPPORTED');
+});
+
+test('party.get answers the launch context party; invite.open reaches the host when it has the sheet', async () => {
+  const partyCtx = { id: 'p1', leaderId: 'u2', memberIds: ['u2', 'u1'] };
+  let opened = 0;
+  const { call } = setup({
+    getLaunchContext: () => ({ ...launchContext, intent: 'party', party: partyCtx }),
+    onInviteOpen: () => (opened += 1),
+  });
+  assert.deepEqual((await call('ready', { sdkVersion: '1' })).params, {
+    ...launchContext,
+    intent: 'party',
+    party: partyCtx,
+  });
+  assert.deepEqual((await call('party.get')).params, partyCtx);
+  assert.equal((await call('invite.open')).params, null);
+  assert.equal(opened, 1);
 });

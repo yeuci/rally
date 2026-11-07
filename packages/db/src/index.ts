@@ -249,3 +249,140 @@ export const ACTIVITY_RETENTION_DAYS = 30 as const;
 
 /** Most rows one `friends_activity` call returns (`p_limit` is clamped to it). */
 export const FRIENDS_ACTIVITY_MAX_LIMIT = 100 as const;
+
+// ---- Messaging (20261107000100_messages.sql; docs/social-phase.md §1) ---------------------------------------------
+
+/** `messages.body` length (the `messages_body_len` check; `send_message` trims first and refuses 0 or more). */
+export const MESSAGE_MAX_LENGTH = 1000 as const;
+
+/** Days a message is kept (the `rally_purge_messages` cron job). */
+export const MESSAGE_RETENTION_DAYS = 90 as const;
+
+/** `conversations.kind`: a dm between two friends, or a party's chat (`conversations.party_id`). */
+export type ConversationKind = "dm" | "party";
+
+/** `send_message(p_conversation_id, p_body)`: the stored message (body trimmed). */
+export type SentMessage = { id: string; conversation_id: string; body: string; created_at: string };
+
+/**
+ * Realtime broadcast for a message: event `dm` on the other member's `user:<uid>` topic (dm), event `party` on
+ * `party:<channel_key>` (party chat). `body` is `''` for `message_deleted`. The same shape in both events.
+ */
+export type MessageEvent = {
+  type: "message" | "message_deleted";
+  conversation_id: string;
+  message_id: string;
+  sender_id: string | null;
+  body: string;
+  at: string;
+};
+
+/** `reports.message_snapshot`, written by `report_user(..., p_message_id)`. */
+export type ReportMessageSnapshot = { id: string; body: string; conversation_id: string };
+
+// ---- Parties and invites (20261107000200_parties.sql; docs/social-phase.md §2) ------------------------------------
+
+/** Most members a party holds (`invite_to_party` / `respond_invite` raise `INVALID: party is full` beyond it). */
+export const PARTY_MAX_SIZE = 8 as const;
+
+/** Minutes an invite (`invites.expires_at`) and a party launch (`party_launches.expires_at`) stay valid. */
+export const INVITE_TTL_MINUTES = 10 as const;
+export const PARTY_LAUNCH_TTL_MINUTES = 10 as const;
+
+/** `invites.kind` and `invites.status`. */
+export type InviteKind = "party" | "room";
+export type InviteStatus = "pending" | "accepted" | "declined" | "cancelled" | "expired";
+
+/** One member in `my_party().members` (ordered by `joined_at`); `status` / `game_id` from presence, null when offline. */
+export type PartyMember = {
+  user_id: string;
+  username: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  joined_at: string;
+  status: PresenceStatus | null;
+  game_id: string | null;
+};
+
+/** `my_party().launch`: the active launch while unexpired and its room is live; `code` is the private room's code. */
+export type PartyLaunch = {
+  id: string;
+  game_id: string;
+  game_title: string;
+  room_id: string;
+  code: string | null;
+  leader_id: string;
+  created_at: string;
+  expires_at: string;
+};
+
+/**
+ * `my_party()` (null when not in a party), `create_party()`, and `respond_invite(...).party`. `channel_key` names the
+ * party's Realtime topic, `party:<channel_key>` (see `partyTopic`); it changes whenever a member leaves or is kicked, so
+ * refetch `my_party` on `member_left` and resubscribe when it differs.
+ */
+export type Party = {
+  id: string;
+  leader_id: string;
+  conversation_id: string;
+  channel_key: string;
+  created_at: string;
+  launch: PartyLaunch | null;
+  members: PartyMember[];
+};
+
+/** `respond_invite(p_invite_id, p_accept)`: declined -> `{ kind }`; accepted -> the party, or the room to join. */
+export type RespondInviteResult =
+  | { kind: InviteKind }
+  | { kind: "party"; party: Party }
+  | { kind: "room"; game_id: string; room_id: string; code: string | null };
+
+/** `server_party_launch_begin(p_leader, p_game_id)` (service role): the party to seat. */
+export type PartyLaunchBegin = {
+  party_id: string;
+  members: { user_id: string; username: string; avatar_url: string | null }[];
+};
+
+/** `server_party_member(p_user, p_launch_id)` (service role): the seat data, or null (not a member / expired). */
+export type PartyLaunchMember = {
+  party_id: string;
+  game_id: string;
+  room_id: string;
+  code: string | null;
+  username: string;
+  avatar_url: string | null;
+} | null;
+
+/** The private Realtime topic of a party: `party:<channel_key>` (never the party id). */
+export const partyTopic = (party: Pick<Party, "channel_key">): string => `party:${party.channel_key}`;
+
+/**
+ * Realtime event `party`. On `party:<channel_key>`: membership, lead, launches and chat (`MessageEvent`); after a
+ * `member_left` the key has rotated (refetch `my_party`). On `user:<uid>`:
+ * `removed` (you left or were kicked) and `party_ended` (the party was deleted while you were in it). `by` is the
+ * member who joined or left, or the leader for a kick (null for a cascade without a user).
+ */
+export type PartyEvent =
+  | { type: "member_joined" | "member_left"; party_id: string; user_id: string; by: string | null; at: string }
+  | { type: "removed" | "party_ended"; party_id: string; at: string }
+  | { type: "leader_changed"; party_id: string; leader_id: string; at: string }
+  | { type: "launch"; party_id: string; launch_id: string; game_id: string; room_id: string; leader_id: string; at: string }
+  | MessageEvent;
+
+/**
+ * Realtime event `invite` on `user:<uid>`: a new invite to you (`party_invite` / `room_invite`; the room invite's code
+ * comes with the acceptance, never here), your invite declined (`invite_declined`, to the sender), an invite to you
+ * closed by acceptance or cancellation (`invite_closed`).
+ */
+export type InviteEvent =
+  | {
+      type: "party_invite" | "room_invite";
+      invite_id: string;
+      from: string;
+      party_id: string | null;
+      game_id: string | null;
+      room_id: string | null;
+      at: string;
+    }
+  | { type: "invite_declined"; invite_id: string; to: string; at: string }
+  | { type: "invite_closed"; invite_id: string; at: string };

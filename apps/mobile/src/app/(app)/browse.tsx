@@ -18,6 +18,7 @@ import { Icon } from '@/components/ui/icon';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TapPressable } from '@/components/ui/tap-pressable';
 import { Text } from '@/components/ui/text';
+import { usePartyBarInset } from '@/components/rally/party-bar';
 import {
   BROWSE_SORT_OPTIONS,
   browseGames,
@@ -56,6 +57,7 @@ export default function BrowseScreen() {
   const raw = useLocalSearchParams<{ genre?: string; sort?: string; q?: string }>();
   const params = parseBrowseParams(raw);
   const { width, insets, wide, pad } = useLayout();
+  const partyBar = usePartyBarInset();
   const palette = usePalette();
   const focused = useIsFocused();
   const catalog = useAllGames();
@@ -199,7 +201,7 @@ export default function BrowseScreen() {
         ItemSeparatorComponent={RowGap}
         ListHeaderComponent={header}
         ListEmptyComponent={empty}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 32, flexGrow: 1 }}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 32 + partyBar, flexGrow: 1 }}
         initialNumToRender={columns * 4}
         windowSize={7}
         refreshControl={

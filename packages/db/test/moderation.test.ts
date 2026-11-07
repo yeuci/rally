@@ -290,7 +290,10 @@ const USER_FOREIGN_KEYS: Record<string, 'c' | 'n'> = {
   'blocks.blocker_id': 'c',
   'bug_reports.user_id': 'n',
   'coin_ledger.user_id': 'c',
+  'conversation_members.user_id': 'c',
   'daily_challenges.user_id': 'c',
+  'dm_pairs.user_a': 'c',
+  'dm_pairs.user_b': 'c',
   'equipped_items.user_id': 'c',
   'equipped_items.user_id,item_id': 'c',
   'favorites.user_id': 'c',
@@ -300,7 +303,13 @@ const USER_FOREIGN_KEYS: Record<string, 'c' | 'n'> = {
   'game_saves.user_id': 'c',
   'game_stats.user_id': 'c',
   'game_votes.user_id': 'c',
+  'invites.from_id': 'c',
+  'invites.to_id': 'c',
   'leaderboard_entries.user_id': 'c',
+  // A deleted sender's messages stay in the thread for the other people in it (sender_id null, as the design says).
+  'messages.sender_id': 'n',
+  'parties.leader_id': 'c',
+  'party_members.user_id': 'c',
   'play_sessions.user_id': 'c',
   'player_progress.user_id': 'c',
   'player_streaks.user_id': 'c',
@@ -622,7 +631,7 @@ describe('privileges', () => {
   test('who may call what; internal helpers are unreachable; definer functions pin search_path', async () => {
     const db = await createTestDb();
     const expect: Record<string, [anon: boolean, auth: boolean]> = {
-      'public.report_user(uuid, text, text, text, text)': [false, true],
+      'public.report_user(uuid, text, text, text, text, uuid)': [false, true],
       'public.delete_my_account()': [false, true],
     };
     for (const [fn, [anon, auth]] of Object.entries(expect)) {

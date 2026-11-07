@@ -1,5 +1,5 @@
 // Hand-written to match `supabase gen types typescript` output for supabase/migrations (M1 + M2 + M4 social + M3 phase 2
-// + coins + progress + moderation + streaks).
+// + coins + progress + moderation + streaks + messages + parties).
 // Regenerate against a real project with `pnpm --filter @rally/db gen:types` once one is linked;
 // keep this file in that exact shape so the swap is a no-op for consumers.
 export type Json =
@@ -325,6 +325,77 @@ export type Database = {
         }
         Relationships: []
       }
+      conversation_members: {
+        Row: {
+          conversation_id: string
+          joined_at: string
+          last_read_at: string
+          muted: boolean
+          user_id: string
+        }
+        Insert: {
+          conversation_id: string
+          joined_at?: string
+          last_read_at?: string
+          muted?: boolean
+          user_id: string
+        }
+        Update: {
+          conversation_id?: string
+          joined_at?: string
+          last_read_at?: string
+          muted?: boolean
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversation_members_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversation_members_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      conversations: {
+        Row: {
+          created_at: string
+          id: string
+          kind: string
+          last_message_at: string | null
+          party_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          kind: string
+          last_message_at?: string | null
+          party_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          kind?: string
+          last_message_at?: string | null
+          party_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversations_party_id_fkey"
+            columns: ["party_id"]
+            isOneToOne: false
+            referencedRelation: "parties"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       daily_challenges: {
         Row: {
           board_key: string | null
@@ -413,6 +484,46 @@ export type Database = {
           sort?: number
         }
         Relationships: []
+      }
+      dm_pairs: {
+        Row: {
+          conversation_id: string
+          user_a: string
+          user_b: string
+        }
+        Insert: {
+          conversation_id: string
+          user_a: string
+          user_b: string
+        }
+        Update: {
+          conversation_id?: string
+          user_a?: string
+          user_b?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dm_pairs_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: true
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dm_pairs_user_a_fkey"
+            columns: ["user_a"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dm_pairs_user_b_fkey"
+            columns: ["user_b"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       equipped_items: {
         Row: {
@@ -897,6 +1008,80 @@ export type Database = {
           },
         ]
       }
+      invites: {
+        Row: {
+          code: string | null
+          created_at: string
+          expires_at: string
+          from_id: string
+          game_id: string | null
+          id: string
+          kind: string
+          party_id: string | null
+          responded_at: string | null
+          room_id: string | null
+          status: string
+          to_id: string
+        }
+        Insert: {
+          code?: string | null
+          created_at?: string
+          expires_at?: string
+          from_id: string
+          game_id?: string | null
+          id?: string
+          kind: string
+          party_id?: string | null
+          responded_at?: string | null
+          room_id?: string | null
+          status?: string
+          to_id: string
+        }
+        Update: {
+          code?: string | null
+          created_at?: string
+          expires_at?: string
+          from_id?: string
+          game_id?: string | null
+          id?: string
+          kind?: string
+          party_id?: string | null
+          responded_at?: string | null
+          room_id?: string | null
+          status?: string
+          to_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invites_from_id_fkey"
+            columns: ["from_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invites_game_id_fkey"
+            columns: ["game_id"]
+            isOneToOne: false
+            referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invites_party_id_fkey"
+            columns: ["party_id"]
+            isOneToOne: false
+            referencedRelation: "parties"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invites_to_id_fkey"
+            columns: ["to_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       leaderboard_entries: {
         Row: {
           leaderboard_id: string
@@ -1026,6 +1211,178 @@ export type Database = {
             columns: ["game_id"]
             isOneToOne: false
             referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      messages: {
+        Row: {
+          body: string
+          conversation_id: string
+          created_at: string
+          deleted_at: string | null
+          id: string
+          sender_id: string | null
+        }
+        Insert: {
+          body: string
+          conversation_id: string
+          created_at?: string
+          deleted_at?: string | null
+          id?: string
+          sender_id?: string | null
+        }
+        Update: {
+          body?: string
+          conversation_id?: string
+          created_at?: string
+          deleted_at?: string | null
+          id?: string
+          sender_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "messages_sender_id_fkey"
+            columns: ["sender_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      parties: {
+        Row: {
+          active_launch_id: string | null
+          channel_key: string
+          conversation_id: string
+          created_at: string
+          id: string
+          leader_id: string
+        }
+        Insert: {
+          active_launch_id?: string | null
+          channel_key?: string
+          conversation_id: string
+          created_at?: string
+          id?: string
+          leader_id: string
+        }
+        Update: {
+          active_launch_id?: string | null
+          channel_key?: string
+          conversation_id?: string
+          created_at?: string
+          id?: string
+          leader_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "parties_active_launch_id_fkey"
+            columns: ["active_launch_id"]
+            isOneToOne: false
+            referencedRelation: "party_launches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parties_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parties_leader_id_fkey"
+            columns: ["leader_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      party_launches: {
+        Row: {
+          code: string | null
+          created_at: string
+          expires_at: string
+          game_id: string
+          id: string
+          leader_id: string
+          party_id: string
+          room_id: string
+        }
+        Insert: {
+          code?: string | null
+          created_at?: string
+          expires_at: string
+          game_id: string
+          id?: string
+          leader_id: string
+          party_id: string
+          room_id: string
+        }
+        Update: {
+          code?: string | null
+          created_at?: string
+          expires_at?: string
+          game_id?: string
+          id?: string
+          leader_id?: string
+          party_id?: string
+          room_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "party_launches_game_id_fkey"
+            columns: ["game_id"]
+            isOneToOne: false
+            referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "party_launches_party_id_fkey"
+            columns: ["party_id"]
+            isOneToOne: false
+            referencedRelation: "parties"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      party_members: {
+        Row: {
+          joined_at: string
+          party_id: string
+          user_id: string
+        }
+        Insert: {
+          joined_at?: string
+          party_id: string
+          user_id: string
+        }
+        Update: {
+          joined_at?: string
+          party_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "party_members_party_id_fkey"
+            columns: ["party_id"]
+            isOneToOne: false
+            referencedRelation: "parties"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "party_members_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -1270,6 +1627,7 @@ export type Database = {
           game_id: string | null
           id: string
           last_reported_at: string
+          message_snapshot: Json | null
           moderator_note: string | null
           note: string | null
           reason: string
@@ -1285,6 +1643,7 @@ export type Database = {
           game_id?: string | null
           id?: string
           last_reported_at?: string
+          message_snapshot?: Json | null
           moderator_note?: string | null
           note?: string | null
           reason: string
@@ -1300,6 +1659,7 @@ export type Database = {
           game_id?: string | null
           id?: string
           last_reported_at?: string
+          message_snapshot?: Json | null
           moderator_note?: string | null
           note?: string | null
           reason?: string
@@ -1571,8 +1931,21 @@ export type Database = {
       abandon_play_session: { Args: { p_session_id: string }; Returns: undefined }
       block_user: { Args: { p_user_id: string }; Returns: undefined }
       buy_item: { Args: { p_item_id: string }; Returns: Json }
+      cancel_invite: { Args: { p_invite_id: string }; Returns: undefined }
       claim_daily_challenge: { Args: { p_id: string }; Returns: Json }
       contains_banned_word: { Args: { input: string }; Returns: boolean }
+      conversation_messages: {
+        Args: { p_before?: string; p_conversation_id: string; p_limit?: number }
+        Returns: {
+          body: string
+          created_at: string
+          deleted: boolean
+          id: string
+          sender_id: string
+        }[]
+      }
+      create_party: { Args: never; Returns: Json }
+      delete_message: { Args: { p_message_id: string }; Returns: undefined }
       delete_my_account: { Args: never; Returns: undefined }
       end_play_session: {
         Args: { p_playtime_s?: number; p_session_id: string }
@@ -1624,6 +1997,8 @@ export type Database = {
         Args: { p_game_id?: string; p_room_id?: string; p_status: string }
         Returns: Json
       }
+      invite_to_party: { Args: { p_user_id: string }; Returns: string }
+      kick_from_party: { Args: { p_user_id: string }; Returns: undefined }
       leaderboard_top: {
         Args: {
           p_board_key: string
@@ -1638,6 +2013,29 @@ export type Database = {
           score: number
           user_id: string
           username: string
+        }[]
+      }
+      leave_party: { Args: never; Returns: undefined }
+      mark_conversation_read: {
+        Args: { p_conversation_id: string }
+        Returns: undefined
+      }
+      my_conversations: {
+        Args: { p_limit?: number }
+        Returns: {
+          conversation_id: string
+          kind: string
+          last_at: string
+          last_body: string
+          last_message_id: string
+          last_sender_id: string
+          muted: boolean
+          other_avatar_url: string
+          other_display_name: string
+          other_user_id: string
+          other_username: string
+          party_id: string
+          unread: number
         }[]
       }
       my_daily_challenges: {
@@ -1680,14 +2078,34 @@ export type Database = {
           username: string
         }[]
       }
+      my_invites: {
+        Args: never
+        Returns: {
+          created_at: string
+          expires_at: string
+          from_avatar_url: string
+          from_display_name: string
+          from_id: string
+          from_username: string
+          game_id: string
+          game_title: string
+          id: string
+          kind: string
+          party_id: string
+          party_size: number
+          room_id: string
+        }[]
+      }
       my_leaderboard_rank: {
         Args: { p_board_key: string; p_game_id: string }
         Returns: Json
       }
+      my_party: { Args: never; Returns: Json }
       my_privacy: { Args: never; Returns: Json }
       my_progress: { Args: never; Returns: Json }
       my_streak: { Args: never; Returns: Json }
       my_wallet: { Args: never; Returns: Json }
+      open_dm: { Args: { p_user_id: string }; Returns: string }
       owns_game: {
         Args: { p_game_id: string; p_user_id: string }
         Returns: boolean
@@ -1752,6 +2170,7 @@ export type Database = {
       report_user: {
         Args: {
           p_game_id?: string
+          p_message_id?: string
           p_note?: string
           p_reason: string
           p_room_id?: string
@@ -1762,6 +2181,10 @@ export type Database = {
       respond_friend_request: {
         Args: { p_accept: boolean; p_user_id: string }
         Returns: string
+      }
+      respond_invite: {
+        Args: { p_accept: boolean; p_invite_id: string }
+        Returns: Json
       }
       save_put: {
         Args: {
@@ -1783,6 +2206,37 @@ export type Database = {
         }[]
       }
       send_friend_request: { Args: { p_user_id: string }; Returns: string }
+      send_message: {
+        Args: { p_body: string; p_conversation_id: string }
+        Returns: Json
+      }
+      send_room_invite: {
+        Args: {
+          p_code?: string
+          p_game_id: string
+          p_room_id: string
+          p_user_id: string
+        }
+        Returns: string
+      }
+      server_party_launch_begin: {
+        Args: { p_game_id: string; p_leader: string }
+        Returns: Json
+      }
+      server_party_launch_commit: {
+        Args: {
+          p_code: string
+          p_game_id: string
+          p_leader: string
+          p_party_id: string
+          p_room_id: string
+        }
+        Returns: string
+      }
+      server_party_member: {
+        Args: { p_launch_id: string; p_user: string }
+        Returns: Json
+      }
       server_record_match: { Args: { p_match: Json }; Returns: Json }
       server_record_visits: {
         Args: { p_count: number; p_game_id: string }
@@ -1799,6 +2253,10 @@ export type Database = {
       }
       server_upsert_game_room: {
         Args: { p_room: Json }
+        Returns: undefined
+      }
+      set_conversation_muted: {
+        Args: { p_conversation_id: string; p_muted: boolean }
         Returns: undefined
       }
       start_play_session: {
@@ -1822,6 +2280,10 @@ export type Database = {
           p_user_id: string
         }
         Returns: boolean
+      }
+      transfer_party_lead: {
+        Args: { p_user_id: string }
+        Returns: undefined
       }
       trending_games: {
         Args: { p_days?: number; p_limit?: number }
@@ -1848,6 +2310,7 @@ export type Database = {
         Args: { p_game_id: string; p_key: string }
         Returns: Json
       }
+      unread_total: { Args: never; Returns: number }
       username_available: { Args: { p_username: string }; Returns: boolean }
       vote_game: { Args: { p_game_id: string; p_liked?: boolean }; Returns: Json }
     }

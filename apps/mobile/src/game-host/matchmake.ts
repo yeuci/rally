@@ -1,3 +1,4 @@
+import { parsePartyLaunch, parsePartySeat, type PartyLaunchResult, type PartySeat } from '../lib/join-target';
 import { HostError } from './bridge';
 
 /**
@@ -221,6 +222,107 @@ export async function serverVersion(
   }
   versionCache.set(httpUrl, { at: now(), version: body.serverVersion });
   return body.serverVersion;
+}
+
+// --- party launches and seats (docs/social-phase.md §3) ------------------------------------------------------------
+
+/**
+ * Why a `/party/launch` or `/party/seat` request failed, from the server's status: 401 (no linked account),
+ * 404 (not the leader / not a member / the launch expired), 409 (the game is unpublished or too small; the room is
+ * full), 410 (the match has ended), 429, 503 (the server has no service key), or no answer at all.
+ */
+export type PartyRequestErrorCode = 'UNAUTHENTICATED' | 'NOT_FOUND' | 'CONFLICT' | 'GONE' | 'RATE_LIMITED' | 'UNAVAILABLE' | 'UNREACHABLE' | 'FAILED';
+
+export class PartyRequestError extends Error {
+  constructor(
+    readonly code: PartyRequestErrorCode,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+function partyErrorCode(status: number): PartyRequestErrorCode {
+  switch (status) {
+    case 401:
+      return 'UNAUTHENTICATED';
+    case 404:
+      return 'NOT_FOUND';
+    case 409:
+      return 'CONFLICT';
+    case 410:
+      return 'GONE';
+    case 429:
+      return 'RATE_LIMITED';
+    case 503:
+      return 'UNAVAILABLE';
+    default:
+      return 'FAILED';
+  }
+}
+
+/** `POST <httpUrl><path>` with the Bearer token; the answer's status and parsed body (null when not JSON). */
+async function postParty(
+  httpUrl: string,
+  path: string,
+  body: Record<string, unknown>,
+  accessToken: string,
+  timeoutMs: number,
+): Promise<{ status: number; body: unknown; text: string }> {
+  const url = `${httpUrl}${path}`;
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify(body),
+      signal: abort.signal,
+    });
+    const text = await res.text();
+    let parsed: unknown = null;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch {
+      /* non-JSON error body */
+    }
+    return { status: res.status, body: parsed, text };
+  } catch (err) {
+    const reason = abort.signal.aborted ? `no answer within ${Math.round(timeoutMs / 1000)}s` : err instanceof Error ? err.message : String(err);
+    throw new PartyRequestError('UNREACHABLE', `cannot reach ${url}: ${reason}`);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function partyFailure(status: number, body: unknown, text: string): PartyRequestError {
+  const msg = isObj(body) && typeof body.error === 'string' ? body.error : text || `HTTP ${status}`;
+  return new PartyRequestError(partyErrorCode(status), msg);
+}
+
+/**
+ * `POST /party/launch { gameId }` (the party leader; apps/game-server README "Endpoints"): the server seats the whole
+ * party and the database broadcasts `launch` to the party channel. Answers the launch id the leader opens the game
+ * with (`join=party&launch=<id>`). Only ever called over a URL `mayAttachToken` allows.
+ */
+export async function partyLaunch(httpUrl: string, gameId: string, accessToken: string, timeoutMs = MATCHMAKE_TIMEOUT_MS): Promise<PartyLaunchResult> {
+  const { status, body, text } = await postParty(httpUrl, '/party/launch', { gameId }, accessToken, timeoutMs);
+  if (status < 200 || status >= 300) throw partyFailure(status, body, text);
+  const launch = parsePartyLaunch(body);
+  if (!launch) throw new PartyRequestError('FAILED', 'unexpected /party/launch answer');
+  return launch;
+}
+
+/**
+ * `POST /party/seat { launchId }` (a party member): the reservation held since the launch, or a fresh one. 404 when
+ * the caller is not a member or the launch expired, 409 when the room filled up, 410 once the match ended.
+ */
+export async function partySeat(httpUrl: string, launchId: string, accessToken: string, timeoutMs = MATCHMAKE_TIMEOUT_MS): Promise<PartySeat> {
+  const { status, body, text } = await postParty(httpUrl, '/party/seat', { launchId }, accessToken, timeoutMs);
+  if (status < 200 || status >= 300) throw partyFailure(status, body, text);
+  const seat = parsePartySeat(body);
+  if (!seat) throw new PartyRequestError('FAILED', 'unexpected /party/seat answer');
+  return seat;
 }
 
 /** Tests: forget cached `/versions` answers. */

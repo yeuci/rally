@@ -43,6 +43,8 @@ export interface ReportTarget {
   friendship?: Friendship | null;
   gameId?: string | null;
   roomId?: string | null;
+  /** The message being reported (the thread's long-press → Report); its sender must be `userId`. */
+  messageId?: string | null;
 }
 
 /**
@@ -98,7 +100,14 @@ function ReportForm({
     onBusyChange(true);
     setError(null);
     try {
-      await reportPlayer({ userId: target.userId, reason, note, gameId: target.gameId, roomId: target.roomId });
+      await reportPlayer({
+        userId: target.userId,
+        reason,
+        note,
+        gameId: target.gameId,
+        roomId: target.roomId,
+        messageId: target.messageId,
+      });
     } catch (err) {
       setError(reportErrorMessage(err));
       setSending(false);

@@ -6,6 +6,8 @@ import { AchievementBadge } from '@/components/rally/achievements';
 import { ConfirmDialog } from '@/components/rally/confirm-dialog';
 import { EmptyState, RetryButton } from '@/components/rally/empty-state';
 import { FriendButtons, FriendButtonsSkeleton } from '@/components/rally/friend-button';
+import { MessageButton } from '@/components/rally/message-button';
+import { usePartyBarInset } from '@/components/rally/party-bar';
 import { PresenceDot } from '@/components/rally/presence-dot';
 import { FriendsRowSection, PlayedGamesSection, ProfileHeader, StatsStrip } from '@/components/rally/profile-sections';
 import { ReportSheet, type ReportTarget } from '@/components/rally/report-sheet';
@@ -22,9 +24,12 @@ import { useFriendship, useFriendshipAction, usePublicFriends, usePublicGames, u
 import { usePublicProfile, usePublicStats, useUserAchievements, type UnlockedAchievement } from '@/lib/game-progress';
 import { GUTTER } from '@/lib/layout';
 import { usePlayerLevel } from '@/lib/levels';
+import { useInviteToParty, useParty } from '@/lib/party';
+import { memberOf } from '@/lib/party-model';
 import { useProfile } from '@/lib/profile';
 import { formatScore, sameUsername } from '@/lib/progress-format';
 import { blockAction, confirmCopy, presenceLine } from '@/lib/social';
+import { showToast } from '@/lib/toast';
 import { useColumnPadding, useLayout } from '@/lib/use-layout';
 import { usePalette } from '@/lib/use-palette';
 import { RowHighlight } from '@/components/rally/row-highlight';
@@ -34,8 +39,9 @@ import { RowHighlight } from '@/components/rally/row-highlight';
  * button(s) from `friendship_with`; Games played · Achievements · Friends (`public_profile_stats`); "Games played"
  * (`public_profile_games`) and "Friends" (`public_friends`), each shown only when the owner's privacy lets the viewer
  * see a non-empty list; unlocked achievements. Under the names, a status line (`public_presence`: "Online" / "Playing
- * Sumo", only when their privacy lets the viewer see it; refreshed every 30 s while in front). Report (the report
- * sheet, components/rally/report-sheet.tsx) and Block / Unblock sit in the header's overflow menu. Your own username
+ * Sumo", only when their privacy lets the viewer see it; refreshed every 30 s while in front). A friend gets
+ * **Message** beside the friendship button (lib/messages.ts `openDm` → `/messages/[id]`). Report (the report sheet,
+ * components/rally/report-sheet.tsx) and Block / Unblock sit in the header's overflow menu. Your own username
  * redirects to `/profile`. Portrait: one centred column. Landscape: identity on the left, the lists on the right.
  */
 export default function PublicProfileScreen() {
@@ -56,6 +62,10 @@ export default function PublicProfileScreen() {
   const focused = useIsFocused();
   const presence = usePublicPresence(p?.id, focused);
   const action = useFriendshipAction();
+  // Invite to party (docs/social-phase.md §5), in the ⋯ menu for friends: creates the party when there is none.
+  const party = useParty();
+  const inviteToParty = useInviteToParty();
+  const partyBar = usePartyBarInset();
   const [refreshing, setRefreshing] = useState(false);
   const [confirming, setConfirming] = useState<'block' | 'unblock' | null>(null);
   const [reporting, setReporting] = useState(false);
@@ -89,9 +99,16 @@ export default function PublicProfileScreen() {
   // Report is always offered (App Store 1.2); Block / Unblock once the relationship is known.
   function openMenu() {
     if (!p) return;
-    const items: { label: string; destructive: boolean; run: () => void }[] = [
-      { label: `Report ${handle}`, destructive: true, run: () => setReporting(true) },
-    ];
+    const items: { label: string; destructive: boolean; run: () => void }[] = [];
+    if (status === 'friends' && !memberOf(party.data, p.id)) {
+      const id = p.id;
+      items.push({
+        label: `Invite ${handle} to your party`,
+        destructive: false,
+        run: () => inviteToParty.mutate(id, { onSuccess: () => showToast(`Party invite sent to ${handle}`) }),
+      });
+    }
+    items.push({ label: `Report ${handle}`, destructive: true, run: () => setReporting(true) });
     if (menuAction) {
       items.push({
         label: menuAction === 'block' ? `Block ${handle}` : `Unblock ${handle}`,
@@ -205,6 +222,12 @@ export default function PublicProfileScreen() {
           <Icon as={RotateCwIcon} className="size-4" />
           <Text className="text-[15px]">Couldn&apos;t load · Retry</Text>
         </Button>
+      ) : status === 'friends' ? (
+        // Friends: the settled "Friends" button and Message share the row (dms are between friends only).
+        <View className="w-full max-w-sm flex-row gap-2">
+          <FriendButtons userId={p.id} name={handle} status={status} mode="profile" className="w-auto max-w-none flex-1" />
+          <MessageButton userId={p.id} name={handle} mode="profile" />
+        </View>
       ) : status && !blocked ? (
         <FriendButtons userId={p.id} name={handle} status={status} mode="profile" />
       ) : null}
@@ -255,7 +278,7 @@ export default function PublicProfileScreen() {
         <ScrollView
           className="flex-1"
           contentContainerClassName="gap-6 pt-4"
-          contentContainerStyle={{ paddingLeft: 12, paddingRight: GUTTER, paddingBottom: insets.bottom + 24 }}
+          contentContainerStyle={{ paddingLeft: 12, paddingRight: GUTTER, paddingBottom: insets.bottom + 24 + partyBar }}
           refreshControl={refreshControl}
         >
           {lists}
@@ -270,7 +293,7 @@ export default function PublicProfileScreen() {
     <ScrollView
       className="bg-background flex-1"
       contentContainerClassName="gap-6 pt-4"
-      contentContainerStyle={[column, { paddingBottom: insets.bottom + 32 }]}
+      contentContainerStyle={[column, { paddingBottom: insets.bottom + 32 + partyBar }]}
       refreshControl={refreshControl}
     >
       {header}
