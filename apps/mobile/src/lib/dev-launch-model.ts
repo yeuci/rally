@@ -39,6 +39,7 @@ export const DEV_GAME_PRESETS: readonly DevGamePreset[] = [
   { id: 'lumber', title: 'Lumber Camp', port: 5195, room: null, orientation: 'portrait' },
   { id: 'sawline', title: 'Sawline', port: 5196, room: null, orientation: 'portrait' },
   { id: 'topple', title: 'Topple', port: 5197, room: null, orientation: 'portrait' },
+  { id: 'fold', title: 'Fold', port: 5198, room: null, orientation: 'landscape' },
 ];
 
 /** The room types the presets use, for the launcher's error message. */
