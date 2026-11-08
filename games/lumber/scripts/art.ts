@@ -290,6 +290,8 @@ async function capture(browser: Browser, encoder: Page, shot: Shot) {
     await page.addStyleTag({
       content:
         '#rally-dev-harness, [data-rally-dev-harness], #rally-harness-menu { display: none !important; }\n' +
+        // Its menu button is not in the picture either: no gap kept for it in the HUD.
+        ':root { --rally-menu-inset: 0px !important; }\n' +
         "body { font-family: ui-rounded, 'SF Pro Rounded', 'Inter', system-ui, sans-serif !important; }",
     });
     await page.waitForSelector('#loading', { state: 'hidden', timeout: 90_000 });

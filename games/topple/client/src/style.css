@@ -29,7 +29,10 @@ button { font: inherit; cursor: pointer; }
 
 /* --- players strip --------------------------------------------------------------------------------- */
 .players {
-  position: absolute; left: 10px; right: 10px; top: calc(var(--safe-top) + 10px);
+  /* In the shell its game-menu button sits top-left (--rally-menu-inset, from the launch context): keep clear on both
+     sides, so the row stays centred. */
+  position: absolute; left: max(10px, var(--rally-menu-inset, 0px)); right: max(10px, var(--rally-menu-inset, 0px));
+  top: calc(var(--safe-top) + 10px);
   display: flex; flex-wrap: wrap; justify-content: center; gap: 6px;
 }
 .chip {
@@ -42,7 +45,8 @@ button { font: inherit; cursor: pointer; }
 
 /* --- turn banner ------------------------------------------------------------------------------------- */
 .turn {
-  position: absolute; left: 50%; top: calc(var(--safe-top) + 58px); transform: translateX(-50%);
+  /* 20px under the players strip (its height, --players-h, is set from main.ts: one row is 28px, a big table wraps). */
+  position: absolute; left: 50%; top: calc(var(--safe-top) + 30px + var(--players-h, 28px)); transform: translateX(-50%);
   min-width: 200px; padding: 8px 16px 10px; border-radius: 16px; text-align: center;
   background: rgba(47, 42, 58, 0.72);
 }
