@@ -488,6 +488,9 @@ async function boot() {
   if (rally.isHosted) {
     const ctx = await rally.ready();
     applySafeAreaVars(safeArea(ctx.device.safeArea));
+    // The host's menu button sits top-left: keep the HUD out of it.
+    const b = ctx.device.menuButton;
+    if (b) document.documentElement.style.setProperty('--rally-menu-inset', `${b.x + b.width + 8}px`);
   } else {
     applySafeAreaVars(safeArea());
   }

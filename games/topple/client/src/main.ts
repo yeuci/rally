@@ -285,6 +285,12 @@ function startMatch() {
 }
 
 // --- HUD -------------------------------------------------------------------------------------------
+// The turn banner sits under the players strip (style.css `--players-h`), which wraps onto a second row at a big table
+// on a narrow phone.
+new ResizeObserver(() =>
+  document.documentElement.style.setProperty('--players-h', `${ui.players.offsetHeight}px`),
+).observe(ui.players);
+
 function renderPlayers() {
   if (!sim) {
     ui.players.innerHTML = '';
@@ -582,6 +588,9 @@ async function boot() {
   if (rally.isHosted) {
     const ctx = await rally.ready();
     applySafeAreaVars(safeArea(ctx.device.safeArea));
+    // The host's menu button sits top-left: keep the HUD out of it.
+    const b = ctx.device.menuButton;
+    if (b) document.documentElement.style.setProperty('--rally-menu-inset', `${b.x + b.width + 8}px`);
   } else {
     applySafeAreaVars(safeArea());
   }
