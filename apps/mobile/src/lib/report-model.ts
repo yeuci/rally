@@ -26,13 +26,15 @@ export function isReportReason(v: unknown): v is ReportReason {
   return typeof v === 'string' && (REPORT_REASONS as readonly string[]).includes(v);
 }
 
-/** What the sheet collected, plus the context it was opened with (a game, a room). */
+/** What the sheet collected, plus the context it was opened with (a game, a room, a message). */
 export interface ReportInput {
   userId: string;
   reason: ReportReason | null;
   note: string;
   gameId?: string | null;
   roomId?: string | null;
+  /** A message of theirs (`messages.id`): the server snapshots it into the report (docs/social-phase.md §1). */
+  messageId?: string | null;
 }
 
 /** `report_user`'s arguments; optional ones are left out rather than sent as null. */
@@ -42,11 +44,12 @@ export interface ReportArgs {
   p_note?: string;
   p_game_id?: string;
   p_room_id?: string;
+  p_message_id?: string;
 }
 
 /**
  * The RPC's arguments: the note trimmed (left out when blank) and cut to 500 characters, the room id cut to 128 (a
- * longer one would be refused, and it is only context). Null until a reason is chosen.
+ * longer one would be refused, and it is only context), the message id as given. Null until a reason is chosen.
  */
 export function buildReportArgs(input: ReportInput): ReportArgs | null {
   if (!input.userId || !isReportReason(input.reason)) return null;
@@ -57,6 +60,8 @@ export function buildReportArgs(input: ReportInput): ReportArgs | null {
   if (gameId) args.p_game_id = gameId;
   const roomId = input.roomId?.trim().slice(0, REPORT_LIMITS.roomId);
   if (roomId) args.p_room_id = roomId;
+  const messageId = input.messageId?.trim();
+  if (messageId) args.p_message_id = messageId;
   return args;
 }
 

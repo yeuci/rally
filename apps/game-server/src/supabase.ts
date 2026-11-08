@@ -1,3 +1,4 @@
+import { cleanAvatarUrl } from './auth.js';
 import { serverConfig } from './config.js';
 import type { MatchResult } from './results.js';
 
@@ -144,6 +145,38 @@ export interface RecordedPlayer {
 
 export type RecordedMatch = { duplicate: true } | { duplicate: false; players: Record<string, RecordedPlayer> };
 
+/** One member of the leader's party, as `server_party_launch_begin` lists them (design social-phase §2). */
+export interface PartyLaunchMember {
+  userId: string;
+  username: string;
+  avatarUrl: string | null;
+}
+
+/** What `server_party_launch_begin` answers: the party and who is in it right now. */
+export interface PartyLaunchBegin {
+  partyId: string;
+  members: PartyLaunchMember[];
+}
+
+/** The seat data `server_party_launch_commit` needs; `code` is null when a public room was reused. */
+export interface PartyLaunchCommit {
+  partyId: string;
+  leaderId: string;
+  gameId: string;
+  roomId: string;
+  code: string | null;
+}
+
+/** A joined member of an unexpired launch's party, as `server_party_member` answers (null otherwise). */
+export interface PartyMembership {
+  partyId: string;
+  gameId: string;
+  roomId: string;
+  code: string | null;
+  username: string;
+  avatarUrl: string | null;
+}
+
 /** Every service-role call the game server makes. Fakes in tests implement this (or fake the {@link ServiceRpc}). */
 export interface ServiceApi {
   /** `server_upsert_game_room(p_room jsonb) returns void`. */
@@ -166,6 +199,22 @@ export interface ServiceApi {
    * that is not in the catalog (the dev `hello` room). Batching and retries: `src/visits.ts`.
    */
   recordVisits(gameId: string, count: number): Promise<void>;
+  /**
+   * `server_party_launch_begin(p_leader uuid, p_game_id text) returns jsonb` → `{ party_id, members }`. Rejects
+   * with `NOT_FOUND` unless the user leads a party and `INVALID` unless the game is published with room for every
+   * member (`max_players >= member count`). `POST /party/launch` (party.ts) turns those into 404 / 409.
+   */
+  partyLaunchBegin(leaderId: string, gameId: string): Promise<PartyLaunchBegin>;
+  /**
+   * `server_party_launch_commit(p_party_id uuid, p_leader uuid, p_game_id text, p_room_id text, p_code text) returns
+   * uuid`: the launch id. Inserts the `party_launches` row (expires in 10 min) and broadcasts `launch` to the party.
+   */
+  partyLaunchCommit(launch: PartyLaunchCommit): Promise<string>;
+  /**
+   * `server_party_member(p_user uuid, p_launch_id uuid) returns jsonb`: the membership when `userId` is a joined
+   * member of the launch's party and the launch is unexpired, else null (`POST /party/seat` answers 404).
+   */
+  partyMember(userId: string, launchId: string): Promise<PartyMembership | null>;
 }
 
 /** The largest `p_count` `server_record_visits` accepts. */
@@ -178,10 +227,22 @@ export function isUuid(value: string): boolean {
   return UUID.test(value);
 }
 
+/** `INVALID` from a `server_*` RPC (`raise … using errcode = 'invalid_parameter_value'`: 22023, `INVALID: …`). */
+export function isInvalid(err: unknown): boolean {
+  return err instanceof ServiceRpcError && (err.code === '22023' || /\bINVALID\b/.test(err.message));
+}
+
+/** The human part of an m2 error message (`INVALID: party is full` → `party is full`), or the fallback. */
+export function rpcErrorDetail(err: unknown, fallback: string): string {
+  const m = err instanceof ServiceRpcError ? /\b(?:INVALID|NOT_FOUND):\s*(.+)$/.exec(err.message) : null;
+  return m?.[1]?.trim() || fallback;
+}
+
 /**
- * The typed calls over a {@link ServiceRpc}, as defined in `packages/db/supabase/migrations/20261031000000_m3_phase2.sql`:
- * `p_room` is the snapshot itself (camelCase keys, design §2); `p_user_id` is a uuid, so other ids (which cannot
- * have a profile, hence no sanctions) are not sent.
+ * The typed calls over a {@link ServiceRpc}, as defined in `packages/db/supabase/migrations/20261031000000_m3_phase2.sql`
+ * (the party RPCs: `20261107000200_parties.sql`, design social-phase §2): `p_room` is the snapshot itself (camelCase
+ * keys, design §2); `p_user_id` is a uuid, so other ids (which cannot have a profile, hence no sanctions) are not
+ * sent.
  */
 export function createServiceApi(rpc: ServiceRpc): ServiceApi {
   return {
@@ -218,6 +279,67 @@ export function createServiceApi(rpc: ServiceRpc): ServiceApi {
     },
     async recordVisits(gameId, count) {
       await rpc('server_record_visits', { p_game_id: gameId, p_count: count });
+    },
+    async partyLaunchBegin(leaderId, gameId) {
+      const raw = await rpc<{ party_id?: unknown; members?: unknown } | null>('server_party_launch_begin', {
+        p_leader: leaderId,
+        p_game_id: gameId,
+      });
+      if (!raw || typeof raw !== 'object' || typeof raw.party_id !== 'string' || !Array.isArray(raw.members)) {
+        throw new ServiceRpcError(`server_party_launch_begin: unexpected answer ${JSON.stringify(raw)}`, 200);
+      }
+      return {
+        partyId: raw.party_id,
+        members: raw.members.map((m: unknown): PartyLaunchMember => {
+          const row = (m && typeof m === 'object' ? m : {}) as {
+            user_id?: unknown;
+            username?: unknown;
+            avatar_url?: unknown;
+          };
+          if (typeof row.user_id !== 'string' || typeof row.username !== 'string') {
+            throw new ServiceRpcError(`server_party_launch_begin: unexpected member ${JSON.stringify(m)}`, 200);
+          }
+          return { userId: row.user_id, username: row.username, avatarUrl: cleanAvatarUrl(row.avatar_url) ?? null };
+        }),
+      };
+    },
+    async partyLaunchCommit(launch) {
+      const raw = await rpc<unknown>('server_party_launch_commit', {
+        p_party_id: launch.partyId,
+        p_leader: launch.leaderId,
+        p_game_id: launch.gameId,
+        p_room_id: launch.roomId,
+        p_code: launch.code,
+      });
+      if (typeof raw !== 'string' || !isUuid(raw)) {
+        throw new ServiceRpcError(`server_party_launch_commit: unexpected answer ${JSON.stringify(raw)}`, 200);
+      }
+      return raw;
+    },
+    async partyMember(userId, launchId) {
+      if (!isUuid(userId) || !isUuid(launchId)) return null;
+      const raw = await rpc<Record<string, unknown> | null>('server_party_member', {
+        p_user: userId,
+        p_launch_id: launchId,
+      });
+      if (raw === null || raw === undefined) return null;
+      if (
+        typeof raw !== 'object' ||
+        typeof raw.party_id !== 'string' ||
+        typeof raw.game_id !== 'string' ||
+        typeof raw.room_id !== 'string' ||
+        typeof raw.username !== 'string'
+      ) {
+        throw new ServiceRpcError(`server_party_member: unexpected answer ${JSON.stringify(raw)}`, 200);
+      }
+      return {
+        partyId: raw.party_id,
+        gameId: raw.game_id,
+        roomId: raw.room_id,
+        code: typeof raw.code === 'string' && raw.code.length > 0 ? raw.code : null,
+        username: raw.username,
+        avatarUrl: cleanAvatarUrl(raw.avatar_url) ?? null,
+      };
     },
     async sanctionStatus(userId) {
       if (!isUuid(userId)) return { bannedUntil: null, mutedUntil: null };

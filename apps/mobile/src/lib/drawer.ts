@@ -27,12 +27,13 @@ export function drawerSwipeEnabled(pathname: string): boolean {
   return pathname === '/';
 }
 
-export type DrawerItemKey = 'home' | 'browse' | 'search' | 'friends' | 'shop' | 'profile' | 'settings' | 'developer';
+export type DrawerItemKey =
+  'home' | 'browse' | 'search' | 'friends' | 'messages' | 'shop' | 'profile' | 'settings' | 'developer';
 
 export type DrawerItem = {
   key: DrawerItemKey;
   label: string;
-  /** Count bubble (pending friend requests). */
+  /** Count bubble (pending friend requests, unread messages). */
   badge: string | null;
   /** Muted value at the row's end (the coin balance on Shop). */
   value?: string | null;
@@ -41,16 +42,20 @@ export type DrawerItem = {
 };
 
 /**
- * Items top to bottom (Browse opens `/browse`, Shop `/shop` with the coin balance, Settings `/settings`). Developer
- * only when dev tools are on (`config.devTools`). Sign out sits apart at the bottom of the panel.
+ * Items top to bottom (Browse opens `/browse`, Messages `/messages` with the unread count, Shop `/shop` with the coin
+ * balance, Settings `/settings`). Developer only when dev tools are on (`config.devTools`). Sign out sits apart at the
+ * bottom of the panel.
  */
 export function drawerItems({
   devTools,
   incomingRequests,
+  unreadMessages = null,
   coins = null,
 }: {
   devTools: boolean;
   incomingRequests: string | null;
+  /** `countBadge(unread_total())`, null for none or while unknown. */
+  unreadMessages?: string | null;
   /** The formatted balance ("1,250"), null while unknown. */
   coins?: string | null;
 }): DrawerItem[] {
@@ -63,6 +68,12 @@ export function drawerItems({
       label: 'Friends',
       badge: incomingRequests,
       hint: incomingRequests ? 'Opens your friend requests' : undefined,
+    },
+    {
+      key: 'messages',
+      label: 'Messages',
+      badge: unreadMessages,
+      hint: unreadMessages ? 'Opens your unread messages' : undefined,
     },
     { key: 'shop', label: 'Shop', badge: null, value: coins, hint: coins ? `${coins} coins` : undefined },
     { key: 'profile', label: 'Profile', badge: null },

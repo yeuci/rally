@@ -29,6 +29,7 @@ import { useColumnPadding, useLayout } from '@/lib/use-layout';
 import { usePalette } from '@/lib/use-palette';
 import { cn } from '@/lib/utils';
 import { RowHighlight } from '@/components/rally/row-highlight';
+import { usePartyBarInset } from '@/components/rally/party-bar';
 
 /** How often the open list refreshes while the screen is in front (m3-phase2 §1). */
 const ROOMS_REFRESH_MS = 5000;
@@ -43,6 +44,7 @@ export default function RoomsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const focused = useIsFocused();
   const { insets } = useLayout();
+  const partyBar = usePartyBarInset();
   const column = useColumnPadding();
   const palette = usePalette();
   const game = useGame(id);
@@ -152,7 +154,7 @@ export default function RoomsScreen() {
         data={loading ? [] : rows}
         keyExtractor={(r) => r.roomId}
         contentContainerClassName="pt-4"
-        contentContainerStyle={[column, { paddingBottom: insets.bottom + 32 }]}
+        contentContainerStyle={[column, { paddingBottom: insets.bottom + 32 + partyBar }]}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

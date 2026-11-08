@@ -30,7 +30,7 @@ export interface RejoinRecord {
 
 /** `RallyRoom.reconnectSeconds` (m3-phase2 decisions): no record outlives it. */
 export const REJOIN_GRACE_S = 60;
-const ORIGINS: readonly string[] = ['quick', 'create', 'room', 'friend'];
+const ORIGINS: readonly string[] = ['quick', 'create', 'room', 'friend', 'party'];
 
 export const rejoinKey = (userId: string) => `rally.rejoin.${userId}`;
 

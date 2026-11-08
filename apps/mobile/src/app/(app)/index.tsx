@@ -21,6 +21,7 @@ import { DashboardHero, DashboardHeroSkeleton } from '@/components/rally/dashboa
 import { DashboardTopBar, TOP_BAR_ROW } from '@/components/rally/dashboard-top-bar';
 import { EmptyState } from '@/components/rally/empty-state';
 import { FriendsPlayingRow } from '@/components/rally/friends-playing-row';
+import { usePartyBarInset } from '@/components/rally/party-bar';
 import { Glow } from '@/components/rally/glow';
 import { SearchPillButton } from '@/components/rally/search-pill';
 import { StreakCard } from '@/components/rally/streak-card';
@@ -75,6 +76,8 @@ export default function Dashboard() {
   const focused = useIsFocused();
   const drawer = useAppDrawer();
   const launcher = useLaunchGame();
+  // The party bar floats over the end of the list while in a party (components/rally/party-bar.tsx).
+  const partyBar = usePartyBarInset();
 
   const profile = useProfile();
   const requests = useFriendRequests();
@@ -153,7 +156,7 @@ export default function Dashboard() {
     <View className="bg-background flex-1">
       <Animated.ScrollView
         className="flex-1"
-        contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 40 + partyBar }}
         keyboardShouldPersistTaps="handled"
         onScroll={onScroll}
         scrollEventThrottle={16}

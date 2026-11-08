@@ -7,6 +7,7 @@ import { EmptyState, RetryButton } from '@/components/rally/empty-state';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Text } from '@/components/ui/text';
+import { usePartyBarInset } from '@/components/rally/party-bar';
 import { useFriendsActivity } from '@/lib/activity';
 import { groupActivity } from '@/lib/activity-model';
 import { useMyFriends } from '@/lib/friends';
@@ -21,6 +22,7 @@ import { usePalette } from '@/lib/use-palette';
  */
 export default function ActivityScreen() {
   const { insets } = useLayout();
+  const partyBar = usePartyBarInset();
   const column = useColumnPadding();
   const palette = usePalette();
   const friends = useMyFriends();
@@ -42,7 +44,7 @@ export default function ActivityScreen() {
     <ScrollView
       className="bg-background flex-1"
       contentContainerClassName="gap-4 pt-4"
-      contentContainerStyle={[column, { paddingBottom: insets.bottom + 32 }]}
+      contentContainerStyle={[column, { paddingBottom: insets.bottom + 32 + partyBar }]}
       refreshControl={
         <RefreshControl
           refreshing={refreshing}

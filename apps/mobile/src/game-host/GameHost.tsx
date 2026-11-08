@@ -21,6 +21,7 @@ import {
 } from './menu-button-model';
 import { NetBanner } from './net-banner';
 import type { MatchmakingTarget } from './handlers';
+import type { LaunchParty } from '@/lib/party-model';
 import { buildInjectedScript } from './injected';
 import { GameLoadingScreen, GameProblemScreen } from './loading-screen';
 import { lockForGame, releaseGameOrientation, turnBackFromGame } from './orientation';
@@ -75,6 +76,16 @@ export interface GameHostProps {
    */
   playSessions: PlaySessionService | null;
   matchmaking: MatchmakingTarget | null;
+  /**
+   * The signed-in user's party (lib/party-model.ts `launchParty`): in the launch context and `party.get`, sent as
+   * `partyUpdated` when it changes while the game runs; the game menu's People tab marks its members. Null: none.
+   */
+  party?: LaunchParty | null;
+  /**
+   * The game's `invite.open`, and the game menu's **Invite friends**: open the play route's invite sheet
+   * (`send_room_invite`). Absent: `invite.open` answers NOT_SUPPORTED and the menu shows no Invite friends.
+   */
+  onInviteOpen?: () => void;
   onExit: (result: GameHostResult) => void;
   /** Called once the play was recorded server-side (session closed or `record_play`), e.g. to refresh leaderboards. */
   onPlayRecorded?: () => void;
@@ -146,7 +157,7 @@ function useMenuButtonPrefs(store: MenuButtonStore | null, gameId: string) {
 
 export function GameHost(props: GameHostProps) {
   useKeepAwake();
-  const { onExit, onPlayRecorded, orientation, bundleUrl, entrySha256 } = props;
+  const { onExit, onPlayRecorded, onInviteOpen, party, orientation, bundleUrl, entrySha256 } = props;
   const { width, height, insets } = useViewport();
 
   // The game menu's button over the game; the game keeps its HUD out of this rect (`device.menuButton`).
@@ -178,8 +189,10 @@ export function GameHost(props: GameHostProps) {
         playSessions: props.playSessions,
         matchmaking: props.matchmaking,
         device,
+        party: props.party ?? null,
         onExit: props.onExit,
         onPlayRecorded: props.onPlayRecorded,
+        onInviteOpen: props.onInviteOpen,
         createNonce: newNonce,
         settingsStore: props.settingsStore === undefined ? gameSettingsStore : props.settingsStore,
         autoGraphics: autoGraphics({ os: Platform.OS, version: Platform.Version, pixelRatio: PixelRatio.get() }),
@@ -233,8 +246,12 @@ export function GameHost(props: GameHostProps) {
   }, [controller, bundleUrl, entrySha256, view.attempt]);
 
   useEffect(() => {
-    controller.update({ device, onExit, onPlayRecorded });
-  }, [controller, device, onExit, onPlayRecorded]);
+    controller.update({ device, onExit, onPlayRecorded, onInviteOpen });
+  }, [controller, device, onExit, onPlayRecorded, onInviteOpen]);
+  // The party is its own update: `partyUpdated` goes out only when it really changed (lib/party-model.ts).
+  useEffect(() => {
+    controller.update({ party: party ?? null });
+  }, [controller, party]);
 
   // The controller reaches the current WebView (re-keyed on reload) through this getter, never during render.
   useEffect(() => {
@@ -417,6 +434,8 @@ export function GameHost(props: GameHostProps) {
           roomCode={props.roomCode ?? null}
           gameId={props.game.id}
           roomId={props.roomId ?? null}
+          partyMemberIds={party?.memberIds}
+          onInviteFriends={onInviteOpen}
           net={view.net}
           onResume={controller.closeMenu}
           onLeave={controller.leave}

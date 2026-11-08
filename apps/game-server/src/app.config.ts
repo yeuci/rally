@@ -1,6 +1,7 @@
 import { defineServer, monitor, playground, createRouter, createEndpoint } from 'colyseus';
 import { adminGuard } from './admin.js';
 import { configWarnings, describeConfig, serverConfig } from './config.js';
+import { partyLaunch, partySeat } from './party.js';
 import { rooms } from './registry.js';
 import { installCors, installMatchmakingGuards, listRooms, roomByCode } from './routes.js';
 import { SERVER_VERSION } from './version.js';
@@ -26,6 +27,8 @@ const server = defineServer({
     })),
     listRooms,
     roomByCode,
+    partyLaunch,
+    partySeat,
   }),
 
   express: (app) => {

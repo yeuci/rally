@@ -1,8 +1,14 @@
 import type { GameSettingValue, LaunchContext, RequestSchemas } from '@rally/protocol';
 import type { z } from 'zod';
-import { normalizeJoinCode, type FriendJoinTarget, type JoinTarget, type OriginJoin } from '../lib/join-target';
+import {
+  normalizeJoinCode,
+  type FriendJoinTarget,
+  type JoinTarget,
+  type OriginJoin,
+  type PartySeat,
+} from '../lib/join-target';
 import { HostError, type RequestHandlers } from './bridge';
-import { matchmake, mayAttachToken, serverVersion, type MatchmakeMethod } from './matchmake';
+import { matchmake, mayAttachToken, PartyRequestError, serverVersion, type MatchmakeMethod } from './matchmake';
 import type { ProgressStore } from './progress';
 import { TokenBucket } from './rate-limit';
 import { REJOIN_GRACE_S, splitReconnectionToken, type RejoinJournal } from './rejoin-journal';
@@ -22,6 +28,12 @@ export interface MatchmakingTarget {
   minServerVersion?: number;
   /** `friend_join_target(friend)` for `join: 'friend'`; rejects (or throws a HostError) when it is not joinable. */
   resolveFriend?: (friendId: string) => Promise<FriendJoinTarget>;
+  /**
+   * `POST /party/seat { launchId }` for `join: 'party'` (game-host/matchmake.ts `partySeat`): the seat the party
+   * launch reserved for this member, or a fresh one. Throws a `PartyRequestError`: `GONE` ends the session like a
+   * failed resume ("That match has ended"), `CONFLICT` is ROOM_FULL, anything else MATCHMAKE_FAILED.
+   */
+  fetchPartySeat?: (launchId: string) => Promise<PartySeat>;
   /**
    * After every successful matchmaking. `roomId` is read defensively from the reservation (null if it has none).
    * `code` (present only when known) is the private room's join code: from the reservation (`reservationCode`, e.g.
@@ -45,7 +57,8 @@ export interface MatchmakingTarget {
  * handlers; the target must survive it).
  *
  * - `target` is **sticky**: a reload or a second `session.join` repeats it. `friend` turns into `room` once resolved
- *   (with the room's code), and `resume` is used once, then becomes `room` with the same id and code.
+ *   (with the room's code), and `resume` is used once, then becomes `room` with the same id and code. `party` stays
+ *   `party`: a reload asks `/party/seat` again, and the server hands the held reservation back or reserves anew.
  * - `report` is the game's latest `session.reportReconnection` for `roomId`. While it is within its grace, the next
  *   `session.join` (an in-page reload, a WebView crash) first tries `reconnect` with it, then the sticky target.
  */
@@ -101,6 +114,8 @@ export interface HostHandlerDeps {
   ) => Promise<Record<string, GameSettingValue>> | Record<string, GameSettingValue>;
   /** `menu.open` (Escape in the game). Absent: NOT_SUPPORTED. */
   onMenuOpen?: () => void;
+  /** `invite.open`: the game asks for the host's invite sheet (friends → `send_room_invite`). Absent: NOT_SUPPORTED. */
+  onInviteOpen?: () => void;
   /**
    * `haptics`, for games allowed to use them (manifest capability behind the 4.7.2 kill switch). `enabled` is the
    * player's setting: while it is off requests are dropped. Absent: NOT_SUPPORTED.
@@ -128,9 +143,10 @@ const MAX_KEY_LENGTH = 128;
 const isKey = (s: string) => s.length >= 1 && s.length <= MAX_KEY_LENGTH;
 
 /**
- * SDK v1 host handlers. Everything not listed (invite.open, orientation.lock) answers NOT_SUPPORTED from the bridge:
- * the capability methods sit behind the 4.7.2 kill switch, invites arrive with parties. `haptics` exists only when
- * the host grants it (`deps.haptics`), and the game menu's `menu.define` / `menu.open` only on hosts with the menu.
+ * SDK v1 host handlers. Everything not listed (orientation.lock) answers NOT_SUPPORTED from the bridge: the capability
+ * methods sit behind the 4.7.2 kill switch. `haptics` exists only when the host grants it (`deps.haptics`), the game
+ * menu's `menu.define` / `menu.open` only on hosts with the menu, and `invite.open` only on hosts with the invite sheet
+ * (`deps.onInviteOpen`). `party.get` answers the launch context's `party` (the signed-in user's party, null without).
  *
  * Bridge handlers plus the hooks the controller calls (a new main document, the app going to the background).
  */
@@ -322,7 +338,17 @@ export function createHostHandlers(deps: HostHandlerDeps): HostHandlers {
         }
       : {}),
 
-    'party.get': () => null,
+    ...(deps.onInviteOpen
+      ? {
+          'invite.open': () => {
+            deps.onInviteOpen!();
+            return null;
+          },
+        }
+      : {}),
+
+    // The same party `ready()` reported, as it is now (the controller keeps it current; see also `partyUpdated`).
+    'party.get': () => deps.getLaunchContext().party ?? null,
 
     exit: (params) => {
       // 'unmount' is the host's own reason ("the screen is already going away"): a game that sent it would stay
@@ -446,6 +472,28 @@ async function joinRoom(
       if (f.gameId !== gameId) throw new HostError('MATCHMAKE_FAILED', 'your friend is playing another game');
       state.target = f.code ? { join: 'room', room: f.roomId, code: f.code } : { join: 'room', room: f.roomId };
       return joined(await call('joinById', f.roomId, f.code ? { code: f.code } : {}), f.roomId, f.code);
+    }
+    case 'party': {
+      // The server holds the party's seats (docs/social-phase.md §3); the target stays `party`, so a reload asks again.
+      if (!mm.fetchPartySeat) throw new HostError('NOT_SUPPORTED', 'party play is not available here');
+      let seat: PartySeat;
+      try {
+        seat = await mm.fetchPartySeat(t.launch);
+      } catch (err) {
+        if (err instanceof HostError) throw err;
+        if (err instanceof PartyRequestError) {
+          if (err.code === 'GONE') {
+            void mm.rejoin?.clear((x) => x.gameId === gameId);
+            setTimeout(exitMatchEnded, 0);
+            throw new HostError('MATCHMAKE_FAILED', 'that match has ended');
+          }
+          if (err.code === 'CONFLICT') throw new HostError('ROOM_FULL', err.message);
+          if (err.code === 'RATE_LIMITED') throw new HostError('RATE_LIMITED', err.message);
+          throw new HostError('MATCHMAKE_FAILED', `${err.code}: ${err.message}`);
+        }
+        throw new HostError('MATCHMAKE_FAILED', "your party's match cannot be joined");
+      }
+      return joined(seat.seatReservation, seat.roomId, seat.code ?? undefined);
     }
     case 'resume': {
       const rec = (await mm.rejoin?.get()) ?? null;

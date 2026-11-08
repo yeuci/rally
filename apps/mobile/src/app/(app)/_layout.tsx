@@ -4,13 +4,17 @@ import { useEffect } from 'react';
 import { useUniwind } from 'uniwind';
 import { AppDrawer } from '@/components/rally/app-drawer';
 import { CoinToastHost } from '@/components/rally/coins';
+import { FollowPrompt } from '@/components/rally/follow-prompt';
 import { FriendRequestPrompt } from '@/components/rally/friend-request-sheet';
+import { InvitePrompt } from '@/components/rally/invite-prompt';
+import { PartyBar } from '@/components/rally/party-bar';
 import { RejoinPrompt } from '@/components/rally/rejoin-sheet';
 import { ToastHost } from '@/components/rally/toast';
 import { VotePrompt } from '@/components/rally/vote-prompt';
 import { WelcomePrompt } from '@/components/rally/welcome-tour';
 import { useSession } from '@/lib/auth/session';
 import { recoverPlaySession } from '@/lib/launch';
+import { usePartyChannel } from '@/lib/party';
 import { usePresenceHeartbeat } from '@/lib/presence';
 import { useSocialRealtime } from '@/lib/social-realtime';
 import { NAV_THEME } from '@/lib/theme';
@@ -30,6 +34,8 @@ export default function AppLayout() {
   usePresenceHeartbeat();
   // Friend requests in real time (lib/social-realtime.ts): one private `user:<uid>` channel per linked account.
   useSocialRealtime();
+  // The party's own channel `party:<id>` while the account is in a party (lib/party.ts).
+  usePartyChannel();
   const nav = NAV_THEME[theme ?? 'dark'];
   // Signed out (or an unlinked anonymous session) never sees the app: back to the welcome screen.
   if (!signedIn) return <Redirect href="/welcome" />;
@@ -71,6 +77,11 @@ export default function AppLayout() {
         {/* Pushed from the dashboard pill; draws its own bar (search field + Cancel). */}
         <Stack.Screen name="search" options={{ headerShown: false, animation: 'fade' }} />
         <Stack.Screen name="friends" options={{ title: 'Friends' }} />
+        {/* The party: members, Invite friends, Party chat, Leave (docs/social-phase.md §5); opened from the party bar. */}
+        <Stack.Screen name="party" options={{ title: 'Party' }} />
+        {/* Direct messages and party chat (docs/social-phase.md §4); the thread sets the other person as its title. */}
+        <Stack.Screen name="messages/index" options={{ title: 'Messages' }} />
+        <Stack.Screen name="messages/[id]" options={{ title: 'Messages' }} />
         {/* The dashboard's "Friend activity" row's See all (docs/activity.md). */}
         <Stack.Screen name="activity" options={{ title: 'Friend activity' }} />
         {/* The screen sets the genre's name as its title; the drawer's edge swipe is off here (lib/drawer.ts). */}
@@ -95,6 +106,12 @@ export default function AppLayout() {
       <RejoinPrompt />
       {/* "sloth wants to be your friend" while no game is open (the play route's own host covers the game). */}
       <FriendRequestPrompt placement="shell" />
+      {/* "sloth invited you to their party" / "… to Sumo" (party and room invites) while no game is open. */}
+      <InvitePrompt placement="shell" />
+      {/* "Joining sloth in Sumo…" with a 4 s countdown when the party leader launches (lib/party.ts followStore). */}
+      <FollowPrompt placement="shell" />
+      {/* The floating "Party · 3" pill above the home indicator while in a party; hidden over a game and on /party. */}
+      <PartyBar />
       {/* "Did you enjoy Sumo?" after a match, once the game screen has closed (lib/votes-model.ts has the rules). */}
       <VotePrompt />
       {/* Opens `/get-started` once for an account created in the last ten minutes (lib/welcome-model.ts). */}

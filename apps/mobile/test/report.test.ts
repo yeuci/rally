@@ -65,6 +65,23 @@ test('buildReportArgs: game and room go along when known; a room id is cut to 12
   assert.deepEqual(Object.keys(none ?? {}).sort(), ['p_reason', 'p_user_id']);
 });
 
+test('buildReportArgs: a reported message goes along as p_message_id (the thread’s long-press → Report)', () => {
+  const MESSAGE = '22222222-2222-4222-8222-222222222222';
+  assert.deepEqual(buildReportArgs({ userId: BEN, reason: 'harassment', note: '', messageId: MESSAGE }), {
+    p_user_id: BEN,
+    p_reason: 'harassment',
+    p_message_id: MESSAGE,
+  });
+  assert.equal(
+    buildReportArgs({ userId: BEN, reason: 'harassment', note: '', messageId: ' ' })?.p_message_id,
+    undefined,
+  );
+  assert.equal(
+    buildReportArgs({ userId: BEN, reason: 'harassment', note: '', messageId: null })?.p_message_id,
+    undefined,
+  );
+});
+
 test('canSendReport: a reason, and not while sending', () => {
   assert.equal(canSendReport(null, false), false);
   assert.equal(canSendReport('spam', false), true);

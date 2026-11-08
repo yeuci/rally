@@ -12,6 +12,8 @@ import { handleStreakBroadcast, invalidateStreak } from '@/lib/streak';
 import { currentAlertStyle } from '@/lib/friend-alerts';
 import { createBannerCountdown, showsAcceptedToast } from '@/lib/friend-alerts-model';
 import { fetchFriendRequests, invalidateSocial, socialKeys } from '@/lib/friends';
+import { handleMessageBroadcast, invalidateMessages } from '@/lib/messages';
+import { clearPartyState, handleInviteBroadcast, handlePartyUserBroadcast, invalidateParty, inviteCatchUp } from '@/lib/party';
 import type { FriendRequest } from '@/lib/social';
 import {
   acceptedToast,
@@ -50,7 +52,17 @@ import { showToast } from '@/lib/toast';
  * 20261101000100_progress.sql) goes to lib/levels.ts `handleProgressBroadcast`: XP moves the level ring, challenge
  * events update the Daily challenges card, a level-up or a finished challenge shows a celebration. The daily play
  * streak (event `streak`, 20261102000400_streaks.sql) goes to lib/streak.ts `handleStreakBroadcast`: the streak card
- * takes the new day and a day the app had not seen shows the streak celebration.
+ * takes the new day and a day the app had not seen shows the streak celebration. Direct messages (event `dm`,
+ * 20261107000100_messages.sql) go to lib/messages.ts `handleMessageBroadcast`: the thread and conversation caches
+ * take the message, the unread count moves, and a toast shows unless the thread is on screen, the conversation is
+ * muted or a game is open (party chat arrives on the `party:<id>` channel, lib/party.ts, and ends up in the same
+ * handler).
+ *
+ * Parties and invites (20261107000200_parties.sql) use the same topic for what must reach a user wherever they are:
+ * event `party` (`removed`, `party_ended`) and event `invite` (`party_invite`, `room_invite`, `invite_declined`,
+ * `invite_closed`) go to lib/party.ts (`handlePartyUserBroadcast`, `handleInviteBroadcast`); pending invites are caught
+ * up with the friend requests (`inviteCatchUp`), a (re)subscribe refetches the party, and sign-out clears both. The
+ * party's own topic `party:<id>` is lib/party.ts `usePartyChannel`.
  *
  * supabase-js (2.118) hands the session's JWT to Realtime itself on INITIAL_SESSION / SIGNED_IN / TOKEN_REFRESHED
  * (and pushes refreshed tokens to joined channels); `setAuth()` is called once more before each subscribe so a
@@ -184,6 +196,27 @@ function routeStreak(topic: string, payload: unknown) {
   handleStreakBroadcast(s.qc, s.uid, payload);
 }
 
+/** A `dm` broadcast (a friend's message, or one deleted) for the signed-in user. */
+function routeDm(topic: string, payload: unknown) {
+  const s = live;
+  if (!s || s.stopped || topic !== `user:${s.uid}`) return;
+  handleMessageBroadcast(s.qc, s.uid, payload, { conversationKind: 'dm' });
+}
+
+/** A `party` broadcast on the user topic (`removed`, `party_ended`, 20261107000200_parties.sql): lib/party.ts. */
+function routePartyUser(topic: string, payload: unknown) {
+  const s = live;
+  if (!s || s.stopped || topic !== `user:${s.uid}`) return;
+  handlePartyUserBroadcast(s.qc, s.uid, payload);
+}
+
+/** An `invite` broadcast (a party or room invite to the user, one closed, one of theirs declined): lib/party.ts. */
+function routeInvite(topic: string, payload: unknown) {
+  const s = live;
+  if (!s || s.stopped || topic !== `user:${s.uid}`) return;
+  handleInviteBroadcast(s.qc, s.uid, payload);
+}
+
 function routeStatus(topic: string, status: string, err?: Error) {
   log(topic.replace(/^(user:.{8}).*/, '$1…'), status, err?.message ?? '');
   const s = live;
@@ -194,6 +227,8 @@ function routeStatus(topic: string, status: string, err?: Error) {
     invalidateCoins(s.qc, s.uid);
     invalidateLevels(s.qc, s.uid);
     invalidateStreak(s.qc, s.uid);
+    invalidateMessages(s.qc, s.uid);
+    invalidateParty(s.qc, s.uid);
     void catchUp(s);
   }
 }
@@ -219,6 +254,9 @@ async function subscribe(s: LiveSession) {
     ch.on('broadcast', { event: 'coins' }, (msg) => routeCoins(topic, msg.payload));
     ch.on('broadcast', { event: 'progress' }, (msg) => routeProgress(topic, msg.payload));
     ch.on('broadcast', { event: 'streak' }, (msg) => routeStreak(topic, msg.payload));
+    ch.on('broadcast', { event: 'dm' }, (msg) => routeDm(topic, msg.payload));
+    ch.on('broadcast', { event: 'party' }, (msg) => routePartyUser(topic, msg.payload));
+    ch.on('broadcast', { event: 'invite' }, (msg) => routeInvite(topic, msg.payload));
   }
   s.channel = ch;
   if (ch.state === 'closed' || ch.state === 'errored') {
@@ -247,6 +285,8 @@ async function resubscribeIfDown(s: LiveSession) {
 function catchUp(s: LiveSession): Promise<void> {
   if (s.catchUp) return s.catchUp;
   const run = (async () => {
+    // Pending party / room invites are caught up alongside (lib/party.ts; its own queue, never throws).
+    void inviteCatchUp(s.qc, s.uid);
     const startedAt = Date.now();
     let incoming: IncomingRequest[];
     try {
@@ -302,6 +342,7 @@ function start(qc: QueryClient, uid: string): () => void {
     bannerCountdown.stop();
     clearCoinToast();
     clearCelebrations();
+    clearPartyState();
     const ch = s.channel;
     s.channel = null;
     if (ch) void supabase.removeChannel(ch).catch(() => 'error');

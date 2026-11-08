@@ -15,6 +15,11 @@ export function useGameScreenMarker(enabled: boolean): void {
   useEffect(() => (enabled ? gameScreens.enter() : undefined), [enabled]);
 }
 
+/** Whether a game screen is open right now (lib/messages.ts shows no chat toast over a game). */
+export function isGameScreenOpen(): boolean {
+  return gameScreens.isOpen();
+}
+
 /** The style that applies right now (for the accepted toast). */
 export function currentAlertStyle(): FriendAlertStyle {
   return resolveAlertStyle(prefs.get(), gameScreens.isOpen());

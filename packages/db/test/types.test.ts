@@ -8,6 +8,7 @@ import {
   PROFILE_COLUMNS,
   REPORT_LIMITS,
   REPORT_REASONS,
+  partyTopic,
   type BuyItemResult,
   type CoinAwardEvent,
   type Database,
@@ -18,11 +19,17 @@ import {
   type FriendshipState,
   type GameRoomSnapshot,
   type HeartbeatResult,
+  type InviteEvent,
+  type MessageEvent,
+  type Party,
+  type PartyEvent,
   type ProfilePrivacy,
   type PublicPresence,
   type RecordedMatch,
   type ReportReason,
+  type RespondInviteResult,
   type SanctionStatus,
+  type SentMessage,
   type Json,
   type LeaderboardMode,
   type Tables,
@@ -171,6 +178,68 @@ test('Database type drives supabase-js inference', async () => {
   assertType<Equal<Tables<'reports'>['target_snapshot'], Json>>();
   assert.ok(REPORT_REASONS.includes(reason));
   assert.equal(REPORT_LIMITS.note, 500);
+
+  // Messaging and parties (20261107000100_messages.sql, 20261107000200_parties.sql).
+  const _dm = client.rpc('open_dm', { p_user_id: '00000000-0000-0000-0000-000000000000' });
+  assertType<Equal<NonNullable<Awaited<typeof _dm>['data']>, string>>();
+  const _msg = client.rpc('send_message', { p_conversation_id: '00000000-0000-0000-0000-000000000000', p_body: 'hi' });
+  assertType<Equal<Awaited<typeof _msg>['data'], Json>>();
+  const _convs = client.rpc('my_conversations');
+  type ConvRow = NonNullable<Awaited<typeof _convs>['data']>[number];
+  assertType<Equal<ConvRow['unread'], number>>();
+  assertType<Equal<ConvRow['muted'], boolean>>();
+  const _thread = client.rpc('conversation_messages', { p_conversation_id: '00000000-0000-0000-0000-000000000000', p_limit: 20 });
+  type ThreadRow = NonNullable<Awaited<typeof _thread>['data']>[number];
+  assertType<Equal<keyof ThreadRow, 'id' | 'sender_id' | 'body' | 'created_at' | 'deleted'>>();
+  const _unread = client.rpc('unread_total');
+  assertType<Equal<NonNullable<Awaited<typeof _unread>['data']>, number>>();
+  const _reportMsg = client.rpc('report_user', { p_user_id: 'u', p_reason: reason, p_message_id: 'm' });
+  assertType<Equal<Awaited<typeof _reportMsg>['data'], undefined | null>>();
+  assertType<Equal<Tables<'reports'>['message_snapshot'], Json | null>>();
+  assertType<Equal<Tables<'messages'>['sender_id'], string | null>>();
+  assertType<Equal<Tables<'conversations'>['party_id'], string | null>>();
+  const _party = client.rpc('my_party');
+  assertType<Equal<Awaited<typeof _party>['data'], Json>>();
+  const _inv = client.rpc('invite_to_party', { p_user_id: 'u' });
+  assertType<Equal<NonNullable<Awaited<typeof _inv>['data']>, string>>();
+  const _roomInv = client.rpc('send_room_invite', { p_user_id: 'u', p_game_id: 'sumo', p_room_id: 'r1' });
+  assertType<Equal<NonNullable<Awaited<typeof _roomInv>['data']>, string>>();
+  const _invites = client.rpc('my_invites');
+  type InviteRow = NonNullable<Awaited<typeof _invites>['data']>[number];
+  assertType<Equal<InviteRow['party_size'], number>>();
+  const _respond = client.rpc('respond_invite', { p_invite_id: 'i', p_accept: true });
+  assertType<Equal<Awaited<typeof _respond>['data'], Json>>();
+  const _leave = client.rpc('leave_party');
+  assertType<Equal<Awaited<typeof _leave>['data'], undefined | null>>();
+  const _begin = client.rpc('server_party_launch_begin', { p_leader: 'u', p_game_id: 'sumo' });
+  assertType<Equal<Awaited<typeof _begin>['data'], Json>>();
+  const _commit = client.rpc('server_party_launch_commit', { p_party_id: 'p', p_leader: 'u', p_game_id: 'sumo', p_room_id: 'r1', p_code: 'ABCD' });
+  assertType<Equal<NonNullable<Awaited<typeof _commit>['data']>, string>>();
+  const _seat = client.rpc('server_party_member', { p_user: 'u', p_launch_id: 'l' });
+  assertType<Equal<Awaited<typeof _seat>['data'], Json>>();
+  assertType<Equal<Tables<'party_launches'>['code'], string | null>>();
+  assertType<Equal<Tables<'invites'>['status'], string>>();
+  const sent: SentMessage = { id: 'm', conversation_id: 'c', body: 'hi', created_at: '' };
+  const dmEvent: MessageEvent = { type: 'message_deleted', conversation_id: 'c', message_id: 'm', sender_id: 'u', body: '', at: '' };
+  const party: Party = {
+    id: 'p',
+    leader_id: 'u',
+    conversation_id: 'c',
+    channel_key: 'k',
+    created_at: '',
+    launch: null,
+    members: [],
+  };
+  assertType<Equal<Tables<'parties'>['channel_key'], string>>();
+  assert.equal(partyTopic(party), 'party:k');
+  const accepted: RespondInviteResult = { kind: 'party', party };
+  const partyEvent: PartyEvent = { type: 'leader_changed', party_id: 'p', leader_id: 'u', at: '' };
+  const inviteEvent: InviteEvent = { type: 'invite_closed', invite_id: 'i', at: '' };
+  assert.equal(sent.body, 'hi');
+  assert.equal(dmEvent.body, '');
+  assert.equal(accepted.kind, 'party');
+  assert.equal(partyEvent.type, 'leader_changed');
+  assert.equal(inviteEvent.type, 'invite_closed');
 
   // The selectable profile columns parse into a typed row.
   const _profile = client.from('profiles').select(PROFILE_COLUMNS);

@@ -8,7 +8,10 @@ import Animated, { FadeIn, ReduceMotion } from 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BugReportHost } from '@/components/rally/bug-report-sheet';
 import { CoinToastHost } from '@/components/rally/coins';
+import { FollowPrompt } from '@/components/rally/follow-prompt';
 import { FriendRequestPrompt } from '@/components/rally/friend-request-sheet';
+import { InviteFriendsSheet } from '@/components/rally/invite-friends-sheet';
+import { InvitePrompt } from '@/components/rally/invite-prompt';
 import { RoomCodePill } from '@/components/rally/room-code-pill';
 import { ToastHost } from '@/components/rally/toast';
 import { config, toWsUrl } from '@/config';
@@ -25,7 +28,13 @@ import { createSupabaseSaveStore } from '@/game-host/supabase-saves';
 import { useSession } from '@/lib/auth/session';
 import { coverUriFor } from '@/lib/game-art';
 import { progressKeys } from '@/lib/game-progress';
-import { intentFor, parseFriendJoinTarget, parseJoinTarget, type FriendJoinTarget } from '@/lib/join-target';
+import {
+  intentFor,
+  joinTargetParams,
+  parseFriendJoinTarget,
+  parseJoinTarget,
+  type FriendJoinTarget,
+} from '@/lib/join-target';
 import {
   createPlaySessionService,
   invalidateAfterPlay,
@@ -33,6 +42,8 @@ import {
   usePlaySessionPlan,
   withAnonymousRetry,
 } from '@/lib/launch';
+import { fetchPartySeat, useParty } from '@/lib/party';
+import { launchPartyFromKey, launchPartyKey } from '@/lib/party-model';
 import { setInGame, setOnline } from '@/lib/presence';
 import { useProfile, resolveAvatarUrl } from '@/lib/profile';
 import { supabase } from '@/lib/supabase';
@@ -60,9 +71,24 @@ import { notePlayed } from '@/lib/votes';
  * room's code (`onJoined` → `code`: the reservation's, or the code joined with), a "Room code · Share" pill shows over
  * the game for 8 s (components/rally/room-code-pill.tsx); the bridge and the game are not involved. Every join also
  * sets the presence heartbeat to `in_game` with the game and room ids (lib/presence.ts); leaving sets `online`.
+ *
+ * **Parties** (docs/social-phase.md §5): `join=party&launch=<id>` asks the game server for the seat the party launch
+ * holds (`POST /party/seat`, lib/party.ts `fetchPartySeat`). The launch context carries the user's party
+ * (`{ id, leaderId, memberIds }` from `my_party`), `party.get` answers it and `partyUpdated` follows its changes while
+ * the game runs. The game's `invite.open` and the game menu's Invite friends open the invite sheet
+ * (`send_room_invite` with the joined room and code). Invites and the party's launches show over the game through
+ * the `game` placements of InvitePrompt and FollowPrompt.
  */
 
-type PlayParams = { id: string; join?: string; name?: string; room?: string; code?: string; friend?: string };
+type PlayParams = {
+  id: string;
+  join?: string;
+  name?: string;
+  room?: string;
+  code?: string;
+  friend?: string;
+  launch?: string;
+};
 
 /** `friend_join_target(friend)` → where to join them; NOT_FOUND (not friends, not joinable) → MATCHMAKE_FAILED. */
 async function resolveFriend(friendId: string): Promise<FriendJoinTarget> {
@@ -93,7 +119,7 @@ async function leave(id: string) {
 }
 
 export default function PlayScreen() {
-  const { id, join, name, room: roomParam, code, friend } = useLocalSearchParams<PlayParams>();
+  const { id, join, name, room: roomParam, code, friend, launch } = useLocalSearchParams<PlayParams>();
   const qc = useQueryClient();
   const { userId } = useSession();
   const plan = usePlaySessionPlan(id);
@@ -101,13 +127,20 @@ export default function PlayScreen() {
   const profile = useProfile();
   // The private room's join code, once a join learns it (shown with Share over the game).
   const [roomCode, setRoomCode] = useState<string | null>(null);
-  // The joined room, for the context of a report filed from the game menu.
+  // The joined room, for the context of a report filed from the game menu (and the room invites sent from it).
   const [roomId, setRoomId] = useState<string | null>(null);
+  const [inviting, setInviting] = useState(false);
 
   const target = useMemo(
-    () => parseJoinTarget({ join, name, room: roomParam, code, friend }),
-    [join, name, roomParam, code, friend],
+    () => parseJoinTarget({ join, name, room: roomParam, code, friend, launch }),
+    [join, name, roomParam, code, friend, launch],
   );
+  // The game is remounted when the join target changes in place (a Join from an invite or the party's banner
+  // replaces this route with new params).
+  const targetKey = target ? JSON.stringify(joinTargetParams(target)) : '';
+  // The party as the game sees it; a new object only when it changed (GameHost sends `partyUpdated` on changes).
+  const partyKey = launchPartyKey(useParty().data);
+  const party = useMemo(() => launchPartyFromKey(partyKey), [partyKey]);
   const rejoin = useMemo(() => (userId ? createRejoinJournal(AsyncStorage, userId) : null), [userId]);
   // `resume`: the record is read once, before the game loads (nothing to resume → no launch at all).
   const resumeRecord = useQuery({
@@ -136,6 +169,7 @@ export default function PlayScreen() {
             join: target,
             minServerVersion,
             resolveFriend,
+            fetchPartySeat,
             rejoin,
             getAccessToken: async () => (await supabase.auth.getSession()).data.session?.access_token,
             // The JWT only goes over https/wss; dev builds may also use a LAN game server over http.
@@ -156,6 +190,15 @@ export default function PlayScreen() {
   const onPlayRecorded = useCallback(() => {
     if (id) invalidateAfterPlay(qc, userId, id);
   }, [id, qc, userId]);
+
+  // `invite.open` and the menu's Invite friends: the sheet needs the joined room (a match not joined yet has none).
+  const onInviteOpen = useCallback(() => {
+    if (!roomId) {
+      showToast('You can invite friends once you are in a match');
+      return;
+    }
+    setInviting(true);
+  }, [roomId]);
 
   // Presence: back to 'online' when this screen closes, however it closes (in_game is set by onJoined above).
   useEffect(() => setOnline, []);
@@ -220,7 +263,7 @@ export default function PlayScreen() {
     <SafeAreaProvider style={styles.screen}>
       <GameFrame orientation={p.orientation}>
         <GameHost
-          key={p.game.id}
+          key={`${p.game.id}:${targetKey}`}
           bundleUrl={p.entryUrl}
           entrySha256={p.entrySha256}
           game={{ id: p.game.id, version: p.version }}
@@ -251,6 +294,8 @@ export default function PlayScreen() {
           soloScores={!p.manifest.server}
           playSessions={p.manifest.server ? null : playSessions}
           matchmaking={matchmaking}
+          party={party}
+          onInviteOpen={p.manifest.server ? onInviteOpen : undefined}
           onExit={onExit}
           onPlayRecorded={onPlayRecorded}
         />
@@ -271,6 +316,16 @@ export default function PlayScreen() {
         {/* Coins awarded by the match (or a solo run) show over the game too, like the friend-request banner. */}
         <CoinToastHost />
         <FriendRequestPrompt placement="game" />
+        {/* Party and room invites, and "Your party started Sumo" [Join] (not for the launch this screen joined). */}
+        <InvitePrompt placement="game" />
+        <FollowPrompt placement="game" currentLaunchId={target.join === 'party' ? target.launch : null} />
+        {roomId ? (
+          <InviteFriendsSheet
+            open={inviting}
+            onClose={() => setInviting(false)}
+            mode={{ kind: 'room', gameId: p.game.id, roomId, code: roomCode }}
+          />
+        ) : null}
         {/* Shake to report a bug over the game (playtest builds); the shell's host is under this modal on iOS. */}
         <BugReportHost placement="game" />
       </GameFrame>

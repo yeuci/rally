@@ -34,6 +34,7 @@ import {
   type SettingsPatch,
 } from './settings';
 import type { WebViewHandle } from './webview';
+import { launchPartyChanged, type LaunchParty } from '../lib/party-model';
 
 /** While a slider is dragged, `settingsChanged` goes out at most this often (the value on release always goes). */
 export const SETTINGS_THROTTLE_MS = 120;
@@ -161,9 +162,13 @@ export interface GameHostControllerOptions {
   /** Matchmaking, with its join target and rejoin journal; the join state is kept across reloads of this session. */
   matchmaking: MatchmakingTarget | null;
   device: DeviceInfo;
+  /** The signed-in user's party as the game sees it (`ready()`, `party.get`); `update({ party })` keeps it current. */
+  party?: LaunchParty | null;
   onExit: (result: GameHostResult) => void;
   /** After the session was closed on the server (`end_play_session`, or the `record_play` fallback), even if that failed. */
   onPlayRecorded?: () => void;
+  /** The game's `invite.open` (and the menu's Invite friends): open the host's invite sheet. Absent: NOT_SUPPORTED. */
+  onInviteOpen?: () => void;
   createNonce: () => string;
   readyTimeoutMs?: number;
   /** Override {@link REVEAL_TIMEOUT_MS} (tests). */
@@ -206,6 +211,9 @@ export class GameHostController {
   private device: DeviceInfo;
   private onExit: (result: GameHostResult) => void;
   private onPlayRecorded: (() => void) | undefined;
+  private onInviteOpen: (() => void) | undefined;
+  /** The party in the launch context; a change while the game runs is sent as `partyUpdated`. */
+  private party: LaunchParty | undefined;
   /** `start_play_session`, fired on the first `start()`; resolves to null if it failed. */
   private playSession: Promise<string | null> | null = null;
   private startedAt: number;
@@ -269,6 +277,8 @@ export class GameHostController {
     this.device = opts.device;
     this.onExit = opts.onExit;
     this.onPlayRecorded = opts.onPlayRecorded;
+    this.onInviteOpen = opts.onInviteOpen;
+    this.party = opts.party ?? undefined;
     this.startedAt = this.now();
     this.joinState = createJoinState(opts.matchmaking?.join);
     const nonce = opts.createNonce();
@@ -364,11 +374,28 @@ export class GameHostController {
 
   // --- lifecycle -----------------------------------------------------------------------------------------------
 
-  /** Latest values from props; read lazily when the game calls `ready()` or exits. */
-  update(patch: { device?: DeviceInfo; onExit?: (result: GameHostResult) => void; onPlayRecorded?: () => void }): void {
+  /**
+   * Latest values from props; read lazily when the game calls `ready()` or exits. `party` (null: none) replaces the
+   * launch context's party; while the game is live a changed party (members, leader) goes out as `partyUpdated`
+   * (the protocol has no "no party" event: a party that ended is only seen by the next `party.get`).
+   */
+  update(patch: {
+    device?: DeviceInfo;
+    onExit?: (result: GameHostResult) => void;
+    onPlayRecorded?: () => void;
+    onInviteOpen?: () => void;
+    party?: LaunchParty | null;
+  }): void {
     if (patch.device) this.device = patch.device;
     if (patch.onExit) this.onExit = patch.onExit;
     if (patch.onPlayRecorded) this.onPlayRecorded = patch.onPlayRecorded;
+    if (patch.onInviteOpen) this.onInviteOpen = patch.onInviteOpen;
+    if (patch.party !== undefined) {
+      const next = patch.party ?? undefined;
+      const changed = launchPartyChanged(this.party, next);
+      this.party = next;
+      if (changed && next && this.everReady && !this.exited) this.bridge.sendEvent('partyUpdated', next);
+    }
   }
 
   /**
@@ -829,6 +856,7 @@ export class GameHostController {
           game: this.opts.game,
           user: this.opts.user,
           intent: this.opts.intent,
+          ...(this.party ? { party: this.party } : {}),
           ...(this.opts.resume ? { resume: this.opts.resume } : {}),
           device: this.device,
           settings: this.playerSettings(),
@@ -843,6 +871,8 @@ export class GameHostController {
         onMenuOpen: () => {
           if (!this.holding) this.openMenu();
         },
+        // Routed through the controller (not the option itself) so a host that sets the handler later still counts.
+        onInviteOpen: this.opts.onInviteOpen ? () => this.onInviteOpen?.() : undefined,
         haptics: this.opts.playHaptic ? { enabled: () => this.platform.haptics, play: this.opts.playHaptic } : null,
         saves: this.opts.saves,
         progress: this.opts.progress,
