@@ -478,5 +478,9 @@ if (import.meta.env.DEV) {
     hold(on: boolean) {
       hold = on;
     },
+    /** Store art: frame the plane by hand (see FoldScene.artView), or null for the game's own camera. */
+    artView(view: { zoom?: number; dx?: number; dy?: number } | null) {
+      scene.artView(view);
+    },
   };
 }

@@ -24,6 +24,7 @@ pnpm --filter @rally/game-fold dev        # http://localhost:5198 with the dev h
 pnpm --filter @rally/game-fold build      # -> client/dist
 pnpm --filter @rally/game-fold test       # rules, house generator and bot unit tests (node:test)
 pnpm --filter @rally/game-fold test:e2e   # Playwright through the dev harness (needs Chromium; playwright via NODE_PATH)
+pnpm --filter @rally/game-fold art        # re-render the store art in art/ (Artwork)
 pnpm --filter @rally/publish-game publish-game fold --dry-run
 ```
 
@@ -120,7 +121,23 @@ As in Lumber Camp:
 - **The menu button:** the HUD keeps clear of the host's menu button (`device.menuButton`).
 
 `window.__fold` exists in `vite dev` only, for the e2e and the art script. It has phase, distance, time, stamps,
-stairwells, form, plane, crash, entities, sim, `input(cmd)`, `autoplay(on)`, `skip(seconds)` and `hold(on)`.
+stairwells, form, plane, crash, entities, sim, `input(cmd)`, `autoplay(on)`, `skip(seconds)`, `hold(on)` and
+`artView(view)`.
+
+## Artwork
+
+`pnpm --filter @rally/game-fold art` (`scripts/art.ts`) renders the store art with the game itself, in headless Chromium
+through the dev probe. The look-ahead bot flies a seeded house, the sim is held at the moment wanted, and the icon,
+cover and feature art are framed by hand (`artView`). The files go to `art/`, as listed in `game.json`:
+
+| File           | Size      | What                                                                    |
+| -------------- | --------- | ----------------------------------------------------------------------- |
+| `icon.webp`    | 1024×1024 | The glider close up in a lamp-lit room.                                 |
+| `cover.webp`   | 1920×1080 | The plane across a stairwell, stamps ahead.                             |
+| `feature.webp` | 1200×1500 | The plane high over a bookshelf, framed high for the dashboard's title. |
+| `shot-1.webp`  | 2532×1170 | The first room: "Tap to flap up over the bookshelf".                    |
+| `shot-2.webp`  | 2532×1170 | Under a table while the kettle on it steams.                            |
+| `shot-3.webp`  | 2532×1170 | The results card after a long run.                                      |
 
 Fold's name, rules, house, text and sounds are original to Rally. Everything on screen is procedural (primitives and
 canvas textures), with no third-party art.

@@ -53,6 +53,12 @@ export interface FoldScene {
   project(x: number, y: number, z: number, out: { x: number; y: number }): void;
   /** Drop non-essential work (lowMemory). */
   trim(): void;
+  /**
+   * Store art (dev probe): frame by hand, or `null` for the game's own framing. The view is centred on the plane:
+   * `zoom` scales the camera distance that fits floor to ceiling (< 1 is closer, ignoring the minimum width), `dx` and
+   * `dy` move the view (m).
+   */
+  artView(view: { zoom?: number; dx?: number; dy?: number } | null): void;
   readonly entityCount: number;
 }
 
@@ -304,6 +310,7 @@ export function createFoldScene(app: Application, opts: { shadows?: boolean } = 
   const crash = { on: false, x: 0, y: 0, vx: 0, vy: 0, spin: 0, t: 0 };
   let viewLeft = -10;
   let viewRight = 10;
+  let art: { zoom: number; dx: number; dy: number } | null = null;
   const camPos = new Vec3();
   const projIn = new Vec3();
   const projOut = new Vec3();
@@ -582,11 +589,13 @@ export function createFoldScene(app: Application, opts: { shadows?: boolean } = 
       const tilt = (TILT * Math.PI) / 180;
       const cos = Math.cos(tilt),
         sin = Math.sin(tilt);
-      const dist = Math.max((half * cos) / tanHalf + half * sin, MIN_VIEW_W / (2 * tanHalf * aspect));
+      const fit = (half * cos) / tanHalf + half * sin;
+      const dist = art ? fit * art.zoom : Math.max(fit, MIN_VIEW_W / (2 * tanHalf * aspect));
       const halfW = dist * tanHalf * aspect;
       const focusX = crash.on ? Math.min(crash.x, x + 3) : x;
-      const target = Math.max(focusX + (0.5 - PLANE_AT) * 2 * halfW, LEFT_EDGE + halfW);
-      if (snap || Math.abs(target - camX) > 25) {
+      const target = art ? focusX + art.dx : Math.max(focusX + (0.5 - PLANE_AT) * 2 * halfW, LEFT_EDGE + halfW);
+      if (art) camX = target;
+      else if (snap || Math.abs(target - camX) > 25) {
         camX = target;
         snap = false;
       } else if (dt > 0) {
@@ -601,7 +610,7 @@ export function createFoldScene(app: Application, opts: { shadows?: boolean } = 
       }
       const ox = Math.sin(time * 47) * shake;
       const oy = Math.cos(time * 39) * shake * 0.7 + nudge;
-      camPos.set(camX + ox, yc + dist * sin + oy, dist * cos);
+      camPos.set(camX + ox, yc + dist * sin + oy + (art ? art.dy : 0), dist * cos);
       camera.setPosition(camPos);
       camera.setEulerAngles(-TILT, 0, 0);
 
@@ -788,6 +797,11 @@ export function createFoldScene(app: Application, opts: { shadows?: boolean } = 
       camera.camera!.worldToScreen(projIn.set(x, y, z), projOut);
       out.x = projOut.x;
       out.y = projOut.y;
+    },
+
+    artView(view) {
+      art = view ? { zoom: view.zoom ?? 1, dx: view.dx ?? 0, dy: view.dy ?? 0 } : null;
+      snap = true;
     },
 
     trim() {
