@@ -159,8 +159,11 @@ async function main() {
       () => document.getElementById('distance-value').textContent === Math.floor(window.__fold.distance).toString(),
     );
     assert.ok(await page.isHidden('#hint'), 'the tutorial is done after the first room');
+    // Rooms behind the plane are dropped as new ones are built ahead: the scene stays small.
+    const entities = await fold(page, 'entities');
+    assert.ok(entities > 20 && entities < 400, `${entities} entities`);
     console.log(
-      `✓ bot flies ${Math.round(flown)} m: ${await fold(page, 'stamps')} stamps, ${await fold(page, 'stairwells')} stairwell(s); HUD "${await page.textContent('#distance-value')} m"`,
+      `✓ bot flies ${Math.round(flown)} m (${entities} entities): ${await fold(page, 'stamps')} stamps, ${await fold(page, 'stairwells')} stairwell(s); HUD "${await page.textContent('#distance-value')} m"`,
     );
     const playing = SCREENSHOT.replace(/\.png$/, '-playing.png');
     await page.evaluate(() => (document.getElementById('rally-dev-harness').style.display = 'none'));

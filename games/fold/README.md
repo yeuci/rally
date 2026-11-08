@@ -39,15 +39,19 @@ In the Rally app, with the dev server running on a PC the phone can reach:
 
 ## Layout
 
-| File                   | What                                                                                                     |
-| ---------------------- | -------------------------------------------------------------------------------------------------------- |
-| `game.json`            | Manifest: solo, landscape, board `distance` (metres, desc), five achievements.                           |
-| `client/src/sim.ts`    | The rules and the house generator; engine-free and deterministic. `test/sim.test.ts`.                    |
-| `client/src/bot.ts`    | The pilot (rules of thumb) and the look-ahead bot that checks the house is passable (below).             |
-| `client/src/scene.ts`  | PlayCanvas: the rooms and their furniture, the paper plane and its three shapes, effects, follow camera. |
-| `client/src/main.ts`   | Input (one-thumb gestures, keys), HUD, first-run tutorial, results, sound, Rally integration.            |
-| `client/src/meshes.ts` | Rounded-box meshes (as in Lumber Camp / Sawline / Topple).                                               |
-| `client/src/lowfx.ts`  | Dev-only `?lowfx=1` for the e2e: CI renders WebGL in software.                                           |
+| File                     | What                                                                                                           |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `game.json`              | Manifest: solo, landscape, board `distance` (metres, desc), five achievements.                                 |
+| `client/src/sim.ts`      | The rules and the house generator; engine-free and deterministic. `test/sim.test.ts`.                          |
+| `client/src/bot.ts`      | The pilot (rules of thumb) and the look-ahead bot that checks the house is passable (below).                   |
+| `client/src/scene.ts`    | PlayCanvas: camera, lights, the plane and its refolds, room lifecycle, event effects.                          |
+| `client/src/rooms.ts`    | Builds a room: wallpaper, panelling, floor and ceiling, doorway lintel, furniture, stairwell, back-wall decor. |
+| `client/src/paper.ts`    | The dart, glider and crane (hinged wings) and the crumpled ball, as folded-paper triangles.                    |
+| `client/src/fx.ts`       | Pooled particles in one dynamic vertex buffer (steam, dust, sparkles, drips): no allocation per frame.         |
+| `client/src/geo.ts`      | Merges vertex-coloured boxes and triangles into one mesh (a room is about 8 meshes).                           |
+| `client/src/textures.ts` | Canvas textures, made once: six wallpapers, floorboards, wall art, stamps, effects.                            |
+| `client/src/main.ts`     | Input (one-thumb gestures, keys), HUD, first-run tutorial, results, sound, Rally integration.                  |
+| `client/src/lowfx.ts`    | Dev-only `?lowfx=1` for the e2e: CI renders WebGL in software.                                                 |
 
 ## Rules
 
@@ -116,7 +120,7 @@ As in Lumber Camp:
 - **The menu button:** the HUD keeps clear of the host's menu button (`device.menuButton`).
 
 `window.__fold` exists in `vite dev` only, for the e2e and the art script. It has phase, distance, time, stamps,
-stairwells, form, plane, crash, sim, `input(cmd)`, `autoplay(on)`, `skip(seconds)` and `hold(on)`.
+stairwells, form, plane, crash, entities, sim, `input(cmd)`, `autoplay(on)`, `skip(seconds)` and `hold(on)`.
 
 Fold's name, rules, house, text and sounds are original to Rally. Everything on screen is procedural (primitives and
 canvas textures), with no third-party art.

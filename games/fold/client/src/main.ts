@@ -447,6 +447,10 @@ if (import.meta.env.DEV) {
     get lowfx() {
       return LOWFX;
     },
+    /** Entities the scene has live (rooms come and go as the plane flies). */
+    get entities() {
+      return scene?.entityCount ?? 0;
+    },
     get paused() {
       return lifecycle.isPaused;
     },
